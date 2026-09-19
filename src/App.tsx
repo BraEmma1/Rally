@@ -7,6 +7,7 @@ import LoginPage from '@/pages/auth/LoginPage'
 import SignUpPage from '@/pages/auth/SignUpPage'
 import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
 import ResetPasswordPage from '@/pages/auth/ResetPasswordPage'
+import AuthCallbackPage from '@/pages/auth/AuthCallbackPage'
 import DashboardPage from '@/pages/dashboard/DashboardPage'
 import ProfilePage from '@/pages/profile/ProfilePage'
 import PublicProfilePage from '@/pages/profile/PublicProfilePage'
@@ -66,6 +67,9 @@ export default function App() {
         path="/reset-password"
         element={session && !isRecovery ? <Navigate to="/dashboard" replace /> : <ResetPasswordPage />}
       />
+      {/* Where the email confirmation link lands. Must not be session-gated:
+          verification signs the user in, and the page routes them onward. */}
+      <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route path="/p/:id" element={<PublicProfilePage />} />
       <Route
         path="/onboarding"

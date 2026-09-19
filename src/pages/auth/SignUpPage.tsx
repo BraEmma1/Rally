@@ -74,7 +74,7 @@ export default function SignUpPage() {
             </div>
             <div className="text-center">
               <h1 className="text-xl font-bold text-gray-900">Confirm your email</h1>
-              <p className="mt-1 text-sm text-gray-500">One more step before you can sign in</p>
+              <p className="mt-1 text-sm text-gray-500">One more step to activate your account</p>
             </div>
           </div>
 
@@ -85,7 +85,7 @@ export default function SignUpPage() {
               </div>
               <p className="text-sm text-gray-700">
                 We sent a confirmation link to <span className="font-medium text-gray-900">{email}</span>.
-                Click the link in the email to activate your account, then sign in.
+                Click the link in the email and you will be brought straight back to Rally.
               </p>
             </div>
             <Link to="/login">
