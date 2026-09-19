@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { supabase, type EventRow, type Profile, type Connection, type EventRegistration, RELATIONSHIP_TYPES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { useNotifications } from '@/context/NotificationContext'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -57,6 +58,7 @@ type ConnectState = 'idle' | 'profile' | 'context' | 'success' | 'error'
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
+  const { refresh: refreshNotifications } = useNotifications()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [event, setEvent] = useState<EventRow | null>(null)
@@ -178,6 +180,15 @@ export default function EventDetailPage() {
     setIsRegistered(true)
     setAttendeeCount(attendeeCount + 1)
     setRegistering(false)
+
+    await supabase.from('notifications').insert({
+      user_id: user.id,
+      type: 'event_registration',
+      title: 'Registration confirmed',
+      message: `You are registered for ${event?.name || 'the event'}.`,
+      link: `/events/${id}`,
+    })
+    refreshNotifications()
   }
 
   async function handleUnregister() {
@@ -305,6 +316,21 @@ export default function EventDetailPage() {
         content: context.note.trim(),
       })
     }
+
+    // Notify the connected user that they have a new connection
+    const { data: meProfile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .maybeSingle()
+    await supabase.from('notifications').insert({
+      user_id: targetProfile.id,
+      type: 'new_connection',
+      title: 'New connection',
+      message: `${meProfile?.full_name || 'Someone'} added you as a connection on Rally.`,
+      link: '/connections',
+    })
+    refreshNotifications()
 
     setConnecting(false)
     setConnectState('success')
