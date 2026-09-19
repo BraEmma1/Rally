@@ -18,7 +18,7 @@ function readVerificationError(): string | null {
   if (code === 'otp_expired') {
     return 'That confirmation link has expired. Sign up again to get a new one.'
   }
-  return description ? description.replace(/\+/g, ' ') : 'We could not confirm your email.'
+  return description ? description.replace(/\+/g, ' ') : 'We could not complete sign-in.'
 }
 
 export default function AuthCallbackPage() {
@@ -35,23 +35,26 @@ export default function AuthCallbackPage() {
     return () => clearTimeout(timer)
   }, [verificationError])
 
-  // Confirmed: the verification link signs the user in, so send them into the
-  // app. ProtectedRoute routes on to onboarding while the profile is incomplete.
+  // Signed in, whether that came from a confirmation link or an OAuth provider.
+  // Routing by profile completeness is ProtectedRoute's job, so hand off rather
+  // than duplicating that decision here: it sends an incomplete profile to
+  // onboarding and a complete one straight to the dashboard.
   if (session) return <Navigate to="/dashboard" replace />
 
   if (!verificationError && (loading || !graceElapsed)) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-gray-50 px-4">
         <Spinner size="lg" />
-        <p className="text-sm text-gray-500">Confirming your email…</p>
+        <p className="text-sm text-gray-500">Signing you in…</p>
       </div>
     )
   }
 
-  // No session and no error: the link was consumed and the address confirmed,
-  // but this browser could not complete the exchange — which is what happens
-  // when the email is opened on a different device than the one used to sign
-  // up. Signing in works; calling that a failure would be wrong.
+  // No session and no error. For a confirmation link this means the address was
+  // verified but the exchange could not finish in this browser, which is what
+  // happens when the email is opened on a different device than signup. For an
+  // OAuth return it means the grant did not survive the round trip. Signing in
+  // resolves both, so the copy stays neutral rather than claiming either.
   if (!verificationError) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
@@ -61,7 +64,7 @@ export default function AuthCallbackPage() {
               <Users className="h-6 w-6" />
             </div>
             <div className="text-center">
-              <h1 className="text-xl font-bold text-gray-900">Email confirmed</h1>
+              <h1 className="text-xl font-bold text-gray-900">Almost there</h1>
               <p className="mt-1 text-sm text-gray-500">Sign in to finish setting up</p>
             </div>
           </div>
@@ -72,7 +75,7 @@ export default function AuthCallbackPage() {
                 <CheckCircle2 className="h-6 w-6" />
               </div>
               <p className="text-sm text-gray-700">
-                Your account is active. Sign in to continue to Rally.
+                Your account is ready. Sign in to continue to Rally.
               </p>
             </div>
             <Link to="/login">
@@ -92,8 +95,8 @@ export default function AuthCallbackPage() {
             <Users className="h-6 w-6" />
           </div>
           <div className="text-center">
-            <h1 className="text-xl font-bold text-gray-900">Confirmation failed</h1>
-            <p className="mt-1 text-sm text-gray-500">We could not activate your account</p>
+            <h1 className="text-xl font-bold text-gray-900">Sign-in failed</h1>
+            <p className="mt-1 text-sm text-gray-500">We could not complete that step</p>
           </div>
         </div>
 
