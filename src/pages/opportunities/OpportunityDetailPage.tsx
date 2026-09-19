@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { supabase, type Opportunity, type Connection, OPPORTUNITY_TYPES, OPPORTUNITY_STAGES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { useNotifications } from '@/context/NotificationContext'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -46,6 +47,7 @@ const ACTIVE_STAGES = ['New', 'Discussing', 'Proposal', 'Negotiation']
 export default function OpportunityDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
+  const { refresh: refreshNotifications } = useNotifications()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [opportunity, setOpportunity] = useState<Opportunity | null>(null)
@@ -120,6 +122,16 @@ export default function OpportunityDetailPage() {
       return
     }
     setOpportunity({ ...opportunity, stage, updated_at: new Date().toISOString() })
+
+    // Record a stage-change notification for the activity trail
+    await supabase.from('notifications').insert({
+      user_id: user.id,
+      type: 'opportunity_stage_changed',
+      title: `Opportunity moved to ${stage}`,
+      message: `${opportunity.title} is now at the ${stage} stage.`,
+      link: `/opportunities/${opportunity.id}`,
+    })
+    refreshNotifications()
   }
 
   async function handleSave(e: FormEvent) {

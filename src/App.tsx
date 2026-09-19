@@ -18,6 +18,7 @@ import EventDetailPage from '@/pages/events/EventDetailPage'
 import FollowUpsPage from '@/pages/followups/FollowUpsPage'
 import OpportunitiesPage from '@/pages/opportunities/OpportunitiesPage'
 import OpportunityDetailPage from '@/pages/opportunities/OpportunityDetailPage'
+import NotificationsPage from '@/pages/notifications/NotificationsPage'
 
 function ProtectedRoute({ children, requireComplete = false }: { children: React.ReactNode; requireComplete?: boolean }) {
   const { session, profile, loading } = useAuth()
@@ -78,6 +79,7 @@ export default function App() {
         <Route path="/follow-ups" element={<FollowUpsPage />} />
         <Route path="/opportunities" element={<OpportunitiesPage />} />
         <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />
+        <Route path="/notifications" element={<NotificationsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

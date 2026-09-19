@@ -8,11 +8,13 @@ import {
   QrCode,
   CalendarClock,
   Target,
+  Bell,
   LogOut,
   Menu,
   X,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
+import { useNotifications } from '@/context/NotificationContext'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
 
@@ -23,11 +25,13 @@ const navItems = [
   { to: '/events', label: 'Events', icon: Calendar },
   { to: '/follow-ups', label: 'Follow-ups', icon: CalendarClock },
   { to: '/opportunities', label: 'Opportunities', icon: Target },
+  { to: '/notifications', label: 'Notifications', icon: Bell },
   { to: '/profile', label: 'My Profile', icon: UserIcon },
 ]
 
 export default function AppLayout() {
   const { profile, user, signOut } = useAuth()
+  const { unreadCount } = useNotifications()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -64,7 +68,12 @@ export default function AppLayout() {
               }
             >
               <item.icon className="h-4 w-4" />
-              {item.label}
+              <span className="flex-1">{item.label}</span>
+              {item.to === '/notifications' && unreadCount > 0 && (
+                <span className="rounded-full bg-error-600 px-1.5 py-0.5 text-xs font-semibold text-white">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </NavLink>
           ))}
         </nav>
@@ -122,7 +131,12 @@ export default function AppLayout() {
                 }
               >
                 <item.icon className="h-4 w-4" />
-                {item.label}
+                <span className="flex-1">{item.label}</span>
+                {item.to === '/notifications' && unreadCount > 0 && (
+                  <span className="rounded-full bg-error-600 px-1.5 py-0.5 text-xs font-semibold text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
               </NavLink>
             ))}
             <button

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Calendar, MapPin, Clock, Users, ArrowRight, CalendarCheck, MailOpen, Check, X } from 'lucide-react'
 import { supabase, type EventRow, type EventRegistration, type EventInvitation } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { useNotifications } from '@/context/NotificationContext'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -35,7 +36,9 @@ interface InvitationWithEvent extends EventInvitation {
 }
 
 export default function EventsPage() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
+  const { refresh: refreshNotifications } = useNotifications()
+  const profileName = profile?.full_name || 'Someone'
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [events, setEvents] = useState<EventRow[]>([])
@@ -121,6 +124,17 @@ export default function EventsPage() {
     }
     setRegistrations(new Set([...registrations, eventId]))
     setRegistrationCounts({ ...registrationCounts, [eventId]: (registrationCounts[eventId] || 0) + 1 })
+
+    // Notify self: registration confirmation
+    const event = events.find((e) => e.id === eventId)
+    await supabase.from('notifications').insert({
+      user_id: user.id,
+      type: 'event_registration',
+      title: 'Registration confirmed',
+      message: `You are registered for ${event?.name || 'the event'}.`,
+      link: `/events/${eventId}`,
+    })
+    refreshNotifications()
   }
 
   async function handleUnregister(eventId: string) {
@@ -152,6 +166,16 @@ export default function EventsPage() {
         .eq('invited_user_id', user.id)
       if (updateError) throw updateError
 
+      // Notify the inviter that their invitation was accepted
+      await supabase.from('notifications').insert({
+        user_id: inv.invited_by,
+        type: 'invitation_accepted',
+        title: 'Invitation accepted',
+        message: `${profileName} accepted your invitation to ${inv.event?.name || 'your event'}.`,
+        link: `/events/${inv.event_id}`,
+      })
+      refreshNotifications()
+
       // Register for event (prevent duplicate)
       if (!registrations.has(inv.event_id)) {
         const { error: regError } = await supabase
@@ -180,6 +204,16 @@ export default function EventsPage() {
         .eq('id', inv.id)
         .eq('invited_user_id', user.id)
       if (updateError) throw updateError
+
+      // Notify the inviter that their invitation was declined
+      await supabase.from('notifications').insert({
+        user_id: inv.invited_by,
+        type: 'invitation_declined',
+        title: 'Invitation declined',
+        message: `${profileName} declined your invitation to ${inv.event?.name || 'your event'}.`,
+        link: `/events/${inv.event_id}`,
+      })
+      refreshNotifications()
       setInvitations(invitations.map((i) => i.id === inv.id ? { ...i, status: 'Declined', responded_at: new Date().toISOString() } : i))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to decline invitation.')

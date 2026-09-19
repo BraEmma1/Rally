@@ -110,6 +110,29 @@ export type EventInvitation = {
   responded_at: string | null
 }
 
+export type AppNotification = {
+  id: string
+  user_id: string
+  type: string
+  title: string
+  message: string
+  link: string
+  read: boolean
+  created_at: string
+}
+
+export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
+  new_connection: 'New connection',
+  event_invitation: 'Event invitation',
+  invitation_accepted: 'Invitation accepted',
+  invitation_declined: 'Invitation declined',
+  follow_up_due: 'Follow-up due',
+  follow_up_overdue: 'Follow-up overdue',
+  opportunity_stage_changed: 'Opportunity update',
+  event_registration: 'Registration confirmed',
+  upcoming_event: 'Upcoming event',
+}
+
 export type Opportunity = {
   id: string
   owner_id: string

@@ -142,6 +142,20 @@ export default function ScanQRPage() {
       return
     }
 
+    // Notify the scanned user that they have a new connection
+    const { data: meProfile } = await supabase
+      .from('profiles')
+      .select('full_name')
+      .eq('id', user.id)
+      .maybeSingle()
+    await supabase.from('notifications').insert({
+      user_id: targetProfile.id,
+      type: 'new_connection',
+      title: 'New connection',
+      message: `${meProfile?.full_name || 'Someone'} added you as a connection on Rally.`,
+      link: '/connections',
+    })
+
     if (context.note.trim() && connData) {
       await supabase.from('notes').insert({
         connection_id: connData.id,
