@@ -1,19 +1,28 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Users, Lock, Eye, EyeOff } from 'lucide-react'
+import { Users, Lock, Eye, EyeOff, AlertCircle } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input, Label } from '@/components/ui/Input'
 
 export default function ResetPasswordPage() {
-  const { updatePassword, signOut } = useAuth()
+  const { updatePassword, signOut, recoveryError } = useAuth()
   const navigate = useNavigate()
+  const [leaving, setLeaving] = useState(false)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
+
+  // Ending the grant is what lets /login render the login screen instead of
+  // redirecting a still-valid recovery session to the dashboard.
+  async function leaveRecovery() {
+    setLeaving(true)
+    await signOut()
+    navigate('/login')
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -37,6 +46,41 @@ export default function ResetPasswordPage() {
     await signOut()
     setLoading(false)
     navigate('/login')
+  }
+
+  // A spent or expired link lands here with an error instead of a grant. Say so,
+  // rather than presenting a form that cannot succeed.
+  if (recoveryError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-sm">
+          <div className="mb-6 flex flex-col items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary-600 text-white">
+              <Users className="h-6 w-6" />
+            </div>
+            <div className="text-center">
+              <h1 className="text-xl font-bold text-gray-900">Link no longer valid</h1>
+              <p className="mt-1 text-sm text-gray-500">This reset link cannot be used</p>
+            </div>
+          </div>
+
+          <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-error-50 text-error-600">
+                <AlertCircle className="h-6 w-6" />
+              </div>
+              <p className="text-sm text-gray-700">{recoveryError}</p>
+            </div>
+            <Link to="/forgot-password">
+              <Button className="w-full">Request a new link</Button>
+            </Link>
+            <Button variant="secondary" className="w-full" onClick={leaveRecovery} disabled={leaving}>
+              Back to sign in
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -111,9 +155,14 @@ export default function ResetPasswordPage() {
         </form>
 
         <p className="mt-4 text-center text-sm text-gray-500">
-          <Link to="/login" className="font-medium text-primary-600 hover:text-primary-700">
+          <button
+            type="button"
+            onClick={leaveRecovery}
+            disabled={leaving}
+            className="font-medium text-primary-600 hover:text-primary-700 disabled:opacity-60"
+          >
             Back to sign in
-          </Link>
+          </button>
         </p>
       </div>
     </div>
