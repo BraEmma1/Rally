@@ -8,7 +8,7 @@ import { GoogleButton } from '@/components/ui/GoogleButton'
 import { LinkedInButton } from '@/components/ui/LinkedInButton'
 
 export default function LoginPage() {
-  const { signIn, signInWithGoogle, signInWithLinkedIn } = useAuth()
+  const { signIn, signInWithGoogle, signInWithLinkedIn, oauthError, clearOauthError } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -76,6 +76,18 @@ export default function LoginPage() {
           {(googleError || linkedinError) && (
             <div className="rounded-md bg-error-50 px-3 py-2 text-sm text-error-700">
               {googleError || linkedinError}
+            </div>
+          )}
+          {oauthError && (
+            <div className="rounded-md bg-error-50 px-3 py-2 text-sm text-error-700">
+              {oauthError}
+              <button
+                type="button"
+                onClick={clearOauthError}
+                className="ml-2 font-medium underline hover:no-underline"
+              >
+                Dismiss
+              </button>
             </div>
           )}
 

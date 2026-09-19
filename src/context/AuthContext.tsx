@@ -9,6 +9,8 @@ type AuthContextValue = {
   loading: boolean
   isRecovery: boolean
   recoveryError: string | null
+  oauthError: string | null
+  clearOauthError: () => void
   signUp: (
     email: string,
     password: string,
@@ -37,6 +39,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 // scoped to this tab, so a normal session in another tab is unaffected.
 const RECOVERY_FLAG_KEY = 'rally.auth.recovery'
 const RECOVERY_ERROR_KEY = 'rally.auth.recovery_error'
+const OAUTH_ERROR_KEY = 'rally.auth.oauth_error'
 
 function readStored(key: string): string | null {
   try {
@@ -65,6 +68,28 @@ function readAuthParam(name: string): string | null {
 
 function onResetRoute(): boolean {
   return window.location.pathname === '/reset-password'
+}
+
+// A failed OAuth round trip (provider misconfiguration, redirect URL not
+// allowlisted, cancelled consent) lands on the Site URL with error params
+// instead of /auth/callback. The catch-all route then bounces to /dashboard
+// and on to /login, dropping the params — so they are captured on boot and
+// latched in sessionStorage like the recovery flags.
+function detectOAuthErrorFromUrl(): string | null {
+  if (typeof window === 'undefined') return null
+  const error = readAuthParam('error')
+  const errorCode = readAuthParam('error_code')
+  if (!error && !errorCode) return null
+  // Recovery failures have their own reporting path on the reset screen.
+  if (onResetRoute() || readAuthParam('type') === 'recovery') return null
+  if (errorCode === 'access_denied' || error === 'access_denied') {
+    return 'Sign-in with that provider was cancelled.'
+  }
+  const description = readAuthParam('error_description')
+  if (description) {
+    return decodeURIComponent(description).replace(/\+/g, ' ')
+  }
+  return 'Sign-in with that provider failed. Check your account settings and try again.'
 }
 
 function detectRecoveryFromUrl(): boolean {
@@ -104,6 +129,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [recoveryError, setRecoveryError] = useState<string | null>(
     () => detectRecoveryErrorFromUrl() ?? readStored(RECOVERY_ERROR_KEY)
   )
+  const [oauthError, setOauthError] = useState<string | null>(
+    () => detectOAuthErrorFromUrl() ?? readStored(OAUTH_ERROR_KEY)
+  )
+
+  useEffect(() => {
+    writeStored(OAUTH_ERROR_KEY, oauthError)
+  }, [oauthError])
+
+  // The error has been captured; clear the params so a refresh does not
+  // re-latch the same message.
+  useEffect(() => {
+    if (!oauthError) return
+    if (!readAuthParam('error') && !readAuthParam('error_code')) return
+    const cleaned = `${window.location.pathname}${window.location.search}`
+    window.history.replaceState(window.history.state, '', cleaned.split('?')[0] + window.location.hash)
+  }, [oauthError])
 
   // Latch both so they survive supabase-js clearing the URL, and any remount.
   useEffect(() => {
@@ -243,7 +284,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, loading, isRecovery, recoveryError, signUp, signIn, signOut, refreshProfile, resetPassword, updatePassword, signInWithGoogle, signInWithLinkedIn }}>
+    <AuthContext.Provider value={{ session, user, profile, loading, isRecovery, recoveryError, oauthError, clearOauthError: () => setOauthError(null), signUp, signIn, signOut, refreshProfile, resetPassword, updatePassword, signInWithGoogle, signInWithLinkedIn }}>
       {children}
     </AuthContext.Provider>
   )
