@@ -1,7 +1,15 @@
 # Organizer Authorization Architecture
 
-Design proposal. Nothing here is implemented. Audited against the live database
-on 2026-09-19 and `development` @ `49355c4`.
+Design proposal. Phase A of this document is implemented; Phases B and C are not.
+Audited against the live database on 2026-09-19 and `development` @ `49355c4`.
+
+> **The identity model here is superseded by `account-type-architecture.md`.**
+> This document assumes "one identity, additive capability" — that the same
+> account both attends events and organizes them. The product now requires a
+> fixed primary account type per user, with Organizer and Attendee mutually
+> exclusive. The organization, membership and event-team design below still
+> stands; the identity premise does not. See section 9 of the account-type
+> document for the specific Phase A policies that have to change.
 
 ---
 
