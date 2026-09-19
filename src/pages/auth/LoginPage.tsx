@@ -4,15 +4,18 @@ import { Users, Mail, Lock, Eye, EyeOff } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input, Label } from '@/components/ui/Input'
+import { GoogleButton } from '@/components/ui/GoogleButton'
 
 export default function LoginPage() {
-  const { signIn } = useAuth()
+  const { signIn, signInWithGoogle } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [googleLoading, setGoogleLoading] = useState(false)
+  const [googleError, setGoogleError] = useState<string | null>(null)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -31,6 +34,16 @@ export default function LoginPage() {
     navigate('/dashboard')
   }
 
+  async function handleGoogle() {
+    setGoogleError(null)
+    setGoogleLoading(true)
+    const { error: googleError } = await signInWithGoogle()
+    if (googleError) {
+      setGoogleError(googleError)
+      setGoogleLoading(false)
+    }
+  }
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
       <div className="w-full max-w-sm">
@@ -45,6 +58,20 @@ export default function LoginPage() {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
+          <GoogleButton onClick={handleGoogle} loading={googleLoading} />
+          {googleError && (
+            <div className="rounded-md bg-error-50 px-3 py-2 text-sm text-error-700">{googleError}</div>
+          )}
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <span className="w-full border-t border-gray-200" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-white px-2 text-gray-400">or sign in with email</span>
+            </div>
+          </div>
+
           <div>
             <Label htmlFor="email">Email</Label>
             <div className="relative">
