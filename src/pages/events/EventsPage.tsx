@@ -1,240 +1,236 @@
-import { useEffect, useState, type FormEvent } from 'react'
-import { Plus, X, Calendar, MapPin, Trash2, Pencil } from 'lucide-react'
-import { supabase, type EventRow } from '@/lib/supabase'
+import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
+import { Calendar, MapPin, Clock, Users, ArrowRight, CalendarCheck } from 'lucide-react'
+import { supabase, type EventRow, type EventRegistration } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { Input, Label, Select, Textarea } from '@/components/ui/Input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Card, CardContent } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
 import { formatDate } from '@/lib/utils'
 
-const EVENT_STATUSES = ['upcoming', 'attending', 'attended'] as const
+function formatTime(time: string | null): string {
+  if (!time) return ''
+  try {
+    const [h, m] = time.split(':').map(Number)
+    const date = new Date()
+    date.setHours(h, m, 0, 0)
+    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  } catch {
+    return time
+  }
+}
+
+function isEventPast(event: EventRow): boolean {
+  if (!event.start_date) return false
+  const today = new Date(new Date().toDateString())
+  const start = new Date(event.start_date)
+  return start < today
+}
 
 export default function EventsPage() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [events, setEvents] = useState<EventRow[]>([])
-  const [showForm, setShowForm] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [formError, setFormError] = useState<string | null>(null)
-  const [editingId, setEditingId] = useState<string | null>(null)
+  const [registrations, setRegistrations] = useState<Set<string>>(new Set())
+  const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({})
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
 
-  const [form, setForm] = useState({
-    name: '',
-    description: '',
-    location: '',
-    start_date: '',
-    end_date: '',
-    status: 'upcoming' as string,
-  })
-
-  async function loadEvents() {
+  async function loadData() {
     if (!user) return
     setLoading(true)
     setError(null)
-    const { data, error: queryError } = await supabase
-      .from('events')
-      .select('*')
-      .eq('owner_id', user.id)
-      .order('start_date', { ascending: true })
-    if (queryError) {
-      setError(queryError.message)
-    } else {
-      setEvents(data as EventRow[])
+    try {
+      const [eventsRes, regRes] = await Promise.all([
+        supabase.from('events').select('*').order('start_date', { ascending: true }),
+        supabase.from('event_registrations').select('event_id').eq('user_id', user.id),
+      ])
+
+      if (eventsRes.error) throw eventsRes.error
+      if (regRes.error) throw regRes.error
+
+      setEvents(eventsRes.data as EventRow[])
+      setRegistrations(new Set((regRes.data as EventRegistration[]).map((r) => r.event_id)))
+
+      // Get registration counts for all events
+      const counts: Record<string, number> = {}
+      for (const event of eventsRes.data as EventRow[]) {
+        const { count } = await supabase
+          .from('event_registrations')
+          .select('id', { count: 'exact', head: true })
+          .eq('event_id', event.id)
+        counts[event.id] = count ?? 0
+      }
+      setRegistrationCounts(counts)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load events.')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   useEffect(() => {
-    loadEvents()
+    loadData()
   }, [user])
 
-  function resetForm() {
-    setForm({ name: '', description: '', location: '', start_date: '', end_date: '', status: 'upcoming' })
-    setEditingId(null)
-    setFormError(null)
-  }
-
-  function startEdit(event: EventRow) {
-    setForm({
-      name: event.name,
-      description: event.description || '',
-      location: event.location || '',
-      start_date: event.start_date || '',
-      end_date: event.end_date || '',
-      status: event.status,
-    })
-    setEditingId(event.id)
-    setShowForm(true)
-  }
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
+  async function handleRegister(eventId: string) {
     if (!user) return
-    setSaving(true)
-    setFormError(null)
-
-    const payload = {
-      owner_id: user.id,
-      name: form.name,
-      description: form.description || '',
-      location: form.location || '',
-      start_date: form.start_date || null,
-      end_date: form.end_date || null,
-      status: form.status,
+    const { error: regError } = await supabase
+      .from('event_registrations')
+      .insert({ event_id: eventId, user_id: user.id })
+    if (regError) {
+      setError(regError.message)
+      return
     }
-
-    if (editingId) {
-      const { error: updateError } = await supabase
-        .from('events')
-        .update(payload)
-        .eq('id', editingId)
-        .eq('owner_id', user.id)
-      if (updateError) {
-        setFormError(updateError.message)
-        setSaving(false)
-        return
-      }
-    } else {
-      const { error: insertError } = await supabase
-        .from('events')
-        .insert(payload)
-      if (insertError) {
-        setFormError(insertError.message)
-        setSaving(false)
-        return
-      }
-    }
-
-    resetForm()
-    setShowForm(false)
-    setSaving(false)
-    loadEvents()
+    setRegistrations(new Set([...registrations, eventId]))
+    setRegistrationCounts({ ...registrationCounts, [eventId]: (registrationCounts[eventId] || 0) + 1 })
   }
 
-  async function handleDelete(eventId: string) {
+  async function handleUnregister(eventId: string) {
     if (!user) return
-    if (!confirm('Delete this event?')) return
-    await supabase.from('events').delete().eq('id', eventId).eq('owner_id', user.id)
-    setEvents(events.filter((e) => e.id !== eventId))
+    const { error: unregError } = await supabase
+      .from('event_registrations')
+      .delete()
+      .eq('event_id', eventId)
+      .eq('user_id', user.id)
+    if (unregError) {
+      setError(unregError.message)
+      return
+    }
+    const newRegs = new Set(registrations)
+    newRegs.delete(eventId)
+    setRegistrations(newRegs)
+    setRegistrationCounts({ ...registrationCounts, [eventId]: Math.max(0, (registrationCounts[eventId] || 0) - 1) })
   }
 
   if (loading) return <LoadingState message="Loading events…" />
-  if (error) return <ErrorState message={error} onRetry={loadEvents} />
+  if (error) return <ErrorState message={error} onRetry={loadData} />
+
+  const upcomingEvents = events.filter((e) => !isEventPast(e))
+  const pastEvents = events.filter((e) => isEventPast(e))
+  const displayEvents = activeTab === 'upcoming' ? upcomingEvents : pastEvents
+  const myUpcomingCount = upcomingEvents.filter((e) => registrations.has(e.id)).length
 
   return (
     <div>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Events</h1>
-          <p className="mt-1 text-sm text-gray-500">Track events you're attending or have attended</p>
-        </div>
-        <Button onClick={() => { setShowForm(!showForm); if (showForm) resetForm() }}>
-          {showForm ? <><X className="h-4 w-4" /> Cancel</> : <><Plus className="h-4 w-4" /> Add event</>}
-        </Button>
+      <h1 className="text-xl font-bold text-gray-900">Events</h1>
+      <p className="mt-1 text-sm text-gray-500">Discover and register for professional networking events</p>
+
+      {/* Tabs */}
+      <div className="mt-6 flex gap-1 border-b border-gray-200">
+        <button
+          onClick={() => setActiveTab('upcoming')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'upcoming'
+              ? 'border-primary-600 text-primary-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <Calendar className="h-4 w-4" />
+          Upcoming
+          {myUpcomingCount > 0 && (
+            <span className="rounded-full bg-primary-100 px-1.5 py-0.5 text-xs font-medium text-primary-700">
+              {myUpcomingCount}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab('past')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'past'
+              ? 'border-primary-600 text-primary-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <CalendarCheck className="h-4 w-4" />
+          Past
+        </button>
       </div>
 
-      {showForm && (
-        <Card className="mt-4">
-          <CardHeader><CardTitle>{editingId ? 'Edit Event' : 'New Event'}</CardTitle></CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <Label htmlFor="name">Event name *</Label>
-                  <Input id="name" required value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="TechConf 2026" />
-                </div>
-                <div>
-                  <Label htmlFor="location">Location</Label>
-                  <Input id="location" value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} placeholder="San Francisco, CA" />
-                </div>
-                <div>
-                  <Label htmlFor="start_date">Start date</Label>
-                  <Input id="start_date" type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })} />
-                </div>
-                <div>
-                  <Label htmlFor="end_date">End date</Label>
-                  <Input id="end_date" type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
-                </div>
-                <div>
-                  <Label htmlFor="status">Status</Label>
-                  <Select id="status" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}>
-                    {EVENT_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </Select>
-                </div>
-              </div>
-              <div>
-                <Label htmlFor="description">Description</Label>
-                <Textarea id="description" rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="What is this event about?" />
-              </div>
-              {formError && <div className="rounded-md bg-error-50 px-3 py-2 text-sm text-error-700">{formError}</div>}
-              <div className="flex justify-end gap-3">
-                {editingId && <Button variant="secondary" onClick={resetForm}>Cancel edit</Button>}
-                <Button type="submit" disabled={saving}>{saving ? 'Saving…' : editingId ? 'Update event' : 'Add event'}</Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-
-      <div className="mt-4 space-y-2">
-        {events.length === 0 ? (
+      {/* Events list */}
+      <div className="mt-4 space-y-4">
+        {displayEvents.length === 0 ? (
           <Card>
             <CardContent>
               <EmptyState
                 icon={<Calendar className="h-10 w-10" />}
-                title="No events yet"
-                description="Add events you're planning to attend so you can prepare your networking."
-                action={<Button size="sm" onClick={() => setShowForm(true)}><Plus className="h-4 w-4" /> Add event</Button>}
+                title={activeTab === 'upcoming' ? 'No upcoming events' : 'No past events'}
+                description={activeTab === 'upcoming' ? 'Check back soon for new networking events.' : 'Events you attend will appear here after they end.'}
               />
             </CardContent>
           </Card>
         ) : (
-          events.map((event) => (
-            <Card key={event.id}>
-              <CardContent className="flex items-start gap-4 py-4">
-                <div className="flex h-12 w-12 flex-col items-center justify-center rounded-md bg-primary-50 text-primary-700 flex-shrink-0">
-                  <span className="text-xs font-medium">
-                    {event.start_date ? new Date(event.start_date).toLocaleDateString('en-US', { month: 'short' }) : '?'}
-                  </span>
-                  <span className="text-lg font-bold leading-none">
-                    {event.start_date ? new Date(event.start_date).getDate() : '—'}
-                  </span>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-gray-900">{event.name}</p>
-                      <p className="mt-0.5 text-xs text-gray-500">
-                        {formatDate(event.start_date)}{event.end_date ? ` – ${formatDate(event.end_date)}` : ''}
-                      </p>
-                      {event.location && (
-                        <p className="mt-1 flex items-center gap-1 text-xs text-gray-500">
-                          <MapPin className="h-3 w-3" /> {event.location}
-                        </p>
-                      )}
-                      {event.description && (
-                        <p className="mt-2 text-sm text-gray-600">{event.description}</p>
-                      )}
+          displayEvents.map((event) => {
+            const isRegistered = registrations.has(event.id)
+            const count = registrationCounts[event.id] || 0
+            return (
+              <Card key={event.id} className="overflow-hidden">
+                <div className="flex flex-col sm:flex-row">
+                  {/* Event image */}
+                  {event.image_url && (
+                    <div className="h-32 flex-shrink-0 sm:h-auto sm:w-40">
+                      <img
+                        src={event.image_url}
+                        alt={event.name}
+                        className="h-full w-full object-cover"
+                      />
                     </div>
-                    <Badge variant={event.status === 'upcoming' ? 'primary' : event.status === 'attended' ? 'success' : 'gray'}>
-                      {event.status}
-                    </Badge>
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" variant="ghost" onClick={() => startEdit(event)}>
-                      <Pencil className="h-3.5 w-3.5" /> Edit
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => handleDelete(event.id)} className="text-error-600 hover:bg-error-50">
-                      <Trash2 className="h-3.5 w-3.5" /> Delete
-                    </Button>
-                  </div>
+                  )}
+
+                  <CardContent className="flex-1 py-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-sm font-semibold text-gray-900">{event.name}</h3>
+                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" /> {formatDate(event.start_date)}
+                            {event.end_date && event.end_date !== event.start_date ? ` – ${formatDate(event.end_date)}` : ''}
+                          </span>
+                          {event.start_time && (
+                            <span className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" /> {formatTime(event.start_time)}
+                              {event.end_time ? ` – ${formatTime(event.end_time)}` : ''}
+                            </span>
+                          )}
+                        </div>
+                        {event.location && (
+                          <p className="mt-1 flex items-center gap-1 text-xs text-gray-500">
+                            <MapPin className="h-3 w-3" /> {event.location}
+                          </p>
+                        )}
+                        <div className="mt-2 flex items-center gap-3">
+                          <span className="flex items-center gap-1 text-xs text-gray-400">
+                            <Users className="h-3 w-3" /> {count}{event.capacity ? ` / ${event.capacity}` : ''} registered
+                          </span>
+                          {isRegistered && <Badge variant="success">Registered</Badge>}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-shrink-0 gap-2">
+                        <Link to={`/events/${event.id}`}>
+                          <Button size="sm" variant="secondary">
+                            View <ArrowRight className="h-3.5 w-3.5" />
+                          </Button>
+                        </Link>
+                        {activeTab === 'upcoming' && (
+                          isRegistered ? (
+                            <Button size="sm" variant="outline" onClick={() => handleUnregister(event.id)}>
+                              Unregister
+                            </Button>
+                          ) : (
+                            <Button size="sm" onClick={() => handleRegister(event.id)}>
+                              Register
+                            </Button>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  </CardContent>
                 </div>
-              </CardContent>
-            </Card>
-          ))
+              </Card>
+            )
+          })
         )}
       </div>
     </div>

@@ -78,13 +78,24 @@ export type FollowUp = {
 
 export type EventRow = {
   id: string
-  owner_id: string
+  owner_id: string | null
   name: string
   description: string
   location: string
   start_date: string | null
   end_date: string | null
+  start_time: string | null
+  end_time: string | null
+  image_url: string
+  capacity: number | null
   status: string
+  created_at: string
+}
+
+export type EventRegistration = {
+  id: string
+  event_id: string
+  user_id: string
   created_at: string
 }
 
