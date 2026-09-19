@@ -5,6 +5,7 @@ import {
   Users,
   User as UserIcon,
   Calendar,
+  QrCode,
   LogOut,
   Menu,
   X,
@@ -16,6 +17,7 @@ import { cn } from '@/lib/utils'
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/connections', label: 'Connections', icon: Users },
+  { to: '/scan', label: 'Scan QR', icon: QrCode },
   { to: '/events', label: 'Events', icon: Calendar },
   { to: '/profile', label: 'My Profile', icon: UserIcon },
 ]

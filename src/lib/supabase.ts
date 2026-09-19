@@ -37,6 +37,7 @@ export type Profile = {
 export type Connection = {
   id: string
   owner_id: string
+  connected_user_id: string | null
   full_name: string
   job_title: string
   company: string
@@ -88,12 +89,13 @@ export type EventRow = {
 }
 
 export const RELATIONSHIP_TYPES = [
-  'Client',
-  'Prospect',
-  'Partner',
-  'Mentor',
+  'Customer',
   'Investor',
-  'Colleague',
-  'Recruiter',
+  'Partner',
+  'Supplier',
+  'Employer',
+  'Employee',
+  'Mentor',
+  'Media',
   'Other',
 ] as const

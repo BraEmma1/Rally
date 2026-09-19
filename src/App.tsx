@@ -10,6 +10,7 @@ import DashboardPage from '@/pages/dashboard/DashboardPage'
 import ProfilePage from '@/pages/profile/ProfilePage'
 import PublicProfilePage from '@/pages/profile/PublicProfilePage'
 import OnboardingPage from '@/pages/onboarding/OnboardingPage'
+import ScanQRPage from '@/pages/scan/ScanQRPage'
 import ConnectionsPage from '@/pages/connections/ConnectionsPage'
 import ConnectionDetailPage from '@/pages/connections/ConnectionDetailPage'
 import EventsPage from '@/pages/events/EventsPage'
@@ -64,6 +65,7 @@ export default function App() {
         }
       >
         <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/scan" element={<ScanQRPage />} />
         <Route path="/profile" element={<ProfilePage />} />
         <Route path="/connections" element={<ConnectionsPage />} />
         <Route path="/connections/:id" element={<ConnectionDetailPage />} />

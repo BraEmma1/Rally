@@ -215,6 +215,7 @@ export default function ConnectionDetailPage() {
                 <div className="mt-2 flex flex-wrap gap-2">
                   <Badge variant="primary">{connection.relationship_type}</Badge>
                   {connection.event_name && <Badge variant="gray">{connection.event_name}</Badge>}
+                  <Badge variant="gray">Connected {formatDate(connection.created_at)}</Badge>
                 </div>
               </div>
             </div>

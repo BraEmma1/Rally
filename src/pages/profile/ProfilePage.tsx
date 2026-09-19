@@ -1,5 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react'
-import { QrCode, Share2, Pencil, Save, X, Globe, Linkedin, Mail, Phone, MapPin } from 'lucide-react'
+import { QrCode, Share2, Pencil, Save, X, Globe, Linkedin, Mail, Phone, MapPin, Download, Maximize2 } from 'lucide-react'
 import QRCode from 'qrcode'
 import { useAuth } from '@/context/AuthContext'
 import { supabase, type Profile } from '@/lib/supabase'
@@ -19,6 +19,7 @@ export default function ProfilePage() {
   const [error, setError] = useState<string | null>(null)
   const [qrDataUrl, setQrDataUrl] = useState<string>('')
   const [shareCopied, setShareCopied] = useState(false)
+  const [showQRModal, setShowQRModal] = useState(false)
 
   const [form, setForm] = useState<Partial<Profile>>({})
 
@@ -80,6 +81,16 @@ export default function ProfilePage() {
         // fallback: select text
       }
     }
+  }
+
+  function handleDownloadQR() {
+    if (!qrDataUrl) return
+    const link = document.createElement('a')
+    link.href = qrDataUrl
+    link.download = `rally-qr-${profile?.id || 'profile'}.png`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   if (!profile && !user) return <LoadingState />
@@ -344,7 +355,7 @@ export default function ProfilePage() {
             <CardHeader>
               <div className="flex items-center gap-2">
                 <QrCode className="h-4 w-4 text-gray-400" />
-                <CardTitle>QR Code</CardTitle>
+                <CardTitle>My QR Code</CardTitle>
               </div>
             </CardHeader>
             <CardContent>
@@ -354,6 +365,14 @@ export default function ProfilePage() {
                   <p className="text-center text-xs text-gray-500">
                     Scan to view your public profile
                   </p>
+                  <div className="flex w-full gap-2">
+                    <Button size="sm" variant="secondary" className="flex-1" onClick={() => setShowQRModal(true)}>
+                      <Maximize2 className="h-3.5 w-3.5" /> View
+                    </Button>
+                    <Button size="sm" variant="secondary" className="flex-1" onClick={handleDownloadQR}>
+                      <Download className="h-3.5 w-3.5" /> Download
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <EmptyState title="QR code unavailable" />
@@ -380,6 +399,40 @@ export default function ProfilePage() {
           </Card>
         </div>
       </div>
+
+      {/* QR modal */}
+      {showQRModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setShowQRModal(false)}
+        >
+          <div className="relative rounded-lg bg-white p-6" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setShowQRModal(false)}
+              className="absolute -top-3 -right-3 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-md hover:bg-gray-50"
+            >
+              <X className="h-4 w-4 text-gray-600" />
+            </button>
+            <div className="flex flex-col items-center gap-4">
+              <h3 className="text-base font-semibold text-gray-900">Your Rally QR</h3>
+              {qrDataUrl && (
+                <img src={qrDataUrl} alt="Profile QR code" className="rounded-md border border-gray-200" />
+              )}
+              <p className="text-center text-sm text-gray-500">
+                Have someone scan this to instantly connect with you on Rally.
+              </p>
+              <div className="flex gap-2">
+                <Button size="sm" variant="secondary" onClick={handleDownloadQR}>
+                  <Download className="h-3.5 w-3.5" /> Download
+                </Button>
+                <Button size="sm" onClick={handleShare}>
+                  <Share2 className="h-3.5 w-3.5" /> {shareCopied ? 'Copied!' : 'Share link'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

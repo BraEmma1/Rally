@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Plus, Users, X } from 'lucide-react'
-import { supabase, type Connection, RELATIONSHIP_TYPES } from '@/lib/supabase'
+import { Search, Plus, Users, X, QrCode, CalendarClock } from 'lucide-react'
+import { supabase, type Connection, type FollowUp, RELATIONSHIP_TYPES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { Card, CardContent } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
+import { formatDate, formatRelativeDate } from '@/lib/utils'
 
 
 export default function ConnectionsPage() {
@@ -16,6 +17,7 @@ export default function ConnectionsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [connections, setConnections] = useState<Connection[]>([])
+  const [followUpMap, setFollowUpMap] = useState<Record<string, FollowUp[]>>({})
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [showAddForm, setShowAddForm] = useState(false)
@@ -49,6 +51,21 @@ export default function ConnectionsPage() {
       setError(queryError.message)
     } else {
       setConnections(data as Connection[])
+      // Load pending follow-ups for all connections
+      const { data: followData } = await supabase
+        .from('follow_ups')
+        .select('*')
+        .eq('owner_id', user.id)
+        .eq('completed', false)
+        .order('due_date', { ascending: true })
+      if (followData) {
+        const map: Record<string, FollowUp[]> = {}
+        for (const fu of followData as FollowUp[]) {
+          if (!map[fu.connection_id]) map[fu.connection_id] = []
+          map[fu.connection_id].push(fu)
+        }
+        setFollowUpMap(map)
+      }
     }
     setLoading(false)
   }
@@ -128,6 +145,11 @@ export default function ConnectionsPage() {
         <Button onClick={() => setShowAddForm(!showAddForm)}>
           {showAddForm ? <><X className="h-4 w-4" /> Cancel</> : <><Plus className="h-4 w-4" /> Add connection</>}
         </Button>
+        <Link to="/scan">
+          <Button variant="outline">
+            <QrCode className="h-4 w-4" /> Scan QR
+          </Button>
+        </Link>
       </div>
 
       {showAddForm && (
@@ -235,26 +257,38 @@ export default function ConnectionsPage() {
           )
         ) : (
           <div className="space-y-2">
-            {filtered.map((conn) => (
-              <Link key={conn.id} to={`/connections/${conn.id}`}>
-                <Card className="transition-colors hover:border-primary-300 hover:bg-primary-50/30">
-                  <CardContent className="flex items-center gap-3 py-3">
-                    <Avatar name={conn.full_name} src={conn.photo_url} size="md" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold text-gray-900">{conn.full_name}</p>
-                      <p className="truncate text-xs text-gray-500">
-                        {conn.job_title}{conn.company ? ` at ${conn.company}` : ''}
-                      </p>
-                    </div>
-                    <div className="hidden flex-col items-end gap-1 sm:flex">
-                      <Badge variant="primary">{conn.relationship_type}</Badge>
-                      {conn.event_name && <span className="text-xs text-gray-400">{conn.event_name}</span>}
-                    </div>
-                    <Badge variant="gray" className="sm:hidden">{conn.relationship_type}</Badge>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
+            {filtered.map((conn) => {
+              const upcomingFollowUps = followUpMap[conn.id] || []
+              const nextFollowUp = upcomingFollowUps[0]
+              const isOverdue = nextFollowUp && new Date(nextFollowUp.due_date) < new Date(new Date().toDateString())
+              return (
+                <Link key={conn.id} to={`/connections/${conn.id}`}>
+                  <Card className="transition-colors hover:border-primary-300 hover:bg-primary-50/30">
+                    <CardContent className="flex items-center gap-3 py-3">
+                      <Avatar name={conn.full_name} src={conn.photo_url} size="md" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-gray-900">{conn.full_name}</p>
+                        <p className="truncate text-xs text-gray-500">
+                          {conn.job_title}{conn.company ? ` at ${conn.company}` : ''}
+                        </p>
+                        <p className="mt-0.5 text-xs text-gray-400">Connected {formatDate(conn.created_at)}</p>
+                      </div>
+                      <div className="hidden flex-col items-end gap-1 sm:flex">
+                        <Badge variant="primary">{conn.relationship_type}</Badge>
+                        {nextFollowUp && (
+                          <span className={`flex items-center gap-1 text-xs ${isOverdue ? 'text-error-600' : 'text-gray-500'}`}>
+                            <CalendarClock className="h-3 w-3" />
+                            {isOverdue ? 'Overdue' : formatRelativeDate(nextFollowUp.due_date)}
+                          </span>
+                        )}
+                        {conn.event_name && <span className="text-xs text-gray-400">{conn.event_name}</span>}
+                      </div>
+                      <Badge variant="gray" className="sm:hidden">{conn.relationship_type}</Badge>
+                    </CardContent>
+                  </Card>
+                </Link>
+              )
+            })}
           </div>
         )}
       </div>
