@@ -19,6 +19,7 @@ type AuthContextValue = {
   resetPassword: (email: string) => Promise<{ error: string | null }>
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>
   signInWithGoogle: () => Promise<{ error: string | null }>
+  signInWithLinkedIn: () => Promise<{ error: string | null }>
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
@@ -144,8 +145,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null }
   }
 
+  async function signInWithLinkedIn() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'linkedin_oidc',
+      options: {
+        redirectTo: `${window.location.origin}/dashboard`,
+      },
+    })
+    if (error) return { error: error.message }
+    return { error: null }
+  }
+
   return (
-    <AuthContext.Provider value={{ session, user, profile, loading, isRecovery, signUp, signIn, signOut, refreshProfile, resetPassword, updatePassword, signInWithGoogle }}>
+    <AuthContext.Provider value={{ session, user, profile, loading, isRecovery, signUp, signIn, signOut, refreshProfile, resetPassword, updatePassword, signInWithGoogle, signInWithLinkedIn }}>
       {children}
     </AuthContext.Provider>
   )

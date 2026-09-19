@@ -5,9 +5,10 @@ import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input, Label } from '@/components/ui/Input'
 import { GoogleButton } from '@/components/ui/GoogleButton'
+import { LinkedInButton } from '@/components/ui/LinkedInButton'
 
 export default function SignUpPage() {
-  const { signUp, signInWithGoogle } = useAuth()
+  const { signUp, signInWithGoogle, signInWithLinkedIn } = useAuth()
   const navigate = useNavigate()
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -17,6 +18,8 @@ export default function SignUpPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
   const [googleError, setGoogleError] = useState<string | null>(null)
+  const [linkedinLoading, setLinkedinLoading] = useState(false)
+  const [linkedinError, setLinkedinError] = useState<string | null>(null)
   const [confirmationSent, setConfirmationSent] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
@@ -48,6 +51,16 @@ export default function SignUpPage() {
     if (googleError) {
       setGoogleError(googleError)
       setGoogleLoading(false)
+    }
+  }
+
+  async function handleLinkedIn() {
+    setLinkedinError(null)
+    setLinkedinLoading(true)
+    const { error: linkedinError } = await signInWithLinkedIn()
+    if (linkedinError) {
+      setLinkedinError(linkedinError)
+      setLinkedinLoading(false)
     }
   }
 
@@ -99,8 +112,11 @@ export default function SignUpPage() {
 
         <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
           <GoogleButton onClick={handleGoogle} loading={googleLoading} />
-          {googleError && (
-            <div className="rounded-md bg-error-50 px-3 py-2 text-sm text-error-700">{googleError}</div>
+          <LinkedInButton onClick={handleLinkedIn} loading={linkedinLoading} />
+          {(googleError || linkedinError) && (
+            <div className="rounded-md bg-error-50 px-3 py-2 text-sm text-error-700">
+              {googleError || linkedinError}
+            </div>
           )}
 
           <div className="relative">
