@@ -137,11 +137,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null }
   }
 
+  // OAuth must not return to a protected route. The provider hands back a grant
+  // in the URL that the client still has to exchange; ProtectedRoute sees no
+  // session yet, redirects to /login, and that navigation discards the grant
+  // before the exchange can happen — which is why sign-in ended on /login.
+  // /auth/callback waits for the session, then defers to the normal guards so
+  // profile completeness decides between onboarding and the dashboard.
   async function signInWithGoogle() {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     })
     if (error) return { error: error.message }
@@ -152,7 +158,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'linkedin_oidc',
       options: {
-        redirectTo: `${window.location.origin}/dashboard`,
+        redirectTo: `${window.location.origin}/auth/callback`,
       },
     })
     if (error) return { error: error.message }
