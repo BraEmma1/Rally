@@ -3,12 +3,11 @@ import { Link } from 'react-router-dom'
 import {
   Users,
   CalendarClock,
-  Target,
   Calendar,
-
   ArrowRight,
   CheckCircle2,
   Clock,
+  AlertCircle,
 } from 'lucide-react'
 import { supabase, type Connection, type FollowUp, type EventRow } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
@@ -23,18 +22,18 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [connections, setConnections] = useState<Connection[]>([])
-  const [followUps, setFollowUps] = useState<FollowUp[]>([])
+  const [followUps, setFollowUps] = useState<(FollowUp & { connection?: Connection })[]>([])
   const [events, setEvents] = useState<EventRow[]>([])
+  const [registeredEventIds, setRegisteredEventIds] = useState<Set<string>>(new Set())
   const [totalConnections, setTotalConnections] = useState(0)
   const [pendingFollowUps, setPendingFollowUps] = useState(0)
-  const [opportunities, setOpportunities] = useState(0)
 
   async function loadData() {
     if (!user) return
     setLoading(true)
     setError(null)
     try {
-      const [connRes, followRes, eventRes, oppRes] = await Promise.all([
+      const [connRes, followRes, eventRes, regRes] = await Promise.all([
         supabase
           .from('connections')
           .select('*')
@@ -47,28 +46,43 @@ export default function DashboardPage() {
           .eq('owner_id', user.id)
           .eq('completed', false)
           .order('due_date', { ascending: true })
-          .limit(5),
+          .limit(10),
         supabase
           .from('events')
           .select('*')
-          .eq('owner_id', user.id)
-          .order('start_date', { ascending: true })
-          .limit(3),
+          .order('start_date', { ascending: true }),
         supabase
-          .from('connections')
-          .select('id')
-          .eq('owner_id', user.id)
-          .eq('relationship_type', 'Prospect'),
+          .from('event_registrations')
+          .select('event_id')
+          .eq('user_id', user.id),
       ])
 
       if (connRes.error) throw connRes.error
       if (followRes.error) throw followRes.error
       if (eventRes.error) throw eventRes.error
-      if (oppRes.error) throw oppRes.error
+      if (regRes.error) throw regRes.error
 
       setConnections(connRes.data as Connection[])
-      setFollowUps(followRes.data as FollowUp[])
+      const fuList = (followRes.data as FollowUp[]) || []
       setEvents(eventRes.data as EventRow[])
+      setRegisteredEventIds(new Set((regRes.data || []).map((r: { event_id: string }) => r.event_id)))
+
+      // Enrich follow-ups with connection data
+      if (fuList.length > 0) {
+        const connIds = [...new Set(fuList.map((f) => f.connection_id))]
+        const { data: fuConns } = await supabase
+          .from('connections')
+          .select('*')
+          .eq('owner_id', user.id)
+          .in('id', connIds)
+        const connMap = new Map<string, Connection>()
+        for (const c of (fuConns as Connection[]) || []) {
+          connMap.set(c.id, c)
+        }
+        setFollowUps(fuList.map((f) => ({ ...f, connection: connMap.get(f.connection_id) })))
+      } else {
+        setFollowUps([])
+      }
 
       const countRes = await supabase
         .from('connections')
@@ -82,8 +96,6 @@ export default function DashboardPage() {
         .eq('owner_id', user.id)
         .eq('completed', false)
       setPendingFollowUps(followCountRes.count ?? 0)
-
-      setOpportunities(oppRes.data?.length ?? 0)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard data.')
     } finally {
@@ -97,6 +109,10 @@ export default function DashboardPage() {
 
   if (loading) return <LoadingState message="Loading your dashboard…" />
   if (error) return <ErrorState message={error} onRetry={loadData} />
+
+  const today = new Date(new Date().toDateString())
+  const upcomingEvents = events.filter((e) => e.start_date && new Date(e.start_date) >= today)
+  const myUpcomingEvents = upcomingEvents.filter((e) => registeredEventIds.has(e.id))
 
   const stats = [
     {
@@ -114,16 +130,16 @@ export default function DashboardPage() {
       bg: 'bg-warning-50',
     },
     {
-      label: 'Open Opportunities',
-      value: opportunities,
-      icon: Target,
+      label: 'My Upcoming Events',
+      value: myUpcomingEvents.length,
+      icon: Calendar,
       color: 'text-accent-600',
       bg: 'bg-accent-50',
     },
     {
-      label: 'Upcoming Events',
-      value: events.filter((e) => e.status === 'upcoming').length,
-      icon: Calendar,
+      label: 'Registered Events',
+      value: registeredEventIds.size,
+      icon: CheckCircle2,
       color: 'text-gray-600',
       bg: 'bg-gray-100',
     },
@@ -197,8 +213,8 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle>Upcoming Follow-ups</CardTitle>
-              <Link to="/connections" className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700">
+              <CardTitle>Follow-ups</CardTitle>
+              <Link to="/follow-ups" className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700">
                 View all <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </div>
@@ -209,17 +225,29 @@ export default function DashboardPage() {
                 icon={<CheckCircle2 className="h-10 w-10" />}
                 title="No pending follow-ups"
                 description="Schedule follow-ups with your connections to stay in touch."
+                action={<Link to="/follow-ups" className="text-sm font-medium text-primary-600 hover:text-primary-700">View follow-ups</Link>}
               />
             ) : (
               <div className="space-y-3">
-                {followUps.map((fu) => {
+                {followUps.slice(0, 5).map((fu) => {
                   const dueDate = new Date(fu.due_date)
-                  const isOverdue = dueDate < new Date(new Date().toDateString())
-                  const conn = connections.find((c) => c.id === fu.connection_id)
+                  const isOverdue = dueDate < today
+                  const isToday = dueDate.toDateString() === today.toDateString()
+                  const conn = fu.connection
                   return (
-                    <div key={fu.id} className="flex items-center gap-3 rounded-md p-2">
-                      <div className={`flex h-8 w-8 items-center justify-center rounded-md ${isOverdue ? 'bg-error-50' : 'bg-warning-50'}`}>
-                        <Clock className={`h-4 w-4 ${isOverdue ? 'text-error-600' : 'text-warning-600'}`} />
+                    <Link
+                      key={fu.id}
+                      to={conn ? `/connections/${conn.id}` : '/follow-ups'}
+                      className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-gray-50"
+                    >
+                      <div className={`flex h-8 w-8 items-center justify-center rounded-md ${isOverdue ? 'bg-error-50' : isToday ? 'bg-warning-50' : 'bg-primary-50'}`}>
+                        {isOverdue ? (
+                          <AlertCircle className={`h-4 w-4 text-error-600`} />
+                        ) : isToday ? (
+                          <Clock className={`h-4 w-4 text-warning-600`} />
+                        ) : (
+                          <CalendarClock className={`h-4 w-4 text-primary-600`} />
+                        )}
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-gray-900">{fu.title}</p>
@@ -228,7 +256,8 @@ export default function DashboardPage() {
                         </p>
                       </div>
                       {isOverdue && <Badge variant="error">Overdue</Badge>}
-                    </div>
+                      {isToday && !isOverdue && <Badge variant="warning">Today</Badge>}
+                    </Link>
                   )
                 })}
               </div>
@@ -241,24 +270,24 @@ export default function DashboardPage() {
       <Card className="mt-6">
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle>Events</CardTitle>
+            <CardTitle>My Upcoming Events</CardTitle>
             <Link to="/events" className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700">
               View all <ArrowRight className="h-3.5 w-3.5" />
             </Link>
           </div>
         </CardHeader>
         <CardContent>
-          {events.length === 0 ? (
+          {myUpcomingEvents.length === 0 ? (
             <EmptyState
               icon={<Calendar className="h-10 w-10" />}
-              title="No events yet"
-              description="Track events you're attending to plan your networking."
-              action={<Link to="/events"><span className="text-sm font-medium text-primary-600 hover:text-primary-700">Add an event</span></Link>}
+              title="No upcoming events"
+              description="Browse and register for events to plan your networking."
+              action={<Link to="/events" className="text-sm font-medium text-primary-600 hover:text-primary-700">Browse events</Link>}
             />
           ) : (
             <div className="space-y-3">
-              {events.map((event) => (
-                <div key={event.id} className="flex items-center gap-3 rounded-md p-2">
+              {myUpcomingEvents.slice(0, 3).map((event) => (
+                <Link key={event.id} to={`/events/${event.id}`} className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-gray-50">
                   <div className="flex h-10 w-10 flex-col items-center justify-center rounded-md bg-primary-50 text-primary-700">
                     <span className="text-xs font-medium">
                       {event.start_date ? new Date(event.start_date).toLocaleDateString('en-US', { month: 'short' }) : '?'}
@@ -273,10 +302,8 @@ export default function DashboardPage() {
                       {formatDate(event.start_date)}{event.location ? ` · ${event.location}` : ''}
                     </p>
                   </div>
-                  <Badge variant={event.status === 'upcoming' ? 'primary' : event.status === 'attended' ? 'success' : 'gray'}>
-                    {event.status}
-                  </Badge>
-                </div>
+                  <Badge variant="success">Registered</Badge>
+                </Link>
               ))}
             </div>
           )}

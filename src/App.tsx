@@ -15,6 +15,7 @@ import ConnectionsPage from '@/pages/connections/ConnectionsPage'
 import ConnectionDetailPage from '@/pages/connections/ConnectionDetailPage'
 import EventsPage from '@/pages/events/EventsPage'
 import EventDetailPage from '@/pages/events/EventDetailPage'
+import FollowUpsPage from '@/pages/followups/FollowUpsPage'
 
 function ProtectedRoute({ children, requireComplete = false }: { children: React.ReactNode; requireComplete?: boolean }) {
   const { session, profile, loading } = useAuth()
@@ -72,6 +73,7 @@ export default function App() {
         <Route path="/connections/:id" element={<ConnectionDetailPage />} />
         <Route path="/events" element={<EventsPage />} />
         <Route path="/events/:id" element={<EventDetailPage />} />
+        <Route path="/follow-ups" element={<FollowUpsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

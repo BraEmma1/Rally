@@ -70,6 +70,7 @@ export type FollowUp = {
   connection_id: string
   owner_id: string
   title: string
+  note: string
   due_date: string
   completed: boolean
   completed_at: string | null
