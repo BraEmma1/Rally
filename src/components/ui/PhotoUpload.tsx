@@ -4,6 +4,15 @@ import { supabase } from '@/lib/supabase'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
 
+// Mirrors the avatars bucket's allowed_mime_types. SVG is excluded on purpose:
+// it can carry script and the bucket is served publicly.
+const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+}
+
 interface PhotoUploadProps {
   userId: string
   fullName: string
@@ -33,20 +42,21 @@ export function PhotoUpload({
       setError('Image must be under 5 MB.')
       return
     }
-    if (!file.type.startsWith('image/')) {
-      setError('Please select an image file.')
+    const ext = EXTENSION_BY_MIME_TYPE[file.type]
+    if (!ext) {
+      setError('Please select a JPEG, PNG, WebP, or GIF image.')
       return
     }
 
     setError(null)
     setUploading(true)
 
-    const ext = file.name.split('.').pop() || 'jpg'
+    // Extension comes from the detected type, not the supplied filename.
     const filePath = `${userId}/avatar.${ext}`
 
     const { error: uploadError } = await supabase.storage
       .from('avatars')
-      .upload(filePath, file, { upsert: true })
+      .upload(filePath, file, { upsert: true, contentType: file.type })
 
     if (uploadError) {
       setError(uploadError.message)
@@ -84,7 +94,7 @@ export function PhotoUpload({
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/webp,image/gif"
         onChange={handleFile}
         className="hidden"
       />

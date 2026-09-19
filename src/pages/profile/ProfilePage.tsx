@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
 import { PhotoUpload } from '@/components/ui/PhotoUpload'
 import { INDUSTRIES, getCompletionPercentage, getCompletionCount, isFieldFilled, ALL_PROFILE_FIELDS, FIELD_LABELS } from '@/lib/profile'
+import { normalizeUrl, displayUrl } from '@/lib/utils'
 
 export default function ProfilePage() {
   const { user, profile, refreshProfile } = useAuth()
@@ -40,8 +41,20 @@ export default function ProfilePage() {
   async function handleSave(e: FormEvent) {
     e.preventDefault()
     if (!user) return
-    setSaving(true)
     setError(null)
+
+    const linkedinUrl = form.linkedin?.trim() ? normalizeUrl(form.linkedin) : ''
+    if (linkedinUrl === null) {
+      setError('LinkedIn must be a valid http(s) link.')
+      return
+    }
+    const websiteUrl = form.website?.trim() ? normalizeUrl(form.website) : ''
+    if (websiteUrl === null) {
+      setError('Website must be a valid http(s) link.')
+      return
+    }
+
+    setSaving(true)
     const { error: updateError } = await supabase
       .from('profiles')
       .update({
@@ -54,8 +67,8 @@ export default function ProfilePage() {
         bio: form.bio || '',
         looking_for: form.looking_for || '',
         can_offer: form.can_offer || '',
-        linkedin: form.linkedin || '',
-        website: form.website || '',
+        linkedin: linkedinUrl,
+        website: websiteUrl,
         email: form.email || '',
         phone: form.phone || '',
         updated_at: new Date().toISOString(),
@@ -209,7 +222,9 @@ export default function ProfilePage() {
     )
   }
 
-  const hasContact = profile.email || profile.phone || profile.linkedin || profile.website
+  const linkedinUrl = normalizeUrl(profile.linkedin)
+  const websiteUrl = normalizeUrl(profile.website)
+  const hasContact = profile.email || profile.phone || linkedinUrl || websiteUrl
   const hasNetworking = profile.looking_for || profile.can_offer
 
   return (
@@ -324,14 +339,14 @@ export default function ProfilePage() {
                     <Phone className="h-4 w-4 text-gray-400" /> {profile.phone}
                   </a>
                 )}
-                {profile.linkedin && (
-                  <a href={profile.linkedin} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                    <Linkedin className="h-4 w-4 text-gray-400" /> {profile.linkedin.replace(/^https?:\/\//, '')}
+                {linkedinUrl && (
+                  <a href={linkedinUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
+                    <Linkedin className="h-4 w-4 text-gray-400" /> {displayUrl(linkedinUrl)}
                   </a>
                 )}
-                {profile.website && (
-                  <a href={profile.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                    <Globe className="h-4 w-4 text-gray-400" /> {profile.website.replace(/^https?:\/\//, '')}
+                {websiteUrl && (
+                  <a href={websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
+                    <Globe className="h-4 w-4 text-gray-400" /> {displayUrl(websiteUrl)}
                   </a>
                 )}
               </CardContent>

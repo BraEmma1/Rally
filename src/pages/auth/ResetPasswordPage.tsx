@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label } from '@/components/ui/Input'
 
 export default function ResetPasswordPage() {
-  const { updatePassword } = useAuth()
+  const { updatePassword, signOut } = useAuth()
   const navigate = useNavigate()
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -33,6 +33,8 @@ export default function ResetPasswordPage() {
       setLoading(false)
       return
     }
+    // End the recovery session so the new password is what gets them back in.
+    await signOut()
     setLoading(false)
     navigate('/login')
   }

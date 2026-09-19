@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { Card, CardContent } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
-import { formatDate, formatRelativeDate } from '@/lib/utils'
+import { formatDate, formatRelativeDate, normalizeUrl } from '@/lib/utils'
 
 
 export default function ConnectionsPage() {
@@ -77,8 +77,15 @@ export default function ConnectionsPage() {
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     if (!user) return
-    setSaving(true)
     setFormError(null)
+
+    const linkedinUrl = newConn.linkedin.trim() ? normalizeUrl(newConn.linkedin) : ''
+    if (linkedinUrl === null) {
+      setFormError('LinkedIn must be a valid http(s) link.')
+      return
+    }
+
+    setSaving(true)
 
     const { data: connData, error: connError } = await supabase
       .from('connections')
@@ -90,7 +97,7 @@ export default function ConnectionsPage() {
         industry: newConn.industry || null,
         email: newConn.email || null,
         phone: newConn.phone || null,
-        linkedin: newConn.linkedin || null,
+        linkedin: linkedinUrl,
         relationship_type: newConn.relationship_type,
         event_name: newConn.event_name || null,
         follow_up_date: newConn.follow_up_date || null,

@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { isProfileComplete } from '@/lib/profile'
 import { Spinner } from '@/components/ui/States'
 import AppLayout from '@/components/AppLayout'
 import LoginPage from '@/pages/auth/LoginPage'
@@ -30,14 +31,14 @@ function ProtectedRoute({ children, requireComplete = false }: { children: React
     )
   }
   if (!session) return <Navigate to="/login" replace />
-  if (requireComplete && profile && !profile.full_name?.trim()) {
+  if (requireComplete && profile && !isProfileComplete(profile)) {
     return <Navigate to="/onboarding" replace />
   }
   return <>{children}</>
 }
 
 export default function App() {
-  const { session, loading } = useAuth()
+  const { session, loading, isRecovery } = useAuth()
 
   if (loading) {
     return (
@@ -52,7 +53,12 @@ export default function App() {
       <Route path="/login" element={session ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
       <Route path="/signup" element={session ? <Navigate to="/dashboard" replace /> : <SignUpPage />} />
       <Route path="/forgot-password" element={session ? <Navigate to="/dashboard" replace /> : <ForgotPasswordPage />} />
-      <Route path="/reset-password" element={session ? <Navigate to="/dashboard" replace /> : <ResetPasswordPage />} />
+      {/* A recovery link signs the user in before they reach this page, so the
+          form has to stay reachable while a session exists. */}
+      <Route
+        path="/reset-password"
+        element={session && !isRecovery ? <Navigate to="/dashboard" replace /> : <ResetPasswordPage />}
+      />
       <Route path="/p/:id" element={<PublicProfilePage />} />
       <Route
         path="/onboarding"

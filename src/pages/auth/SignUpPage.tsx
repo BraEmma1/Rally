@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Users, Mail, Lock, User as UserIcon, Eye, EyeOff } from 'lucide-react'
+import { Users, Mail, Lock, User as UserIcon, Eye, EyeOff, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input, Label } from '@/components/ui/Input'
@@ -17,6 +17,7 @@ export default function SignUpPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
   const [googleError, setGoogleError] = useState<string | null>(null)
+  const [confirmationSent, setConfirmationSent] = useState(false)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -26,10 +27,15 @@ export default function SignUpPage() {
       return
     }
     setLoading(true)
-    const { error: signUpError } = await signUp(email, password, fullName)
+    const { error: signUpError, needsEmailConfirmation } = await signUp(email, password, fullName)
     if (signUpError) {
       setError(signUpError)
       setLoading(false)
+      return
+    }
+    setLoading(false)
+    if (needsEmailConfirmation) {
+      setConfirmationSent(true)
       return
     }
     navigate('/onboarding')
@@ -43,6 +49,39 @@ export default function SignUpPage() {
       setGoogleError(googleError)
       setGoogleLoading(false)
     }
+  }
+
+  if (confirmationSent) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4">
+        <div className="w-full max-w-sm">
+          <div className="mb-6 flex flex-col items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary-600 text-white">
+              <Users className="h-6 w-6" />
+            </div>
+            <div className="text-center">
+              <h1 className="text-xl font-bold text-gray-900">Confirm your email</h1>
+              <p className="mt-1 text-sm text-gray-500">One more step before you can sign in</p>
+            </div>
+          </div>
+
+          <div className="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
+            <div className="flex flex-col items-center gap-3 text-center">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-accent-50 text-accent-600">
+                <CheckCircle2 className="h-6 w-6" />
+              </div>
+              <p className="text-sm text-gray-700">
+                We sent a confirmation link to <span className="font-medium text-gray-900">{email}</span>.
+                Click the link in the email to activate your account, then sign in.
+              </p>
+            </div>
+            <Link to="/login">
+              <Button variant="secondary" className="w-full">Back to sign in</Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   return (

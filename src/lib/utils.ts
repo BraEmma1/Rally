@@ -37,3 +37,28 @@ export function initials(name: string): string {
   if (parts.length === 1) return parts[0].charAt(0).toUpperCase()
   return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
 }
+
+const SAFE_URL_PROTOCOLS = new Set(['http:', 'https:'])
+
+// Returns an https(s) URL, or null when the value cannot be made into one.
+// A bare domain gets an https:// prefix; javascript:, data: and friends are rejected.
+export function normalizeUrl(raw: string | null | undefined): string | null {
+  const trimmed = (raw || '').trim().replace(/^\/+/, '')
+  if (!trimmed) return null
+  const hasScheme = /^[a-zA-Z][a-zA-Z\d+.-]*:/.test(trimmed)
+  try {
+    const url = new URL(hasScheme ? trimmed : `https://${trimmed}`)
+    if (!SAFE_URL_PROTOCOLS.has(url.protocol) || !url.hostname) return null
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+export function isSafeUrl(raw: string | null | undefined): boolean {
+  return normalizeUrl(raw) !== null
+}
+
+export function displayUrl(raw: string): string {
+  return raw.replace(/^https?:\/\//, '').replace(/\/$/, '')
+}

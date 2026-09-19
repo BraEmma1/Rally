@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
-import { formatDate, formatRelativeDate } from '@/lib/utils'
+import { formatDate, formatRelativeDate, normalizeUrl, displayUrl } from '@/lib/utils'
 
 export default function ConnectionDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -226,6 +226,7 @@ export default function ConnectionDetailPage() {
         stage: oppForm.stage,
         expected_close_date: oppForm.expected_close_date || null,
         event_name: connection?.event_name || '',
+        event_id: connection?.event_id ?? null,
       })
       .select()
       .single()
@@ -244,7 +245,9 @@ export default function ConnectionDetailPage() {
   if (error) return <ErrorState message={error} onRetry={loadData} />
   if (!connection) return <ErrorState message="Connection not found." />
 
-  const hasContact = connection.email || connection.phone || connection.linkedin || connection.website
+  const linkedinUrl = normalizeUrl(connection.linkedin)
+  const websiteUrl = normalizeUrl(connection.website)
+  const hasContact = connection.email || connection.phone || linkedinUrl || websiteUrl
 
   return (
     <div>
@@ -327,14 +330,14 @@ export default function ConnectionDetailPage() {
                       <Phone className="h-4 w-4 text-gray-400" /> {connection.phone}
                     </a>
                   )}
-                  {connection.linkedin && (
-                    <a href={connection.linkedin} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                      <Linkedin className="h-4 w-4 text-gray-400" /> {connection.linkedin.replace(/^https?:\/\//, '')}
+                  {linkedinUrl && (
+                    <a href={linkedinUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
+                      <Linkedin className="h-4 w-4 text-gray-400" /> {displayUrl(linkedinUrl)}
                     </a>
                   )}
-                  {connection.website && (
-                    <a href={connection.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                      <Globe className="h-4 w-4 text-gray-400" /> {connection.website.replace(/^https?:\/\//, '')}
+                  {websiteUrl && (
+                    <a href={websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
+                      <Globe className="h-4 w-4 text-gray-400" /> {displayUrl(websiteUrl)}
                     </a>
                   )}
                 </>
