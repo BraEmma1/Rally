@@ -4,6 +4,8 @@ import { Spinner } from '@/components/ui/States'
 import AppLayout from '@/components/AppLayout'
 import LoginPage from '@/pages/auth/LoginPage'
 import SignUpPage from '@/pages/auth/SignUpPage'
+import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
+import ResetPasswordPage from '@/pages/auth/ResetPasswordPage'
 import DashboardPage from '@/pages/dashboard/DashboardPage'
 import ProfilePage from '@/pages/profile/ProfilePage'
 import ConnectionsPage from '@/pages/connections/ConnectionsPage'
@@ -38,6 +40,8 @@ export default function App() {
     <Routes>
       <Route path="/login" element={session ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
       <Route path="/signup" element={session ? <Navigate to="/dashboard" replace /> : <SignUpPage />} />
+      <Route path="/forgot-password" element={session ? <Navigate to="/dashboard" replace /> : <ForgotPasswordPage />} />
+      <Route path="/reset-password" element={session ? <Navigate to="/dashboard" replace /> : <ResetPasswordPage />} />
       <Route
         element={
           <ProtectedRoute>
