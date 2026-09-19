@@ -1,26 +1,25 @@
 /*
-# Reject unsafe URL schemes in stored profile and connection links
+# PHASE 2 (breaking) — reject unsafe URL schemes on write
 
-## Problem
-`linkedin` and `website` are rendered straight into `href` attributes on the
-profile, public profile and connection detail pages. Nothing stopped a user from
-storing `javascript:...` in those fields, which becomes a stored script-execution
-vector for anyone who clicks the link on a shared public profile.
+DO NOT APPLY until the frontend that normalises URLs before saving is deployed.
+The previous bundle stores whatever was typed, so a user entering a bare domain
+("linkedin.com/in/jane") would have their entire profile save rejected by these
+checks.
 
-## Changes
-Add CHECK constraints requiring these columns to be empty or to start with
-`http://` or `https://`. The client normalises input before saving; these
-constraints are the backstop so the value can never be stored via a direct API
-call either.
+## What this closes
+`linkedin` and `website` are rendered straight into href attributes on the
+profile, public profile and connection detail pages. Nothing stopped a user
+storing `javascript:...`, which becomes a stored script-execution vector for
+anyone clicking the link on a shared public profile.
 
-Added NOT VALID so the migration cannot fail on pre-existing rows; the check
-still governs every new INSERT/UPDATE, which is what matters. The rendering layer
-independently refuses to emit a non-http(s) href, so historical rows are not
-exploitable either.
+The new frontend normalises input to http(s) before saving and refuses to emit a
+non-http(s) href when rendering. These constraints are the backstop for anything
+written straight to the API.
 
-At the time of writing, zero rows in this database violate these checks, so the
-VALIDATE statements at the bottom can be run immediately to make the constraints
-fully trusted.
+NOT VALID so the migration cannot fail on pre-existing rows; the check still
+governs every new INSERT and UPDATE, which is the point. Verified at authoring
+time: zero rows in this database violate these checks, so the VALIDATE statements
+at the bottom can be run immediately after applying.
 */
 
 ALTER TABLE profiles DROP CONSTRAINT IF EXISTS profiles_linkedin_safe_url;
@@ -47,7 +46,7 @@ ALTER TABLE connections
     website IS NULL OR website = '' OR website ~* '^https?://'
   ) NOT VALID;
 
--- After auditing/cleaning any pre-existing rows, promote the constraints:
+-- Safe to run straight after this migration (no violating rows):
 --   ALTER TABLE profiles    VALIDATE CONSTRAINT profiles_linkedin_safe_url;
 --   ALTER TABLE profiles    VALIDATE CONSTRAINT profiles_website_safe_url;
 --   ALTER TABLE connections VALIDATE CONSTRAINT connections_linkedin_safe_url;
