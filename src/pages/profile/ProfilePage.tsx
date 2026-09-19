@@ -4,11 +4,13 @@ import QRCode from 'qrcode'
 import { useAuth } from '@/context/AuthContext'
 import { supabase, type Profile } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
-import { Input, Textarea, Label } from '@/components/ui/Input'
+import { Input, Textarea, Label, Select } from '@/components/ui/Input'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
+import { PhotoUpload } from '@/components/ui/PhotoUpload'
+import { INDUSTRIES, getCompletionPercentage, getCompletionCount, isFieldFilled, ALL_PROFILE_FIELDS, FIELD_LABELS } from '@/lib/profile'
 
 export default function ProfilePage() {
   const { user, profile, refreshProfile } = useAuth()
@@ -83,6 +85,9 @@ export default function ProfilePage() {
   if (!profile && !user) return <LoadingState />
   if (!profile) return <ErrorState message="Could not load your profile." />
 
+  const completion = getCompletionPercentage(profile)
+  const { filled, total } = getCompletionCount(profile)
+
   const displayName = profile.full_name || 'Your Name'
   const displayTitle = profile.job_title || 'Add your job title'
   const displayCompany = profile.company || 'Add your company'
@@ -101,14 +106,17 @@ export default function ProfilePage() {
           <Card>
             <CardHeader><CardTitle>Basic Information</CardTitle></CardHeader>
             <CardContent className="space-y-4">
+              <PhotoUpload
+                userId={user!.id}
+                fullName={form.full_name || ''}
+                currentPhotoUrl={form.photo_url || null}
+                onUploaded={(url) => setForm({ ...form, photo_url: url })}
+                size="lg"
+              />
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <Label htmlFor="full_name">Full name</Label>
                   <Input id="full_name" value={form.full_name || ''} onChange={(e) => setForm({ ...form, full_name: e.target.value })} placeholder="Jane Smith" />
-                </div>
-                <div>
-                  <Label htmlFor="photo_url">Photo URL</Label>
-                  <Input id="photo_url" value={form.photo_url || ''} onChange={(e) => setForm({ ...form, photo_url: e.target.value })} placeholder="https://…" />
                 </div>
                 <div>
                   <Label htmlFor="job_title">Job title</Label>
@@ -120,7 +128,12 @@ export default function ProfilePage() {
                 </div>
                 <div>
                   <Label htmlFor="industry">Industry</Label>
-                  <Input id="industry" value={form.industry || ''} onChange={(e) => setForm({ ...form, industry: e.target.value })} placeholder="Technology" />
+                  <Select id="industry" value={form.industry || ''} onChange={(e) => setForm({ ...form, industry: e.target.value })}>
+                    <option value="">Select an industry</option>
+                    {INDUSTRIES.map((ind) => (
+                      <option key={ind} value={ind}>{ind}</option>
+                    ))}
+                  </Select>
                 </div>
                 <div>
                   <Label htmlFor="location">Location</Label>
@@ -190,6 +203,39 @@ export default function ProfilePage() {
 
   return (
     <div>
+      {/* Completion indicator */}
+      <Card className="mb-6">
+        <CardContent className="pt-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-gray-900">Profile completion</p>
+              <p className="text-xs text-gray-500">{filled} of {total} fields filled</p>
+            </div>
+            <span className="text-2xl font-bold text-primary-600">{completion}%</span>
+          </div>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
+            <div
+              className="h-full rounded-full bg-primary-600 transition-all duration-500"
+              style={{ width: `${completion}%` }}
+            />
+          </div>
+          {completion < 100 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {ALL_PROFILE_FIELDS
+                .filter((f) => !isFieldFilled(profile, f))
+                .map((field) => (
+                  <span
+                    key={field}
+                    className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-400"
+                  >
+                    {FIELD_LABELS[field]}
+                  </span>
+                ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Profile header */}
       <Card className="mb-6">
         <CardContent className="pt-6">

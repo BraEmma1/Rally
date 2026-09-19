@@ -32,7 +32,7 @@ export default function SignUpPage() {
       setLoading(false)
       return
     }
-    navigate('/dashboard')
+    navigate('/onboarding')
   }
 
   async function handleGoogle() {
