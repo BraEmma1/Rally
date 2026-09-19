@@ -35,12 +35,19 @@ export default function ConnectionDetailPage() {
   const [connection, setConnection] = useState<Connection | null>(null)
   const [notes, setNotes] = useState<Note[]>([])
   const [followUps, setFollowUps] = useState<FollowUp[]>([])
-  const [editing, setEditing] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [editForm, setEditForm] = useState<Partial<Connection>>({})
 
+  // Relationship type editor
+  const [editingRelationship, setEditingRelationship] = useState(false)
+  const [savingRelationship, setSavingRelationship] = useState(false)
+  const [relationshipType, setRelationshipType] = useState('Other')
+
+  // Note editing
   const [newNote, setNewNote] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
+  const [editNoteContent, setEditNoteContent] = useState('')
+  const [savingEditNote, setSavingEditNote] = useState(false)
+
   const [newFollowUp, setNewFollowUp] = useState({ title: '', due_date: '' })
   const [savingFollowUp, setSavingFollowUp] = useState(false)
   const [opportunities, setOpportunities] = useState<Opportunity[]>([])
@@ -68,8 +75,9 @@ export default function ConnectionDetailPage() {
         setLoading(false)
         return
       }
-      setConnection(connRes.data as Connection)
-      setEditForm(connRes.data as Connection)
+      const conn = connRes.data as Connection
+      setConnection(conn)
+      setRelationshipType(conn.relationship_type || 'Other')
       setNotes(notesRes.data as Note[])
       setFollowUps(followRes.data as FollowUp[])
       setOpportunities((oppRes.data as Opportunity[]) || [])
@@ -84,37 +92,23 @@ export default function ConnectionDetailPage() {
     loadData()
   }, [id, user])
 
-  async function handleSaveEdit(e: FormEvent) {
+  async function handleSaveRelationship(e: FormEvent) {
     e.preventDefault()
     if (!id || !user) return
-    setSaving(true)
+    setSavingRelationship(true)
     const { error: updateError } = await supabase
       .from('connections')
-      .update({
-        full_name: editForm.full_name,
-        job_title: editForm.job_title || '',
-        company: editForm.company || '',
-        industry: editForm.industry || '',
-        location: editForm.location || '',
-        email: editForm.email || '',
-        phone: editForm.phone || '',
-        linkedin: editForm.linkedin || '',
-        website: editForm.website || '',
-        relationship_type: editForm.relationship_type || 'Other',
-        event_name: editForm.event_name || '',
-        follow_up_date: editForm.follow_up_date || null,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ relationship_type: relationshipType, updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('owner_id', user.id)
     if (updateError) {
       setError(updateError.message)
-      setSaving(false)
+      setSavingRelationship(false)
       return
     }
-    setSaving(false)
-    setEditing(false)
-    loadData()
+    setConnection({ ...connection!, relationship_type: relationshipType })
+    setSavingRelationship(false)
+    setEditingRelationship(false)
   }
 
   async function handleAddNote(e: FormEvent) {
@@ -140,6 +134,31 @@ export default function ConnectionDetailPage() {
     if (!user) return
     await supabase.from('notes').delete().eq('id', noteId).eq('owner_id', user.id)
     setNotes(notes.filter((n) => n.id !== noteId))
+  }
+
+  function startEditNote(note: Note) {
+    setEditingNoteId(note.id)
+    setEditNoteContent(note.content)
+  }
+
+  async function handleSaveEditNote(e: FormEvent) {
+    e.preventDefault()
+    if (!user || !editingNoteId) return
+    setSavingEditNote(true)
+    const { error: noteError } = await supabase
+      .from('notes')
+      .update({ content: editNoteContent.trim(), updated_at: new Date().toISOString() })
+      .eq('id', editingNoteId)
+      .eq('owner_id', user.id)
+    if (noteError) {
+      setError(noteError.message)
+      setSavingEditNote(false)
+      return
+    }
+    setNotes(notes.map((n) => n.id === editingNoteId ? { ...n, content: editNoteContent.trim() } : n))
+    setEditingNoteId(null)
+    setEditNoteContent('')
+    setSavingEditNote(false)
   }
 
   async function handleAddFollowUp(e: FormEvent) {
@@ -256,77 +275,34 @@ export default function ConnectionDetailPage() {
                 </div>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setEditing(!editing)}>
-                {editing ? <><X className="h-4 w-4" /> Cancel</> : <><Pencil className="h-4 w-4" /> Edit</>}
+            <div className="flex flex-wrap gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setEditingRelationship(!editingRelationship)}>
+                {editingRelationship ? <><X className="h-4 w-4" /> Cancel</> : <><Pencil className="h-4 w-4" /> Edit relationship</>}
               </Button>
               <Button variant="danger" size="sm" onClick={handleDeleteConnection}>
-                <Trash2 className="h-4 w-4" /> Delete
+                <Trash2 className="h-4 w-4" /> Remove connection
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {editing && (
+      {editingRelationship && (
         <Card className="mb-6">
-          <CardHeader><CardTitle>Edit Connection</CardTitle></CardHeader>
+          <CardHeader><CardTitle>Edit Relationship Type</CardTitle></CardHeader>
           <CardContent>
-            <form onSubmit={handleSaveEdit} className="space-y-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <Label>Full name *</Label>
-                  <Input required value={editForm.full_name || ''} onChange={(e) => setEditForm({ ...editForm, full_name: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Job title</Label>
-                  <Input value={editForm.job_title || ''} onChange={(e) => setEditForm({ ...editForm, job_title: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Company</Label>
-                  <Input value={editForm.company || ''} onChange={(e) => setEditForm({ ...editForm, company: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Industry</Label>
-                  <Input value={editForm.industry || ''} onChange={(e) => setEditForm({ ...editForm, industry: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Location</Label>
-                  <Input value={editForm.location || ''} onChange={(e) => setEditForm({ ...editForm, location: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Relationship type</Label>
-                  <Select value={editForm.relationship_type || 'Other'} onChange={(e) => setEditForm({ ...editForm, relationship_type: e.target.value })}>
-                    {RELATIONSHIP_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </Select>
-                </div>
-                <div>
-                  <Label>Email</Label>
-                  <Input type="email" value={editForm.email || ''} onChange={(e) => setEditForm({ ...editForm, email: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Phone / WhatsApp</Label>
-                  <Input value={editForm.phone || ''} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} />
-                </div>
-                <div>
-                  <Label>LinkedIn URL</Label>
-                  <Input value={editForm.linkedin || ''} onChange={(e) => setEditForm({ ...editForm, linkedin: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Website</Label>
-                  <Input value={editForm.website || ''} onChange={(e) => setEditForm({ ...editForm, website: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Met at event</Label>
-                  <Input value={editForm.event_name || ''} onChange={(e) => setEditForm({ ...editForm, event_name: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Follow-up date</Label>
-                  <Input type="date" value={editForm.follow_up_date || ''} onChange={(e) => setEditForm({ ...editForm, follow_up_date: e.target.value })} />
-                </div>
+            <form onSubmit={handleSaveRelationship} className="space-y-4">
+              <div>
+                <Label>Relationship type</Label>
+                <Select value={relationshipType} onChange={(e) => setRelationshipType(e.target.value)}>
+                  {RELATIONSHIP_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </Select>
+                <p className="mt-2 text-xs text-gray-400">
+                  This is your private label for how you know this person. Their profile information is read-only.
+                </p>
               </div>
               <div className="flex justify-end">
-                <Button type="submit" disabled={saving}><Save className="h-4 w-4" /> {saving ? 'Saving…' : 'Save changes'}</Button>
+                <Button type="submit" disabled={savingRelationship}><Save className="h-4 w-4" /> {savingRelationship ? 'Saving…' : 'Save'}</Button>
               </div>
             </form>
           </CardContent>
@@ -363,7 +339,7 @@ export default function ConnectionDetailPage() {
                   )}
                 </>
               ) : (
-                <EmptyState title="No contact info" description="Edit this connection to add contact details." />
+                <EmptyState title="No contact info" description="This person hasn't added contact details to their profile yet." />
               )}
             </CardContent>
           </Card>
@@ -431,16 +407,45 @@ export default function ConnectionDetailPage() {
               <div className="space-y-3">
                 {notes.map((note) => (
                   <div key={note.id} className="group rounded-md border border-gray-200 p-3">
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{note.content}</p>
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="text-xs text-gray-400">{formatDate(note.created_at)}</span>
-                      <button
-                        onClick={() => handleDeleteNote(note.id)}
-                        className="text-gray-300 opacity-0 transition-opacity hover:text-error-600 group-hover:opacity-100"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
+                    {editingNoteId === note.id ? (
+                      <form onSubmit={handleSaveEditNote} className="space-y-2">
+                        <Textarea
+                          rows={3}
+                          value={editNoteContent}
+                          onChange={(e) => setEditNoteContent(e.target.value)}
+                          autoFocus
+                        />
+                        <div className="flex gap-2">
+                          <Button type="submit" size="sm" disabled={savingEditNote || !editNoteContent.trim()}>
+                            <Save className="h-3.5 w-3.5" /> {savingEditNote ? 'Saving…' : 'Save'}
+                          </Button>
+                          <Button type="button" size="sm" variant="secondary" onClick={() => setEditingNoteId(null)}>
+                            <X className="h-3.5 w-3.5" /> Cancel
+                          </Button>
+                        </div>
+                      </form>
+                    ) : (
+                      <>
+                        <p className="text-sm text-gray-700 whitespace-pre-wrap">{note.content}</p>
+                        <div className="mt-2 flex items-center justify-between">
+                          <span className="text-xs text-gray-400">{formatDate(note.created_at)}</span>
+                          <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                            <button
+                              onClick={() => startEditNote(note)}
+                              className="text-gray-300 hover:text-primary-600"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteNote(note.id)}
+                              className="text-gray-300 hover:text-error-600"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
