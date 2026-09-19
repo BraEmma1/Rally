@@ -14,8 +14,9 @@ import {
   Pencil,
   Save,
   X,
+  Target,
 } from 'lucide-react'
-import { supabase, type Connection, type Note, type FollowUp, RELATIONSHIP_TYPES } from '@/lib/supabase'
+import { supabase, type Connection, type Note, type FollowUp, type Opportunity, RELATIONSHIP_TYPES, OPPORTUNITY_TYPES, OPPORTUNITY_STAGES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
@@ -42,16 +43,21 @@ export default function ConnectionDetailPage() {
   const [savingNote, setSavingNote] = useState(false)
   const [newFollowUp, setNewFollowUp] = useState({ title: '', due_date: '' })
   const [savingFollowUp, setSavingFollowUp] = useState(false)
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([])
+  const [showOppForm, setShowOppForm] = useState(false)
+  const [savingOpp, setSavingOpp] = useState(false)
+  const [oppForm, setOppForm] = useState({ title: '', type: 'Sales', value: '', stage: 'New', expected_close_date: '', description: '' })
 
   async function loadData() {
     if (!id || !user) return
     setLoading(true)
     setError(null)
     try {
-      const [connRes, notesRes, followRes] = await Promise.all([
+      const [connRes, notesRes, followRes, oppRes] = await Promise.all([
         supabase.from('connections').select('*').eq('id', id).eq('owner_id', user.id).maybeSingle(),
         supabase.from('notes').select('*').eq('connection_id', id).eq('owner_id', user.id).order('created_at', { ascending: false }),
         supabase.from('follow_ups').select('*').eq('connection_id', id).eq('owner_id', user.id).order('due_date', { ascending: true }),
+        supabase.from('opportunities').select('*').eq('connection_id', id).eq('owner_id', user.id).order('updated_at', { ascending: false }),
       ])
       if (connRes.error) throw connRes.error
       if (notesRes.error) throw notesRes.error
@@ -66,6 +72,7 @@ export default function ConnectionDetailPage() {
       setEditForm(connRes.data as Connection)
       setNotes(notesRes.data as Note[])
       setFollowUps(followRes.data as FollowUp[])
+      setOpportunities((oppRes.data as Opportunity[]) || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load connection.')
     } finally {
@@ -182,6 +189,36 @@ export default function ConnectionDetailPage() {
     if (!confirm('Delete this connection and all its notes and follow-ups?')) return
     await supabase.from('connections').delete().eq('id', id).eq('owner_id', user.id)
     navigate('/connections')
+  }
+
+  async function handleAddOpportunity(e: FormEvent) {
+    e.preventDefault()
+    if (!id || !user || !oppForm.title.trim()) return
+    setSavingOpp(true)
+    const { data, error: oppError } = await supabase
+      .from('opportunities')
+      .insert({
+        owner_id: user.id,
+        connection_id: id,
+        title: oppForm.title.trim(),
+        type: oppForm.type,
+        description: oppForm.description || '',
+        value: oppForm.value ? parseFloat(oppForm.value) : 0,
+        stage: oppForm.stage,
+        expected_close_date: oppForm.expected_close_date || null,
+        event_name: connection?.event_name || '',
+      })
+      .select()
+      .single()
+    if (oppError) {
+      setError(oppError.message)
+      setSavingOpp(false)
+      return
+    }
+    setOpportunities([data as Opportunity, ...opportunities])
+    setOppForm({ title: '', type: 'Sales', value: '', stage: 'New', expected_close_date: '', description: '' })
+    setShowOppForm(false)
+    setSavingOpp(false)
   }
 
   if (loading) return <LoadingState message="Loading connection…" />
@@ -427,6 +464,87 @@ export default function ConnectionDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Opportunities */}
+      <Card className="mt-6">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Opportunities</CardTitle>
+            <Button size="sm" variant="secondary" onClick={() => setShowOppForm(!showOppForm)}>
+              {showOppForm ? <><X className="h-3.5 w-3.5" /> Cancel</> : <><Plus className="h-3.5 w-3.5" /> Create opportunity</>}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {showOppForm && (
+            <form onSubmit={handleAddOpportunity} className="space-y-3 rounded-md border border-gray-200 p-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <Label>Title *</Label>
+                  <Input required value={oppForm.title} onChange={(e) => setOppForm({ ...oppForm, title: e.target.value })} placeholder="Enterprise deal" />
+                </div>
+                <div>
+                  <Label>Type</Label>
+                  <Select value={oppForm.type} onChange={(e) => setOppForm({ ...oppForm, type: e.target.value })}>
+                    {OPPORTUNITY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Value ($)</Label>
+                  <Input type="number" min="0" step="1000" value={oppForm.value} onChange={(e) => setOppForm({ ...oppForm, value: e.target.value })} placeholder="50000" />
+                </div>
+                <div>
+                  <Label>Stage</Label>
+                  <Select value={oppForm.stage} onChange={(e) => setOppForm({ ...oppForm, stage: e.target.value })}>
+                    {OPPORTUNITY_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+                  </Select>
+                </div>
+                <div>
+                  <Label>Expected close date</Label>
+                  <Input type="date" value={oppForm.expected_close_date} onChange={(e) => setOppForm({ ...oppForm, expected_close_date: e.target.value })} />
+                </div>
+              </div>
+              <div>
+                <Label>Description</Label>
+                <Textarea rows={2} value={oppForm.description} onChange={(e) => setOppForm({ ...oppForm, description: e.target.value })} placeholder="Describe this opportunity…" />
+              </div>
+              <Button type="submit" size="sm" disabled={savingOpp}>
+                {savingOpp ? 'Creating…' : 'Create opportunity'}
+              </Button>
+            </form>
+          )}
+
+          {opportunities.length > 0 ? (
+            <div className="space-y-2">
+              {opportunities.map((opp) => (
+                <Link
+                  key={opp.id}
+                  to={`/opportunities/${opp.id}`}
+                  className="flex items-center gap-3 rounded-md border border-gray-200 p-3 transition-colors hover:border-primary-300 hover:bg-primary-50/30"
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-50">
+                    <Target className="h-4 w-4 text-primary-600" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-gray-900">{opp.title}</p>
+                    <p className="text-xs text-gray-500">{opp.type}{opp.value > 0 ? ` · ${opp.value.toLocaleString()}` : ''}</p>
+                  </div>
+                  <Badge variant={opp.stage === 'Won' ? 'success' : opp.stage === 'Lost' ? 'error' : 'primary'}>
+                    {opp.stage}
+                  </Badge>
+                </Link>
+              ))}
+            </div>
+          ) : !showOppForm ? (
+            <EmptyState
+              icon={<Target className="h-8 w-8" />}
+              title="No opportunities yet"
+              description="Track deals, investments, or partnerships from this connection."
+              action={<Button size="sm" variant="secondary" onClick={() => setShowOppForm(true)}><Plus className="h-4 w-4" /> Create opportunity</Button>}
+            />
+          ) : null}
+        </CardContent>
+      </Card>
     </div>
   )
 }

@@ -7,6 +7,7 @@ import {
   Calendar,
   QrCode,
   CalendarClock,
+  Target,
   LogOut,
   Menu,
   X,
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/scan', label: 'Scan QR', icon: QrCode },
   { to: '/events', label: 'Events', icon: Calendar },
   { to: '/follow-ups', label: 'Follow-ups', icon: CalendarClock },
+  { to: '/opportunities', label: 'Opportunities', icon: Target },
   { to: '/profile', label: 'My Profile', icon: UserIcon },
 ]
 

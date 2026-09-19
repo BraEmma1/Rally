@@ -8,8 +8,9 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
+  Target,
 } from 'lucide-react'
-import { supabase, type Connection, type FollowUp, type EventRow } from '@/lib/supabase'
+import { supabase, type Connection, type FollowUp, type EventRow, type Opportunity } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
@@ -27,13 +28,15 @@ export default function DashboardPage() {
   const [registeredEventIds, setRegisteredEventIds] = useState<Set<string>>(new Set())
   const [totalConnections, setTotalConnections] = useState(0)
   const [pendingFollowUps, setPendingFollowUps] = useState(0)
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([])
+  const [activeOppCount, setActiveOppCount] = useState(0)
 
   async function loadData() {
     if (!user) return
     setLoading(true)
     setError(null)
     try {
-      const [connRes, followRes, eventRes, regRes] = await Promise.all([
+      const [connRes, followRes, eventRes, regRes, oppRes] = await Promise.all([
         supabase
           .from('connections')
           .select('*')
@@ -55,17 +58,25 @@ export default function DashboardPage() {
           .from('event_registrations')
           .select('event_id')
           .eq('user_id', user.id),
+        supabase
+          .from('opportunities')
+          .select('*')
+          .eq('owner_id', user.id)
+          .order('updated_at', { ascending: false })
+          .limit(5),
       ])
 
       if (connRes.error) throw connRes.error
       if (followRes.error) throw followRes.error
       if (eventRes.error) throw eventRes.error
       if (regRes.error) throw regRes.error
+      if (oppRes.error) throw oppRes.error
 
       setConnections(connRes.data as Connection[])
       const fuList = (followRes.data as FollowUp[]) || []
       setEvents(eventRes.data as EventRow[])
       setRegisteredEventIds(new Set((regRes.data || []).map((r: { event_id: string }) => r.event_id)))
+      setOpportunities((oppRes.data as Opportunity[]) || [])
 
       // Enrich follow-ups with connection data
       if (fuList.length > 0) {
@@ -96,6 +107,13 @@ export default function DashboardPage() {
         .eq('owner_id', user.id)
         .eq('completed', false)
       setPendingFollowUps(followCountRes.count ?? 0)
+
+      const oppCountRes = await supabase
+        .from('opportunities')
+        .select('id', { count: 'exact', head: true })
+        .eq('owner_id', user.id)
+        .not('stage', 'in', '("Won","Lost")')
+      setActiveOppCount(oppCountRes.count ?? 0)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load dashboard data.')
     } finally {
@@ -130,16 +148,16 @@ export default function DashboardPage() {
       bg: 'bg-warning-50',
     },
     {
-      label: 'My Upcoming Events',
-      value: myUpcomingEvents.length,
-      icon: Calendar,
+      label: 'Active Opportunities',
+      value: activeOppCount,
+      icon: Target,
       color: 'text-accent-600',
       bg: 'bg-accent-50',
     },
     {
-      label: 'Registered Events',
-      value: registeredEventIds.size,
-      icon: CheckCircle2,
+      label: 'My Upcoming Events',
+      value: myUpcomingEvents.length,
+      icon: Calendar,
       color: 'text-gray-600',
       bg: 'bg-gray-100',
     },
@@ -303,6 +321,51 @@ export default function DashboardPage() {
                     </p>
                   </div>
                   <Badge variant="success">Registered</Badge>
+                </Link>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Opportunities */}
+      <Card className="mt-6">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle>Active Opportunities</CardTitle>
+            <Link to="/opportunities" className="flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700">
+              View all <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {opportunities.length === 0 ? (
+            <EmptyState
+              icon={<Target className="h-10 w-10" />}
+              title="No opportunities yet"
+              description="Create opportunities from your connections to track deals and partnerships."
+              action={<Link to="/opportunities" className="text-sm font-medium text-primary-600 hover:text-primary-700">View opportunities</Link>}
+            />
+          ) : (
+            <div className="space-y-3">
+              {opportunities.slice(0, 4).map((opp) => (
+                <Link
+                  key={opp.id}
+                  to={`/opportunities/${opp.id}`}
+                  className="flex items-center gap-3 rounded-md p-2 transition-colors hover:bg-gray-50"
+                >
+                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-accent-50">
+                    <Target className="h-4 w-4 text-accent-600" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-gray-900">{opp.title}</p>
+                    <p className="truncate text-xs text-gray-500">
+                      {opp.type}{opp.value > 0 ? ` · ${opp.value.toLocaleString()}` : ''} · {opp.stage}
+                    </p>
+                  </div>
+                  <Badge variant={opp.stage === 'Won' ? 'success' : opp.stage === 'Lost' ? 'error' : 'primary'}>
+                    {opp.stage}
+                  </Badge>
                 </Link>
               ))}
             </div>

@@ -100,6 +100,39 @@ export type EventRegistration = {
   created_at: string
 }
 
+export type Opportunity = {
+  id: string
+  owner_id: string
+  connection_id: string
+  title: string
+  description: string
+  type: string
+  stage: string
+  value: number
+  expected_close_date: string | null
+  event_name: string
+  created_at: string
+  updated_at: string
+}
+
+export const OPPORTUNITY_TYPES = [
+  'Sales',
+  'Investment',
+  'Partnership',
+  'Recruitment',
+  'Mentorship',
+  'Other',
+] as const
+
+export const OPPORTUNITY_STAGES = [
+  'New',
+  'Discussing',
+  'Proposal',
+  'Negotiation',
+  'Won',
+  'Lost',
+] as const
+
 export const RELATIONSHIP_TYPES = [
   'Customer',
   'Investor',
