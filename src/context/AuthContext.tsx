@@ -95,7 +95,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       password,
       options: {
         data: { full_name: fullName },
-        emailRedirectTo: `${window.location.origin}/login`,
+        // Where the {{ .ConfirmationURL }} in the confirmation email sends the
+        // user back to. /login would bounce them straight to the dashboard
+        // without ever reporting a failed or expired link.
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     })
     if (error) return { error: error.message, needsEmailConfirmation: false }
