@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Users, Mail, Lock, Eye, EyeOff } from 'lucide-react'
+import { Users, Mail, Lock, Eye, EyeOff, X } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input, Label } from '@/components/ui/Input'
@@ -23,6 +23,9 @@ export default function LoginPage() {
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
+    setGoogleError(null)
+    setLinkedinError(null)
+    clearOauthError()
     setLoading(true)
     const { error: signInError } = await signIn(email, password)
     if (signInError) {
@@ -39,6 +42,7 @@ export default function LoginPage() {
 
   async function handleGoogle() {
     setGoogleError(null)
+    setLinkedinError(null)
     setGoogleLoading(true)
     const { error: googleError } = await signInWithGoogle()
     if (googleError) {
@@ -49,6 +53,7 @@ export default function LoginPage() {
 
   async function handleLinkedIn() {
     setLinkedinError(null)
+    setGoogleError(null)
     setLinkedinLoading(true)
     const { error: linkedinError } = await signInWithLinkedIn()
     if (linkedinError) {
@@ -73,20 +78,23 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-gray-200 bg-white p-6">
           <GoogleButton onClick={handleGoogle} loading={googleLoading} />
           <LinkedInButton onClick={handleLinkedIn} loading={linkedinLoading} />
-          {(googleError || linkedinError) && (
-            <div className="rounded-md bg-error-50 px-3 py-2 text-sm text-error-700">
-              {googleError || linkedinError}
-            </div>
-          )}
-          {oauthError && (
-            <div className="rounded-md bg-error-50 px-3 py-2 text-sm text-error-700">
-              {oauthError}
+          {(googleError || linkedinError || oauthError) && (
+            <div
+              role="alert"
+              className="flex items-start justify-between gap-3 rounded-md border border-error-200 bg-error-50 px-3 py-2.5 text-sm text-error-700"
+            >
+              <span>{googleError || linkedinError || oauthError}</span>
               <button
                 type="button"
-                onClick={clearOauthError}
-                className="ml-2 font-medium underline hover:no-underline"
+                onClick={() => {
+                  setGoogleError(null)
+                  setLinkedinError(null)
+                  clearOauthError()
+                }}
+                className="mt-0.5 shrink-0 text-error-400 transition-colors hover:text-error-600"
+                aria-label="Dismiss error"
               >
-                Dismiss
+                <X className="h-4 w-4" />
               </button>
             </div>
           )}

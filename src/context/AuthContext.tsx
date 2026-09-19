@@ -75,6 +75,31 @@ function onResetRoute(): boolean {
 // instead of /auth/callback. The catch-all route then bounces to /dashboard
 // and on to /login, dropping the params — so they are captured on boot and
 // latched in sessionStorage like the recovery flags.
+//
+// Raw provider/Supabase messages ("Unable to exchange external code: 4/0A…",
+// "invalid compact jws") are leaky internals; map the known ones to something
+// a user can act on and fall back to a neutral message for the rest.
+function friendlyOAuthError(raw: string | null): string {
+  if (!raw) return 'Sign-in with that provider failed. Please try again.'
+  const normalized = decodeURIComponent(raw).toLowerCase()
+  if (normalized.includes('exchange external code')) {
+    return 'We could not complete the sign-in with that provider. This usually fixes itself in a few minutes — if it keeps happening, the provider sign-in is misconfigured. Please try again or use email sign-in.'
+  }
+  if (normalized.includes('invalid compact jws') || normalized.includes('invalid jwt')) {
+    return 'The sign-in attempt expired before it could be completed. Please try again.'
+  }
+  if (normalized.includes('provider is not enabled') || normalized.includes('unsupported provider')) {
+    return 'That sign-in option is not available yet. Please use email sign-in.'
+  }
+  if (normalized.includes('redirect') && (normalized.includes('not allowed') || normalized.includes('allowlist') || normalized.includes('whitelist'))) {
+    return 'This app\'s address is not yet allowed for sign-in. The app owner needs to add it to the allowed addresses in the sign-in settings.'
+  }
+  if (normalized.includes('timeout') || normalized.includes('temporarily unavailable')) {
+    return 'The sign-in service is temporarily unavailable. Please try again in a moment.'
+  }
+  return 'Sign-in with that provider failed. Please try again or use email sign-in.'
+}
+
 function detectOAuthErrorFromUrl(): string | null {
   if (typeof window === 'undefined') return null
   const error = readAuthParam('error')
@@ -83,13 +108,9 @@ function detectOAuthErrorFromUrl(): string | null {
   // Recovery failures have their own reporting path on the reset screen.
   if (onResetRoute() || readAuthParam('type') === 'recovery') return null
   if (errorCode === 'access_denied' || error === 'access_denied') {
-    return 'Sign-in with that provider was cancelled.'
+    return 'Sign-in was cancelled before it could finish. If this was accidental, just try again.'
   }
-  const description = readAuthParam('error_description')
-  if (description) {
-    return decodeURIComponent(description).replace(/\+/g, ' ')
-  }
-  return 'Sign-in with that provider failed. Check your account settings and try again.'
+  return friendlyOAuthError(readAuthParam('error_description'))
 }
 
 function detectRecoveryFromUrl(): boolean {
@@ -261,26 +282,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // before the exchange can happen — which is why sign-in ended on /login.
   // /auth/callback waits for the session, then defers to the normal guards so
   // profile completeness decides between onboarding and the dashboard.
-  async function signInWithGoogle() {
+  async function startOAuth(provider: 'google' | 'linkedin_oidc') {
+    // A stale message from a previous failed attempt should not sit next to a
+    // fresh try — clear it when the user starts a new sign-in.
+    setOauthError(null)
     const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
+      provider,
       options: {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
     })
-    if (error) return { error: error.message }
+    if (error) return { error: friendlyOAuthError(error.message) }
     return { error: null }
   }
 
+  async function signInWithGoogle() {
+    return startOAuth('google')
+  }
+
   async function signInWithLinkedIn() {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'linkedin_oidc',
-      options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
-      },
-    })
-    if (error) return { error: error.message }
-    return { error: null }
+    return startOAuth('linkedin_oidc')
   }
 
   return (
