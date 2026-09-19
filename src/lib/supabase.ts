@@ -100,6 +100,16 @@ export type EventRegistration = {
   created_at: string
 }
 
+export type EventInvitation = {
+  id: string
+  event_id: string
+  invited_user_id: string
+  invited_by: string
+  status: string
+  created_at: string
+  responded_at: string | null
+}
+
 export type Opportunity = {
   id: string
   owner_id: string

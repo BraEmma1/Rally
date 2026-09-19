@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Calendar, MapPin, Clock, Users, ArrowRight, CalendarCheck } from 'lucide-react'
-import { supabase, type EventRow, type EventRegistration } from '@/lib/supabase'
+import { Calendar, MapPin, Clock, Users, ArrowRight, CalendarCheck, MailOpen, Check, X } from 'lucide-react'
+import { supabase, type EventRow, type EventRegistration, type EventInvitation } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
@@ -28,6 +29,11 @@ function isEventPast(event: EventRow): boolean {
   return start < today
 }
 
+interface InvitationWithEvent extends EventInvitation {
+  event?: EventRow
+  inviter_name?: string
+}
+
 export default function EventsPage() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -35,27 +41,32 @@ export default function EventsPage() {
   const [events, setEvents] = useState<EventRow[]>([])
   const [registrations, setRegistrations] = useState<Set<string>>(new Set())
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({})
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'past'>('upcoming')
+  const [invitations, setInvitations] = useState<InvitationWithEvent[]>([])
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past' | 'invitations'>('upcoming')
+  const [responding, setResponding] = useState<string | null>(null)
 
   async function loadData() {
     if (!user) return
     setLoading(true)
     setError(null)
     try {
-      const [eventsRes, regRes] = await Promise.all([
+      const [eventsRes, regRes, inviteRes] = await Promise.all([
         supabase.from('events').select('*').order('start_date', { ascending: true }),
         supabase.from('event_registrations').select('event_id').eq('user_id', user.id),
+        supabase.from('event_invitations').select('*').eq('invited_user_id', user.id).order('created_at', { ascending: false }),
       ])
 
       if (eventsRes.error) throw eventsRes.error
       if (regRes.error) throw regRes.error
+      if (inviteRes.error) throw inviteRes.error
 
-      setEvents(eventsRes.data as EventRow[])
+      const eventList = eventsRes.data as EventRow[]
+      setEvents(eventList)
       setRegistrations(new Set((regRes.data as EventRegistration[]).map((r) => r.event_id)))
 
       // Get registration counts for all events
       const counts: Record<string, number> = {}
-      for (const event of eventsRes.data as EventRow[]) {
+      for (const event of eventList) {
         const { count } = await supabase
           .from('event_registrations')
           .select('id', { count: 'exact', head: true })
@@ -63,6 +74,31 @@ export default function EventsPage() {
         counts[event.id] = count ?? 0
       }
       setRegistrationCounts(counts)
+
+      // Enrich invitations with event + inviter data
+      const inviteList = inviteRes.data as EventInvitation[]
+      if (inviteList.length > 0) {
+        const eventMap = new Map<string, EventRow>()
+        for (const e of eventList) eventMap.set(e.id, e)
+
+        const inviterIds = [...new Set(inviteList.map((i) => i.invited_by))]
+        const { data: inviterProfiles } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', inviterIds)
+        const inviterMap = new Map<string, string>()
+        for (const p of (inviterProfiles as { id: string; full_name: string }[]) || []) {
+          inviterMap.set(p.id, p.full_name)
+        }
+
+        setInvitations(inviteList.map((inv) => ({
+          ...inv,
+          event: eventMap.get(inv.event_id),
+          inviter_name: inviterMap.get(inv.invited_by),
+        })))
+      } else {
+        setInvitations([])
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load events.')
     } finally {
@@ -104,6 +140,54 @@ export default function EventsPage() {
     setRegistrationCounts({ ...registrationCounts, [eventId]: Math.max(0, (registrationCounts[eventId] || 0) - 1) })
   }
 
+  async function handleAccept(inv: InvitationWithEvent) {
+    if (!user) return
+    setResponding(inv.id)
+    try {
+      // Update invitation status
+      const { error: updateError } = await supabase
+        .from('event_invitations')
+        .update({ status: 'Accepted', responded_at: new Date().toISOString() })
+        .eq('id', inv.id)
+        .eq('invited_user_id', user.id)
+      if (updateError) throw updateError
+
+      // Register for event (prevent duplicate)
+      if (!registrations.has(inv.event_id)) {
+        const { error: regError } = await supabase
+          .from('event_registrations')
+          .insert({ event_id: inv.event_id, user_id: user.id })
+        if (regError && !regError.message.includes('duplicate')) throw regError
+        setRegistrations(new Set([...registrations, inv.event_id]))
+        setRegistrationCounts({ ...registrationCounts, [inv.event_id]: (registrationCounts[inv.event_id] || 0) + 1 })
+      }
+
+      setInvitations(invitations.map((i) => i.id === inv.id ? { ...i, status: 'Accepted', responded_at: new Date().toISOString() } : i))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to accept invitation.')
+    } finally {
+      setResponding(null)
+    }
+  }
+
+  async function handleDecline(inv: InvitationWithEvent) {
+    if (!user) return
+    setResponding(inv.id)
+    try {
+      const { error: updateError } = await supabase
+        .from('event_invitations')
+        .update({ status: 'Declined', responded_at: new Date().toISOString() })
+        .eq('id', inv.id)
+        .eq('invited_user_id', user.id)
+      if (updateError) throw updateError
+      setInvitations(invitations.map((i) => i.id === inv.id ? { ...i, status: 'Declined', responded_at: new Date().toISOString() } : i))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to decline invitation.')
+    } finally {
+      setResponding(null)
+    }
+  }
+
   if (loading) return <LoadingState message="Loading events…" />
   if (error) return <ErrorState message={error} onRetry={loadData} />
 
@@ -111,6 +195,7 @@ export default function EventsPage() {
   const pastEvents = events.filter((e) => isEventPast(e))
   const displayEvents = activeTab === 'upcoming' ? upcomingEvents : pastEvents
   const myUpcomingCount = upcomingEvents.filter((e) => registrations.has(e.id)).length
+  const pendingInvites = invitations.filter((i) => i.status === 'Pending').length
 
   return (
     <div>
@@ -146,11 +231,148 @@ export default function EventsPage() {
           <CalendarCheck className="h-4 w-4" />
           Past
         </button>
+        <button
+          onClick={() => setActiveTab('invitations')}
+          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+            activeTab === 'invitations'
+              ? 'border-primary-600 text-primary-700'
+              : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          <MailOpen className="h-4 w-4" />
+          Invitations
+          {pendingInvites > 0 && (
+            <span className="rounded-full bg-error-100 px-1.5 py-0.5 text-xs font-medium text-error-700">
+              {pendingInvites}
+            </span>
+          )}
+        </button>
       </div>
 
-      {/* Events list */}
+      {/* Content */}
       <div className="mt-4 space-y-4">
-        {displayEvents.length === 0 ? (
+        {activeTab === 'invitations' ? (
+          invitations.length === 0 ? (
+            <Card>
+              <CardContent>
+                <EmptyState
+                  icon={<MailOpen className="h-10 w-10" />}
+                  title="No invitations"
+                  description="Event invitations from organizers will appear here."
+                />
+              </CardContent>
+            </Card>
+          ) : (
+            invitations.map((inv) => {
+              const event = inv.event
+              if (!event) return null
+              const isPending = inv.status === 'Pending'
+              const isAccepted = inv.status === 'Accepted'
+              const isDeclined = inv.status === 'Declined'
+              const isRegistered = registrations.has(event.id)
+
+              return (
+                <Card key={inv.id} className="overflow-hidden">
+                  <div className="flex flex-col sm:flex-row">
+                    {/* Event image */}
+                    {event.image_url && (
+                      <div className="h-32 flex-shrink-0 sm:h-auto sm:w-40">
+                        <img
+                          src={event.image_url}
+                          alt={event.name}
+                          className="h-full w-full object-cover"
+                        />
+                      </div>
+                    )}
+
+                    <CardContent className="flex-1 py-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="text-sm font-semibold text-gray-900">{event.name}</h3>
+                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
+                            <span className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" /> {formatDate(event.start_date)}
+                              {event.end_date && event.end_date !== event.start_date ? ` – ${formatDate(event.end_date)}` : ''}
+                            </span>
+                            {event.start_time && (
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3 w-3" /> {formatTime(event.start_time)}
+                                {event.end_time ? ` – ${formatTime(event.end_time)}` : ''}
+                              </span>
+                            )}
+                          </div>
+                          {event.location && (
+                            <p className="mt-1 flex items-center gap-1 text-xs text-gray-500">
+                              <MapPin className="h-3 w-3" /> {event.location}
+                            </p>
+                          )}
+                          {event.description && (
+                            <p className="mt-2 line-clamp-2 text-xs text-gray-600">{event.description}</p>
+                          )}
+
+                          {/* Organizer */}
+                          <div className="mt-2 flex items-center gap-2">
+                            {inv.inviter_name && (
+                              <div className="flex items-center gap-1.5">
+                                <Avatar name={inv.inviter_name} size="xs" />
+                                <span className="text-xs text-gray-500">Invited by {inv.inviter_name}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Status badge */}
+                          <div className="mt-2">
+                            {isPending && <Badge variant="warning">Pending</Badge>}
+                            {isAccepted && <Badge variant="success">Accepted</Badge>}
+                            {isDeclined && <Badge variant="error">Declined</Badge>}
+                          </div>
+                        </div>
+
+                        {/* Actions */}
+                        <div className="flex flex-shrink-0 flex-col gap-2 sm:items-end">
+                          <Link to={`/events/${event.id}`}>
+                            <Button size="sm" variant="secondary" className="w-full sm:w-auto">
+                              View <ArrowRight className="h-3.5 w-3.5" />
+                            </Button>
+                          </Link>
+                          {isPending && (
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => handleAccept(inv)}
+                                disabled={responding === inv.id}
+                                className="bg-success-600 text-white hover:bg-success-700"
+                              >
+                                <Check className="h-3.5 w-3.5" /> Accept
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => handleDecline(inv)}
+                                disabled={responding === inv.id}
+                                className="text-error-600 hover:bg-error-50"
+                              >
+                                <X className="h-3.5 w-3.5" /> Decline
+                              </Button>
+                            </div>
+                          )}
+                          {isAccepted && isRegistered && (
+                            <Badge variant="success">Registered</Badge>
+                          )}
+                          {isAccepted && !isRegistered && (
+                            <Button size="sm" onClick={() => handleRegister(event.id)}>
+                              Register
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </CardContent>
+                  </div>
+                </Card>
+              )
+            })
+          )
+        ) : displayEvents.length === 0 ? (
           <Card>
             <CardContent>
               <EmptyState
