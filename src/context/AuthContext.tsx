@@ -8,6 +8,7 @@ type AuthContextValue = {
   profile: Profile | null
   loading: boolean
   isRecovery: boolean
+  recoveryError: string | null
   signUp: (
     email: string,
     password: string,
@@ -26,16 +27,70 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
 // Clicking a password reset link lands here with a recovery grant in the URL.
 // Supabase exchanges it for a real session, so "is there a session" cannot tell
-// a recovery visit apart from a normal login. Read the intent from the URL
-// synchronously, before any session resolves, so the reset route never races.
+// a recovery visit apart from a normal login.
+//
+// The URL is not a reliable place to keep that answer: supabase-js strips the
+// auth params with replaceState once it has consumed them, so anything that
+// re-reads the URL later — a remount, or simply losing the race against the
+// client's own initialisation — sees a plain session and treats recovery as a
+// normal login. The flag is therefore latched in sessionStorage, which is
+// scoped to this tab, so a normal session in another tab is unaffected.
+const RECOVERY_FLAG_KEY = 'rally.auth.recovery'
+const RECOVERY_ERROR_KEY = 'rally.auth.recovery_error'
+
+function readStored(key: string): string | null {
+  try {
+    return window.sessionStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+
+function writeStored(key: string, value: string | null) {
+  try {
+    if (value === null) window.sessionStorage.removeItem(key)
+    else window.sessionStorage.setItem(key, value)
+  } catch {
+    // Private mode or blocked storage: recovery still works for this render.
+  }
+}
+
+// Supabase reports the outcome in the hash for the implicit flow and the query
+// string for PKCE, so both have to be read.
+function readAuthParam(name: string): string | null {
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  const query = new URLSearchParams(window.location.search)
+  return hash.get(name) ?? query.get(name)
+}
+
+function onResetRoute(): boolean {
+  return window.location.pathname === '/reset-password'
+}
+
 function detectRecoveryFromUrl(): boolean {
   if (typeof window === 'undefined') return false
-  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
-  if (hashParams.get('type') === 'recovery') return true
-  const queryParams = new URLSearchParams(window.location.search)
-  if (queryParams.get('type') === 'recovery') return true
-  // PKCE flow arrives as /reset-password?code=... with no type parameter.
-  return window.location.pathname === '/reset-password' && queryParams.has('code')
+  if (readAuthParam('type') === 'recovery') return true
+  // PKCE arrives as /reset-password?code=... with no type parameter, and a
+  // spent or expired link arrives as /reset-password#error=... Both are the
+  // recovery flow and must not fall through to the signed-in redirect.
+  const hasCode = new URLSearchParams(window.location.search).has('code')
+  const hasError = !!readAuthParam('error') || !!readAuthParam('error_code')
+  return onResetRoute() && (hasCode || hasError)
+}
+
+function detectRecoveryErrorFromUrl(): string | null {
+  if (typeof window === 'undefined') return null
+  const error = readAuthParam('error')
+  const errorCode = readAuthParam('error_code')
+  if (!error && !errorCode) return null
+  if (!onResetRoute() && readAuthParam('type') !== 'recovery') return null
+  if (errorCode === 'otp_expired') {
+    return 'This password reset link has expired. Request a new one to continue.'
+  }
+  const description = readAuthParam('error_description')
+  return description
+    ? decodeURIComponent(description).replace(/\+/g, ' ')
+    : 'This password reset link is no longer valid.'
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -43,7 +98,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
-  const [isRecovery, setIsRecovery] = useState(detectRecoveryFromUrl)
+  const [isRecovery, setIsRecovery] = useState(
+    () => detectRecoveryFromUrl() || readStored(RECOVERY_FLAG_KEY) === '1'
+  )
+  const [recoveryError, setRecoveryError] = useState<string | null>(
+    () => detectRecoveryErrorFromUrl() ?? readStored(RECOVERY_ERROR_KEY)
+  )
+
+  // Latch both so they survive supabase-js clearing the URL, and any remount.
+  useEffect(() => {
+    writeStored(RECOVERY_FLAG_KEY, isRecovery ? '1' : null)
+  }, [isRecovery])
+
+  useEffect(() => {
+    writeStored(RECOVERY_ERROR_KEY, recoveryError)
+  }, [recoveryError])
 
   async function loadProfile(userId: string) {
     const { data, error } = await supabase
@@ -70,7 +139,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
 
     const { data: authListener } = supabase.auth.onAuthStateChange((event, newSession) => {
-      if (event === 'PASSWORD_RECOVERY') setIsRecovery(true)
+      // Authoritative signal from the client once it has consumed the grant.
+      if (event === 'PASSWORD_RECOVERY') {
+        setIsRecovery(true)
+        setRecoveryError(null)
+      }
       setSession(newSession)
       setUser(newSession?.user ?? null)
       if (newSession?.user) {
@@ -110,10 +183,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: null }
   }
 
+  // Also the way out of a recovery flow: ending the grant is what lets /login
+  // render instead of bouncing the recovery session to the dashboard.
   async function signOut() {
     await supabase.auth.signOut()
     setProfile(null)
     setIsRecovery(false)
+    setRecoveryError(null)
   }
 
   async function refreshProfile() {
@@ -131,6 +207,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.auth.updateUser({ password: newPassword })
     if (error) return { error: error.message }
     setIsRecovery(false)
+    setRecoveryError(null)
     return { error: null }
   }
 
@@ -157,7 +234,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, loading, isRecovery, signUp, signIn, signOut, refreshProfile, resetPassword, updatePassword, signInWithGoogle, signInWithLinkedIn }}>
+    <AuthContext.Provider value={{ session, user, profile, loading, isRecovery, recoveryError, signUp, signIn, signOut, refreshProfile, resetPassword, updatePassword, signInWithGoogle, signInWithLinkedIn }}>
       {children}
     </AuthContext.Provider>
   )

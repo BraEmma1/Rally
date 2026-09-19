@@ -22,7 +22,7 @@ import OpportunityDetailPage from '@/pages/opportunities/OpportunityDetailPage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
 
 function ProtectedRoute({ children, requireComplete = false }: { children: React.ReactNode; requireComplete?: boolean }) {
-  const { session, profile, loading } = useAuth()
+  const { session, profile, loading, isRecovery } = useAuth()
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -31,6 +31,10 @@ function ProtectedRoute({ children, requireComplete = false }: { children: React
     )
   }
   if (!session) return <Navigate to="/login" replace />
+  // A recovery grant is a session, but it is not a sign-in: it came from opening
+  // a link in an inbox, not from proving knowledge of the password. Keep it on
+  // the reset screen until a new password is set or the user signs out.
+  if (isRecovery) return <Navigate to="/reset-password" replace />
   if (requireComplete && profile && !isProfileComplete(profile)) {
     return <Navigate to="/onboarding" replace />
   }
@@ -50,9 +54,12 @@ export default function App() {
 
   return (
     <Routes>
-      <Route path="/login" element={session ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
-      <Route path="/signup" element={session ? <Navigate to="/dashboard" replace /> : <SignUpPage />} />
-      <Route path="/forgot-password" element={session ? <Navigate to="/dashboard" replace /> : <ForgotPasswordPage />} />
+      {/* `session && !isRecovery` throughout: during recovery a session exists,
+          and treating it as a normal sign-in is what sent "Back to sign in" to
+          the dashboard instead of the login screen. */}
+      <Route path="/login" element={session && !isRecovery ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+      <Route path="/signup" element={session && !isRecovery ? <Navigate to="/dashboard" replace /> : <SignUpPage />} />
+      <Route path="/forgot-password" element={session && !isRecovery ? <Navigate to="/dashboard" replace /> : <ForgotPasswordPage />} />
       {/* A recovery link signs the user in before they reach this page, so the
           form has to stay reachable while a session exists. */}
       <Route
