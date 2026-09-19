@@ -36,9 +36,8 @@ interface InvitationWithEvent extends EventInvitation {
 }
 
 export default function EventsPage() {
-  const { user, profile } = useAuth()
+  const { user } = useAuth()
   const { refresh: refreshNotifications } = useNotifications()
-  const profileName = profile?.full_name || 'Someone'
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [events, setEvents] = useState<EventRow[]>([])
@@ -67,14 +66,16 @@ export default function EventsPage() {
       setEvents(eventList)
       setRegistrations(new Set((regRes.data as EventRegistration[]).map((r) => r.event_id)))
 
-      // Get registration counts for all events
+      // Aggregate counts come from an RPC: registration rows are now visible
+      // only to fellow attendees, and this is one call instead of one per event.
       const counts: Record<string, number> = {}
-      for (const event of eventList) {
-        const { count } = await supabase
-          .from('event_registrations')
-          .select('id', { count: 'exact', head: true })
-          .eq('event_id', event.id)
-        counts[event.id] = count ?? 0
+      if (eventList.length > 0) {
+        const { data: countRows } = await supabase.rpc('get_event_registration_counts', {
+          event_ids: eventList.map((e) => e.id),
+        })
+        for (const row of (countRows as { event_id: string; registration_count: number }[]) || []) {
+          counts[row.event_id] = Number(row.registration_count) || 0
+        }
       }
       setRegistrationCounts(counts)
 
@@ -85,10 +86,9 @@ export default function EventsPage() {
         for (const e of eventList) eventMap.set(e.id, e)
 
         const inviterIds = [...new Set(inviteList.map((i) => i.invited_by))]
-        const { data: inviterProfiles } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .in('id', inviterIds)
+        const { data: inviterProfiles } = await supabase.rpc('get_public_profiles', {
+          profile_ids: inviterIds,
+        })
         const inviterMap = new Map<string, string>()
         for (const p of (inviterProfiles as { id: string; full_name: string }[]) || []) {
           inviterMap.set(p.id, p.full_name)
@@ -166,14 +166,8 @@ export default function EventsPage() {
         .eq('invited_user_id', user.id)
       if (updateError) throw updateError
 
-      // Notify the inviter that their invitation was accepted
-      await supabase.from('notifications').insert({
-        user_id: inv.invited_by,
-        type: 'invitation_accepted',
-        title: 'Invitation accepted',
-        message: `${profileName} accepted your invitation to ${inv.event?.name || 'your event'}.`,
-        link: `/events/${inv.event_id}`,
-      })
+      // Server reads the invitation's status and composes the message for the inviter.
+      await supabase.rpc('notify_invitation_response', { invitation_id: inv.id })
       refreshNotifications()
 
       // Register for event (prevent duplicate)
@@ -206,13 +200,7 @@ export default function EventsPage() {
       if (updateError) throw updateError
 
       // Notify the inviter that their invitation was declined
-      await supabase.from('notifications').insert({
-        user_id: inv.invited_by,
-        type: 'invitation_declined',
-        title: 'Invitation declined',
-        message: `${profileName} declined your invitation to ${inv.event?.name || 'your event'}.`,
-        link: `/events/${inv.event_id}`,
-      })
+      await supabase.rpc('notify_invitation_response', { invitation_id: inv.id })
       refreshNotifications()
       setInvitations(invitations.map((i) => i.id === inv.id ? { ...i, status: 'Declined', responded_at: new Date().toISOString() } : i))
     } catch (err) {

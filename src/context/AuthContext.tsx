@@ -7,7 +7,12 @@ type AuthContextValue = {
   user: User | null
   profile: Profile | null
   loading: boolean
-  signUp: (email: string, password: string, fullName: string) => Promise<{ error: string | null }>
+  isRecovery: boolean
+  signUp: (
+    email: string,
+    password: string,
+    fullName: string
+  ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
@@ -18,11 +23,26 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 
+// Clicking a password reset link lands here with a recovery grant in the URL.
+// Supabase exchanges it for a real session, so "is there a session" cannot tell
+// a recovery visit apart from a normal login. Read the intent from the URL
+// synchronously, before any session resolves, so the reset route never races.
+function detectRecoveryFromUrl(): boolean {
+  if (typeof window === 'undefined') return false
+  const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''))
+  if (hashParams.get('type') === 'recovery') return true
+  const queryParams = new URLSearchParams(window.location.search)
+  if (queryParams.get('type') === 'recovery') return true
+  // PKCE flow arrives as /reset-password?code=... with no type parameter.
+  return window.location.pathname === '/reset-password' && queryParams.has('code')
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [isRecovery, setIsRecovery] = useState(detectRecoveryFromUrl)
 
   async function loadProfile(userId: string) {
     const { data, error } = await supabase
@@ -48,7 +68,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (event === 'PASSWORD_RECOVERY') setIsRecovery(true)
       setSession(newSession)
       setUser(newSession?.user ?? null)
       if (newSession?.user) {
@@ -68,13 +89,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   async function signUp(email: string, password: string, fullName: string) {
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: fullName } },
+      options: {
+        data: { full_name: fullName },
+        emailRedirectTo: `${window.location.origin}/login`,
+      },
     })
-    if (error) return { error: error.message }
-    return { error: null }
+    if (error) return { error: error.message, needsEmailConfirmation: false }
+    // With email confirmation on, Supabase returns a user but no session until
+    // the address is verified. The caller must not route into the app yet.
+    return { error: null, needsEmailConfirmation: !data.session }
   }
 
   async function signIn(email: string, password: string) {
@@ -86,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signOut() {
     await supabase.auth.signOut()
     setProfile(null)
+    setIsRecovery(false)
   }
 
   async function refreshProfile() {
@@ -102,6 +129,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function updatePassword(newPassword: string) {
     const { error } = await supabase.auth.updateUser({ password: newPassword })
     if (error) return { error: error.message }
+    setIsRecovery(false)
     return { error: null }
   }
 
@@ -117,7 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, loading, signUp, signIn, signOut, refreshProfile, resetPassword, updatePassword, signInWithGoogle }}>
+    <AuthContext.Provider value={{ session, user, profile, loading, isRecovery, signUp, signIn, signOut, refreshProfile, resetPassword, updatePassword, signInWithGoogle }}>
       {children}
     </AuthContext.Provider>
   )

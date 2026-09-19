@@ -1,15 +1,16 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Users, Mail, Phone, Globe, Linkedin, MapPin, Briefcase, Building2 } from 'lucide-react'
-import { supabase, type Profile } from '@/lib/supabase'
+import { Users, Globe, Linkedin, MapPin, Briefcase, Building2 } from 'lucide-react'
+import { supabase, type PublicProfile } from '@/lib/supabase'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Card, CardContent } from '@/components/ui/Card'
 import { LoadingState, ErrorState } from '@/components/ui/States'
+import { normalizeUrl, displayUrl } from '@/lib/utils'
 
 export default function PublicProfilePage() {
   const { id } = useParams<{ id: string }>()
-  const [profile, setProfile] = useState<Profile | null>(null)
+  const [profile, setProfile] = useState<PublicProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -19,10 +20,10 @@ export default function PublicProfilePage() {
       setLoading(false)
       return
     }
+    // Scoped RPC: returns the public professional card for this one id only.
+    // Email and phone are deliberately not part of it.
     supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', id)
+      .rpc('get_public_profile', { profile_id: id })
       .maybeSingle()
       .then(({ data, error: queryError }) => {
         if (queryError) {
@@ -30,7 +31,7 @@ export default function PublicProfilePage() {
         } else if (!data) {
           setError('Profile not found.')
         } else {
-          setProfile(data as Profile)
+          setProfile(data as PublicProfile)
         }
         setLoading(false)
       })
@@ -53,7 +54,9 @@ export default function PublicProfilePage() {
   }
 
   const displayName = profile.full_name || 'Professional'
-  const hasContact = profile.email || profile.phone || profile.linkedin || profile.website
+  const linkedinUrl = normalizeUrl(profile.linkedin)
+  const websiteUrl = normalizeUrl(profile.website)
+  const hasContact = linkedinUrl || websiteUrl
   const hasNetworking = profile.looking_for || profile.can_offer
 
   return (
@@ -129,24 +132,14 @@ export default function PublicProfilePage() {
               <Card>
                 <CardContent className="space-y-3 pt-5">
                   <h2 className="text-base font-semibold text-gray-900">Contact & Links</h2>
-                  {profile.email && (
-                    <a href={`mailto:${profile.email}`} className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                      <Mail className="h-4 w-4 text-gray-400" /> {profile.email}
+                  {linkedinUrl && (
+                    <a href={linkedinUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
+                      <Linkedin className="h-4 w-4 text-gray-400" /> {displayUrl(linkedinUrl)}
                     </a>
                   )}
-                  {profile.phone && (
-                    <a href={`tel:${profile.phone}`} className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                      <Phone className="h-4 w-4 text-gray-400" /> {profile.phone}
-                    </a>
-                  )}
-                  {profile.linkedin && (
-                    <a href={profile.linkedin} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                      <Linkedin className="h-4 w-4 text-gray-400" /> {profile.linkedin.replace(/^https?:\/\//, '')}
-                    </a>
-                  )}
-                  {profile.website && (
-                    <a href={profile.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                      <Globe className="h-4 w-4 text-gray-400" /> {profile.website.replace(/^https?:\/\//, '')}
+                  {websiteUrl && (
+                    <a href={websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
+                      <Globe className="h-4 w-4 text-gray-400" /> {displayUrl(websiteUrl)}
                     </a>
                   )}
                 </CardContent>

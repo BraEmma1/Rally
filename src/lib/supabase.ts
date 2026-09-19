@@ -34,6 +34,30 @@ export type Profile = {
   updated_at: string
 }
 
+// What another user is allowed to see: the public professional card.
+// Returned by the get_public_profile / get_public_profiles RPCs — no email or phone.
+export type PublicProfile = {
+  id: string
+  full_name: string
+  photo_url: string
+  job_title: string
+  company: string
+  industry: string
+  location: string
+  bio: string
+  looking_for: string
+  can_offer: string
+  linkedin: string
+  website: string
+}
+
+// The card plus contact details, returned by get_connect_profile for the
+// QR / share-link flow where the two parties are deliberately exchanging details.
+export type ConnectProfile = PublicProfile & {
+  email: string
+  phone: string
+}
+
 export type Connection = {
   id: string
   owner_id: string
@@ -50,6 +74,7 @@ export type Connection = {
   photo_url: string
   relationship_type: string
   event_name: string
+  event_id: string | null
   follow_up_date: string | null
   status: string
   created_at: string
@@ -144,6 +169,7 @@ export type Opportunity = {
   value: number
   expected_close_date: string | null
   event_name: string
+  event_id: string | null
   created_at: string
   updated_at: string
 }

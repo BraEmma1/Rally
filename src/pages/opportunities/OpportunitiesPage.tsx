@@ -117,6 +117,7 @@ export default function OpportunitiesPage() {
       stage: form.stage,
       expected_close_date: form.expected_close_date || null,
       event_name: conn?.event_name || '',
+      event_id: conn?.event_id ?? null,
     }
 
     const { error: insertError } = await supabase.from('opportunities').insert(payload)

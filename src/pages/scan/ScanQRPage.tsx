@@ -2,7 +2,8 @@ import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { QrCode, Keyboard, ArrowRight, Check, Link2, AlertCircle, UserPlus } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
-import { supabase, type Profile, RELATIONSHIP_TYPES } from '@/lib/supabase'
+import { supabase, type ConnectProfile, RELATIONSHIP_TYPES } from '@/lib/supabase'
+import { normalizeUrl } from '@/lib/utils'
 import { QRScanner } from '@/components/ui/QRScanner'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
@@ -17,7 +18,7 @@ export default function ScanQRPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const [step, setStep] = useState<Step>('choose')
-  const [targetProfile, setTargetProfile] = useState<Profile | null>(null)
+  const [targetProfile, setTargetProfile] = useState<ConnectProfile | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
 
   const [manualInput, setManualInput] = useState('')
@@ -42,10 +43,11 @@ export default function ScanQRPage() {
   async function loadProfile(profileId: string) {
     setStep('loading')
     setErrorMsg('')
+    // Scanning someone's code is the deliberate contact exchange, so this RPC
+    // returns their card including email/phone. It only ever resolves the one
+    // id handed to it — the profiles table itself is not readable.
     const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', profileId)
+      .rpc('get_connect_profile', { profile_id: profileId })
       .maybeSingle()
 
     if (error) {
@@ -59,7 +61,7 @@ export default function ScanQRPage() {
       return
     }
 
-    const profile = data as Profile
+    const profile = data as ConnectProfile
 
     // Self-scan check
     if (user && profile.id === user.id) {
@@ -127,8 +129,8 @@ export default function ScanQRPage() {
         location: targetProfile.location || '',
         email: targetProfile.email || '',
         phone: targetProfile.phone || '',
-        linkedin: targetProfile.linkedin || '',
-        website: targetProfile.website || '',
+        linkedin: normalizeUrl(targetProfile.linkedin) || '',
+        website: normalizeUrl(targetProfile.website) || '',
         photo_url: targetProfile.photo_url || '',
         relationship_type: context.relationship_type,
         follow_up_date: context.follow_up_date || null,
@@ -142,19 +144,11 @@ export default function ScanQRPage() {
       return
     }
 
-    // Notify the scanned user that they have a new connection
-    const { data: meProfile } = await supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', user.id)
-      .maybeSingle()
-    await supabase.from('notifications').insert({
-      user_id: targetProfile.id,
-      type: 'new_connection',
-      title: 'New connection',
-      message: `${meProfile?.full_name || 'Someone'} added you as a connection on Rally.`,
-      link: '/connections',
-    })
+    // The server derives recipient and wording from the connection row itself;
+    // clients can no longer address notifications to other users directly.
+    if (connData) {
+      await supabase.rpc('notify_new_connection', { connection_id: connData.id })
+    }
 
     if (context.note.trim() && connData) {
       await supabase.from('notes').insert({

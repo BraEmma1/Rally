@@ -1,11 +1,12 @@
 import type { Profile } from '@/lib/supabase'
 
+// The fields the onboarding form marks with * and refuses to submit without.
+// The route guard and the form both read this list so they cannot drift apart —
+// a guard demanding more than the form collects would loop onboarding forever.
 export const REQUIRED_FIELDS: (keyof Profile)[] = [
   'full_name',
   'job_title',
   'company',
-  'industry',
-  'location',
   'bio',
 ]
 

@@ -13,7 +13,7 @@ import {
   AlertCircle,
   ArrowRight,
 } from 'lucide-react'
-import { supabase, type EventRow, type Profile, type Connection, type EventRegistration, RELATIONSHIP_TYPES } from '@/lib/supabase'
+import { supabase, type EventRow, type PublicProfile, type ConnectProfile, type Connection, type EventRegistration, RELATIONSHIP_TYPES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import { Avatar } from '@/components/ui/Avatar'
@@ -23,7 +23,7 @@ import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
 import { QRScanner } from '@/components/ui/QRScanner'
-import { formatDate } from '@/lib/utils'
+import { formatDate, normalizeUrl } from '@/lib/utils'
 
 function formatTime(time: string | null): string {
   if (!time) return ''
@@ -64,7 +64,7 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<EventRow | null>(null)
   const [isRegistered, setIsRegistered] = useState(false)
   const [attendeeCount, setAttendeeCount] = useState(0)
-  const [attendees, setAttendees] = useState<Profile[]>([])
+  const [attendees, setAttendees] = useState<PublicProfile[]>([])
   const [attendeeLoading, setAttendeeLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<Tab>('about')
@@ -75,7 +75,7 @@ export default function EventDetailPage() {
 
   // Connection flow state
   const [connectState, setConnectState] = useState<ConnectState>('idle')
-  const [targetProfile, setTargetProfile] = useState<Profile | null>(null)
+  const [targetProfile, setTargetProfile] = useState<ConnectProfile | null>(null)
   const [connectError, setConnectError] = useState('')
   const [connecting, setConnecting] = useState(false)
   const [context, setContext] = useState({ note: '', relationship_type: 'Other' as string, follow_up_date: '' })
@@ -105,12 +105,13 @@ export default function EventDetailPage() {
       setEvent(eventData)
       setIsRegistered(!!regRes.data)
 
-      // Attendee count
-      const { count } = await supabase
-        .from('event_registrations')
-        .select('id', { count: 'exact', head: true })
-        .eq('event_id', id)
-      setAttendeeCount(count ?? 0)
+      // Aggregate-only RPC: the count stays public while the registration rows
+      // behind it are visible to fellow attendees only.
+      const { data: countRows } = await supabase.rpc('get_event_registration_counts', {
+        event_ids: [id],
+      })
+      const countRow = (countRows as { event_id: string; registration_count: number }[] | null)?.[0]
+      setAttendeeCount(Number(countRow?.registration_count) || 0)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load event.')
     } finally {
@@ -133,22 +134,21 @@ export default function EventDetailPage() {
     }
 
     const userIds = (regs as EventRegistration[]).map((r) => r.user_id)
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('*')
-      .in('id', userIds)
+    const { data: profiles } = await supabase.rpc('get_public_profiles', {
+      profile_ids: userIds,
+    })
 
-    setAttendees((profiles as Profile[]) || [])
+    setAttendees((profiles as PublicProfile[]) || [])
     setAttendeeLoading(false)
   }
 
   async function loadMyEventConnections() {
-    if (!id || !user || !event) return
+    if (!id || !user) return
     const { data } = await supabase
       .from('connections')
       .select('*')
       .eq('owner_id', user.id)
-      .eq('event_name', event.name)
+      .eq('event_id', id)
       .order('created_at', { ascending: false })
     setMyEventConnections((data as Connection[]) || [])
   }
@@ -211,10 +211,10 @@ export default function EventDetailPage() {
 
   // --- Connection flow ---
 
-  function startConnect(profile: Profile) {
-    setTargetProfile(profile)
-    setConnectState('profile')
-    setConnectError('')
+  // Goes through the same lookup as a scan so the attendee path also gets the
+  // contact card, the self-check and the duplicate-connection check.
+  function startConnect(profile: PublicProfile) {
+    loadProfileById(profile.id)
   }
 
   async function handleScan(data: string) {
@@ -232,9 +232,7 @@ export default function EventDetailPage() {
     setConnectState('idle')
     setConnectError('')
     const { data: profileData, error: profileError } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', profileId)
+      .rpc('get_connect_profile', { profile_id: profileId })
       .maybeSingle()
 
     if (profileError) {
@@ -248,7 +246,7 @@ export default function EventDetailPage() {
       return
     }
 
-    const profile = profileData as Profile
+    const profile = profileData as ConnectProfile
 
     if (user && profile.id === user.id) {
       setConnectError("That's your own QR code! You can't connect with yourself.")
@@ -293,11 +291,12 @@ export default function EventDetailPage() {
         location: targetProfile.location || '',
         email: targetProfile.email || '',
         phone: targetProfile.phone || '',
-        linkedin: targetProfile.linkedin || '',
-        website: targetProfile.website || '',
+        linkedin: normalizeUrl(targetProfile.linkedin) || '',
+        website: normalizeUrl(targetProfile.website) || '',
         photo_url: targetProfile.photo_url || '',
         relationship_type: context.relationship_type,
         event_name: event.name,
+        event_id: event.id,
         follow_up_date: context.follow_up_date || null,
       })
       .select()
@@ -317,19 +316,10 @@ export default function EventDetailPage() {
       })
     }
 
-    // Notify the connected user that they have a new connection
-    const { data: meProfile } = await supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', user.id)
-      .maybeSingle()
-    await supabase.from('notifications').insert({
-      user_id: targetProfile.id,
-      type: 'new_connection',
-      title: 'New connection',
-      message: `${meProfile?.full_name || 'Someone'} added you as a connection on Rally.`,
-      link: '/connections',
-    })
+    // Recipient and wording are derived server-side from the connection row.
+    if (connData) {
+      await supabase.rpc('notify_new_connection', { connection_id: connData.id })
+    }
     refreshNotifications()
 
     setConnecting(false)

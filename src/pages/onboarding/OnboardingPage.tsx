@@ -8,7 +8,8 @@ import { Input, Textarea, Label, Select } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { PhotoUpload } from '@/components/ui/PhotoUpload'
 import { LoadingState, ErrorState } from '@/components/ui/States'
-import { INDUSTRIES, getCompletionPercentage, isFieldFilled, ALL_PROFILE_FIELDS, FIELD_LABELS } from '@/lib/profile'
+import { INDUSTRIES, getCompletionPercentage, isFieldFilled, ALL_PROFILE_FIELDS, FIELD_LABELS, getMissingRequiredFields } from '@/lib/profile'
+import { normalizeUrl } from '@/lib/utils'
 
 export default function OnboardingPage() {
   const { user, profile, refreshProfile } = useAuth()
@@ -50,20 +51,22 @@ export default function OnboardingPage() {
     if (!user) return
     setError(null)
 
-    if (!form.full_name?.trim()) {
-      setError('Full name is required.')
+    // Same source of truth the route guard uses, so a saved profile always
+    // satisfies the guard and cannot bounce back here.
+    const missing = getMissingRequiredFields(form)
+    if (missing.length > 0) {
+      setError(`${FIELD_LABELS[missing[0]]} is required.`)
       return
     }
-    if (!form.job_title?.trim()) {
-      setError('Job title is required.')
+
+    const linkedinUrl = form.linkedin?.trim() ? normalizeUrl(form.linkedin) : ''
+    if (linkedinUrl === null) {
+      setError('LinkedIn must be a valid http(s) link.')
       return
     }
-    if (!form.company?.trim()) {
-      setError('Company is required.')
-      return
-    }
-    if (!form.bio?.trim()) {
-      setError('A short bio is required.')
+    const websiteUrl = form.website?.trim() ? normalizeUrl(form.website) : ''
+    if (websiteUrl === null) {
+      setError('Website must be a valid http(s) link.')
       return
     }
 
@@ -80,8 +83,8 @@ export default function OnboardingPage() {
         bio: form.bio || '',
         looking_for: form.looking_for || '',
         can_offer: form.can_offer || '',
-        linkedin: form.linkedin || '',
-        website: form.website || '',
+        linkedin: linkedinUrl,
+        website: websiteUrl,
         email: form.email || '',
         phone: form.phone || '',
         updated_at: new Date().toISOString(),
