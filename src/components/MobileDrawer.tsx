@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
+  Building2,
   Users,
   QrCode,
   Calendar,
@@ -13,10 +14,13 @@ import {
   X,
   MailOpen,
   ChevronDown,
+  ArrowRight,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
+import { useOrganizer } from '@/context/OrganizerContext'
+import { ORG_ROLE_LABELS } from '@/lib/supabase'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
 
@@ -42,6 +46,7 @@ const eventSubItems: DrawerItem[] = [
 export default function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { profile, user, signOut } = useAuth()
   const { unreadCount } = useNotifications()
+  const { memberships, loading: orgLoading, selectOrganization } = useOrganizer()
   const [rendered, setRendered] = useState(open)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
@@ -254,6 +259,41 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
               </div>
             )}
           </div>
+
+          <div className="mx-5 my-3 border-t border-gray-200" role="presentation" />
+
+          {/* Organization memberships. Only ever shown once loaded and only for
+              real memberships, so a revoked or absent membership leaves no
+              trace and a loading drawer leaks nothing. */}
+          {!orgLoading && memberships.length > 0 && (
+            <div className="py-2" role="group" aria-label="My organizations">
+              <p className="px-5 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                My Organizations
+              </p>
+              {memberships.map((m) => (
+                <NavLink
+                  key={m.organization.id}
+                  to="/organizer"
+                  onClick={() => {
+                    selectOrganization(m.organization.id)
+                    onClose()
+                  }}
+                  className="flex w-full items-center gap-3 px-5 py-3 text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
+                    <Building2 className="h-4.5 w-4.5" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{m.organization.name}</span>
+                    <span className="block truncate text-xs font-normal text-gray-500">
+                      {ORG_ROLE_LABELS[m.role]}
+                    </span>
+                  </span>
+                  <ArrowRight className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                </NavLink>
+              ))}
+            </div>
+          )}
 
           <div className="mx-5 my-3 border-t border-gray-200" role="presentation" />
 

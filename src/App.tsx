@@ -1,8 +1,16 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { OrganizerProvider, useOrganizer } from '@/context/OrganizerContext'
+import {
+  OrganizerProvider,
+  useOrganizer,
+} from '@/context/OrganizerContext'
 import { isProfileComplete } from '@/lib/profile'
-import { accountHomePath, isActiveAttendee, isActiveOrganizer, isActivePlatformAdmin } from '@/lib/routing'
+import {
+  accountHomePath,
+  isActiveAttendee,
+  isActiveOrganizer,
+  isActivePlatformAdmin,
+} from '@/lib/routing'
 import { Spinner } from '@/components/ui/States'
 import AppLayout from '@/components/AppLayout'
 import OrganizerLayout from '@/components/OrganizerLayout'
@@ -83,6 +91,26 @@ function RequireCompleteProfile({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// An active organization membership — owner, admin or event manager — opens the
+// organization area, whatever the person's primary account type is. An attendee
+// on a team and an organizer account both pass; what each may do inside is
+// decided by the backend, page by page, from the same membership.
+function RequireOrganizationAccess({ children }: { children: React.ReactNode }) {
+  const { memberships, loading } = useOrganizer()
+  const { account } = useAuth()
+  if (loading) return <FullPageSpinner />
+  if (memberships.length === 0) {
+    // An organizer account with no organization yet still owns this area: the
+    // inner guard sends them to setup. Anyone else — an attendee whose
+    // membership was revoked, say — has no organization home to show.
+    if (account?.account_type === 'organizer' && account.status === 'active') {
+      return <>{children}</>
+    }
+    return <Navigate to={accountHomePath(account)} replace />
+  }
+  return <>{children}</>
+}
+
 // An organizer with no organization has nothing to show, so the organizer area
 // redirects to setup until they have one — except setup itself, which is where
 // they either create one or accept an invitation to join one.
@@ -115,7 +143,8 @@ export default function App() {
   const home = accountHomePath(account)
 
   return (
-    <Routes>
+    <OrganizerProvider>
+      <Routes>
       {/* `session && !isRecovery` throughout: during recovery a session exists,
           and treating it as a normal sign-in is what sent "Back to sign in" to
           the dashboard instead of the login screen. */}
@@ -160,16 +189,15 @@ export default function App() {
       />
 
       {/* ------------------------------------------------------------------ */}
-      {/* Organizer                                                           */}
+      {/* Organizer — entry by account type (organizer) OR by an active        */}
+      {/* organization membership (e.g. an attendee on a team).                */}
       {/* ------------------------------------------------------------------ */}
       <Route
         path="/organizer/setup"
         element={
           <ProtectedRoute>
             <RequireAccount allow={isActiveOrganizer}>
-              <OrganizerProvider>
-                <OrganizationSetupPage />
-              </OrganizerProvider>
+              <OrganizationSetupPage />
             </RequireAccount>
           </ProtectedRoute>
         }
@@ -177,13 +205,11 @@ export default function App() {
       <Route
         element={
           <ProtectedRoute>
-            <RequireAccount allow={isActiveOrganizer}>
-              <OrganizerProvider>
-                <RequireOrganization>
-                  <OrganizerLayout />
-                </RequireOrganization>
-              </OrganizerProvider>
-            </RequireAccount>
+            <RequireOrganizationAccess>
+              <RequireOrganization>
+                <OrganizerLayout />
+              </RequireOrganization>
+            </RequireOrganizationAccess>
           </ProtectedRoute>
         }
       >
@@ -244,6 +270,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
-    </Routes>
+      </Routes>
+    </OrganizerProvider>
   )
 }

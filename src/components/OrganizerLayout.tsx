@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
+  ArrowLeft,
   Bell,
   Building2,
   CalendarRange,
@@ -109,13 +110,17 @@ function OrganizationSwitcher({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export default function OrganizerLayout() {
-  const { signOut } = useAuth()
+  const { signOut, account } = useAuth()
   const { role, organization } = useOrganizer()
   const { unreadCount } = useNotifications()
   const location = useLocation()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+
+  // An attendee on the team gets a way back to their own Rally; a full
+  // organizer account has no attendee home to return to.
+  const isAttendeeAccount = account?.account_type === 'attendee'
 
   async function handleSignOut() {
     await signOut()
@@ -179,6 +184,17 @@ export default function OrganizerLayout() {
         <div className="flex-1 px-3 py-4">{nav()}</div>
 
         <div className="border-t border-gray-200 p-3">
+          {/* Context switch back to the attendee experience — not an account
+              switch; the account never changed. */}
+          {isAttendeeAccount && (
+            <button
+              onClick={() => navigate('/dashboard')}
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to My Rally
+            </button>
+          )}
           <button
             onClick={handleSignOut}
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
