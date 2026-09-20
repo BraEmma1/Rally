@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Building2, ChevronDown, LayoutDashboard, LogOut, Mail, Menu, Settings, Users, X } from 'lucide-react'
+import { Building2, CalendarRange, ChevronDown, LayoutDashboard, LogOut, Mail, Menu, Settings, UserCircle, Users, X } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useOrganizer } from '@/context/OrganizerContext'
 import { Avatar } from '@/components/ui/Avatar'
@@ -9,9 +9,11 @@ import { cn } from '@/lib/utils'
 
 const navItems = [
   { to: '/organizer', label: 'Dashboard', icon: LayoutDashboard, end: true },
+  { to: '/organizer/events', label: 'Events', icon: CalendarRange, end: false },
+  { to: '/organizer/people', label: 'People', icon: UserCircle, end: false },
   { to: '/organizer/team', label: 'Team', icon: Users, end: false },
   { to: '/organizer/invitations', label: 'My invitations', icon: Mail, end: false },
-  { to: '/organizer/settings', label: 'Organization', icon: Settings, end: false },
+  { to: '/organizer/settings', label: 'Settings', icon: Settings, end: false },
 ]
 
 function OrganizationSwitcher({ onNavigate }: { onNavigate?: () => void }) {
