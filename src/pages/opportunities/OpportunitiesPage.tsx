@@ -268,7 +268,7 @@ export default function OpportunitiesPage() {
       </div>
 
       {/* List */}
-      <div className="mt-4 space-y-2">
+      <div className="mt-4 space-y-3">
         {filtered.length === 0 ? (
           <Card>
             <CardContent>

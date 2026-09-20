@@ -65,7 +65,7 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      <div className="mt-6 space-y-2">
+      <div className="mt-6 space-y-3">
         {notifications.length === 0 ? (
           <Card>
             <CardContent>

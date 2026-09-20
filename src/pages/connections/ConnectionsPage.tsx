@@ -263,7 +263,7 @@ export default function ConnectionsPage() {
             </Card>
           )
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {filtered.map((conn) => {
               const upcomingFollowUps = followUpMap[conn.id] || []
               const nextFollowUp = upcomingFollowUps[0]
