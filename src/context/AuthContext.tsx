@@ -145,6 +145,26 @@ function detectRecoveryErrorFromUrl(): string | null {
     : 'This password reset link is no longer valid.'
 }
 
+// In the preview sandbox the browser's network access can drop momentarily;
+// supabase-js then surfaces a raw "Failed to fetch". Detect it so callers can
+// show a recovery hint instead of a browser-internal message.
+function isNetworkError(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    m.includes('failed to fetch') ||
+    m.includes('networkerror') ||
+    m.includes('load failed') ||
+    m.includes('network request failed')
+  )
+}
+
+const NETWORK_ERROR_MESSAGE =
+  'Could not reach the server. Check your connection and try again — if you are offline, sign-in will work once the connection is back.'
+
+function authErrorMessage(message: string): string {
+  return isNetworkError(message) ? NETWORK_ERROR_MESSAGE : message
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
@@ -270,7 +290,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     })
-    if (error) return { error: error.message, needsEmailConfirmation: false }
+    if (error) return { error: authErrorMessage(error.message), needsEmailConfirmation: false }
     // With email confirmation on, Supabase returns a user but no session until
     // the address is verified. The caller must not route into the app yet.
     return { error: null, needsEmailConfirmation: !data.session }
@@ -278,7 +298,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function signIn(email: string, password: string) {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) return { error: error.message }
+    if (error) return { error: authErrorMessage(error.message) }
     return { error: null }
   }
 
@@ -306,7 +326,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function resetPassword(email: string) {
     const redirectTo = `${window.location.origin}/reset-password`
     const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo })
-    if (error) return { error: error.message }
+    if (error) return { error: authErrorMessage(error.message) }
     return { error: null }
   }
 
@@ -334,7 +354,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         redirectTo: `${window.location.origin}/auth/callback`,
       },
     })
-    if (error) return { error: friendlyOAuthError(error.message) }
+    if (error) return { error: isNetworkError(error.message) ? NETWORK_ERROR_MESSAGE : friendlyOAuthError(error.message) }
     return { error: null }
   }
 

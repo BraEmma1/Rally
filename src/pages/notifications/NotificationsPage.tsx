@@ -65,7 +65,7 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      <div className="mt-6 space-y-2">
+      <div className="mt-6">
         {notifications.length === 0 ? (
           <Card>
             <CardContent>
@@ -82,7 +82,7 @@ export default function NotificationsPage() {
             const label = NOTIFICATION_TYPE_LABELS[n.type] || 'Notification'
             const content = (
               <Card
-                className={`transition-colors ${n.read ? '' : 'border-primary-200 bg-primary-50/40 hover:bg-primary-50/60'}`}
+                className={`mb-3 transition-colors ${n.read ? '' : 'border-primary-200 bg-primary-50/40 hover:bg-primary-50/60'}`}
               >
                 <CardContent className="flex items-start gap-3 py-3">
                   <div className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md ${n.read ? 'bg-gray-100' : 'bg-white'}`}>

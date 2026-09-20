@@ -268,7 +268,7 @@ export default function OpportunitiesPage() {
       </div>
 
       {/* List */}
-      <div className="mt-4 space-y-2">
+      <div className="mt-4">
         {filtered.length === 0 ? (
           <Card>
             <CardContent>
@@ -283,7 +283,7 @@ export default function OpportunitiesPage() {
         ) : (
           filtered.map((opp) => (
             <Link key={opp.id} to={`/opportunities/${opp.id}`}>
-              <Card className="transition-colors hover:border-primary-300 hover:bg-primary-50/30">
+              <Card className="mb-3 transition-colors hover:border-primary-300 hover:bg-primary-50/30">
                 <CardContent className="flex items-center gap-3 py-3">
                   {opp.connection && (
                     <Avatar name={opp.connection.full_name || '?'} src={opp.connection.photo_url} size="md" />

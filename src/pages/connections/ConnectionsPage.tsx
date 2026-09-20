@@ -263,14 +263,14 @@ export default function ConnectionsPage() {
             </Card>
           )
         ) : (
-          <div className="space-y-2">
+          <div>
             {filtered.map((conn) => {
               const upcomingFollowUps = followUpMap[conn.id] || []
               const nextFollowUp = upcomingFollowUps[0]
               const isOverdue = nextFollowUp && new Date(nextFollowUp.due_date) < new Date(new Date().toDateString())
               return (
                 <Link key={conn.id} to={`/connections/${conn.id}`}>
-                  <Card className="transition-colors hover:border-primary-300 hover:bg-primary-50/30">
+                  <Card className="mb-3 transition-colors hover:border-primary-300 hover:bg-primary-50/30">
                     <CardContent className="flex items-center gap-3 py-3">
                       <Avatar name={conn.full_name} src={conn.photo_url} size="md" />
                       <div className="min-w-0 flex-1">

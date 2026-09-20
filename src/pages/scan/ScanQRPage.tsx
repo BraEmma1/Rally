@@ -1,9 +1,9 @@
-import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState, useEffect, type FormEvent } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { QrCode, Keyboard, ArrowRight, Check, Link2, AlertCircle, UserPlus } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { supabase, type ConnectProfile, RELATIONSHIP_TYPES } from '@/lib/supabase'
-import { normalizeUrl } from '@/lib/utils'
+import { normalizeUrl, extractProfileId } from '@/lib/utils'
 import { QRScanner } from '@/components/ui/QRScanner'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
@@ -17,6 +17,7 @@ type Step = 'choose' | 'scan' | 'manual' | 'loading' | 'profile' | 'context' | '
 export default function ScanQRPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [step, setStep] = useState<Step>('choose')
   const [targetProfile, setTargetProfile] = useState<ConnectProfile | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
@@ -30,15 +31,27 @@ export default function ScanQRPage() {
   })
   const [connecting, setConnecting] = useState(false)
 
-  function extractProfileId(raw: string): string | null {
-    const trimmed = raw.trim()
-    // Full URL: .../p/<uuid>
-    const urlMatch = trimmed.match(/\/p\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i)
-    if (urlMatch) return urlMatch[1]
-    // Bare UUID
-    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed)) return trimmed
-    return null
-  }
+  // The Connect sheet's "Scan someone" action deep-links straight into the
+  // camera step (?open=scan) so the scanner opens immediately instead of
+  // showing the intermediate choose screen.
+  const openParam = searchParams.get('open')
+  useEffect(() => {
+    if (openParam === 'scan') {
+      setSearchParams({}, { replace: true })
+      setStep('scan')
+    }
+  }, [openParam, setSearchParams])
+
+  // A scanned QR payload can be handed to this page via ?code=<profile id>,
+  // letting the bottom-nav Connect button, drawer, and share links reuse the
+  // validation and connection flow that lives here.
+  const codeParam = searchParams.get('code')
+  useEffect(() => {
+    if (!codeParam || !user) return
+    setSearchParams({}, { replace: true })
+    loadProfile(codeParam)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [codeParam, user])
 
   async function loadProfile(profileId: string) {
     setStep('loading')
