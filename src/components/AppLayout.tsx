@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -10,12 +10,16 @@ import {
   Target,
   Bell,
   LogOut,
-  Menu,
+  Search,
+  ScanLine,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import { Avatar } from '@/components/ui/Avatar'
 import MobileDrawer from '@/components/MobileDrawer'
+import BottomNav from '@/components/BottomNav'
+import ConnectSheet from '@/components/ConnectSheet'
+import GlobalSearchDialog from '@/components/GlobalSearchDialog'
 import { cn } from '@/lib/utils'
 
 const navItems = [
@@ -29,11 +33,42 @@ const navItems = [
   { to: '/profile', label: 'My Profile', icon: UserIcon },
 ]
 
+function UnreadBadge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-error-600 px-1 text-[10px] font-semibold text-white">
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
+
 export default function AppLayout() {
   const { profile, user, signOut } = useAuth()
   const { unreadCount } = useNotifications()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [connectOpen, setConnectOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const profileMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!profileMenuOpen) return
+    function onDown(e: MouseEvent) {
+      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
+        setProfileMenuOpen(false)
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setProfileMenuOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [profileMenuOpen])
 
   async function handleSignOut() {
     await signOut()
@@ -96,33 +131,120 @@ export default function AppLayout() {
         </div>
       </aside>
 
-      {/* Mobile header */}
-      <div className="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-4 md:hidden">
-        <div className="flex items-center gap-2">
+      {/* Desktop top header: search, connect, notifications, profile menu */}
+      <header className="sticky top-0 z-20 hidden h-16 items-center gap-4 border-b border-gray-200 bg-white px-6 md:flex md:pl-[17rem]">
+        <button
+          onClick={() => setSearchOpen(true)}
+          className="flex h-10 max-w-xl flex-1 items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 text-left text-sm text-gray-400 transition-colors hover:border-primary-300 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+          aria-label="Search Rally"
+        >
+          <Search className="h-4 w-4" aria-hidden="true" />
+          Search connections, companies, events…
+        </button>
+
+        <button
+          onClick={() => navigate('/scan')}
+          className="flex h-9 items-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white transition-colors hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
+        >
+          <ScanLine className="h-4 w-4" aria-hidden="true" />
+          Connect
+        </button>
+
+        <button
+          onClick={() => navigate('/notifications')}
+          aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+          className="relative rounded-md p-2 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+        >
+          <Bell className="h-5 w-5" aria-hidden="true" />
+          <UnreadBadge count={unreadCount} />
+        </button>
+
+        <div className="relative" ref={profileMenuRef}>
+          <button
+            onClick={() => setProfileMenuOpen((v) => !v)}
+            aria-label="Open profile menu"
+            aria-expanded={profileMenuOpen}
+            aria-haspopup="menu"
+            className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
+          >
+            <Avatar name={displayName} src={profile?.photo_url} size="sm" />
+          </button>
+          {profileMenuOpen && (
+            <div
+              role="menu"
+              className="absolute right-0 top-12 w-48 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
+            >
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false)
+                  navigate('/profile')
+                }}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <UserIcon className="h-4 w-4" aria-hidden="true" /> My profile
+              </button>
+              <button
+                role="menuitem"
+                onClick={handleSignOut}
+                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <LogOut className="h-4 w-4" aria-hidden="true" /> Sign out
+              </button>
+            </div>
+          )}
+        </div>
+      </header>
+
+      {/* Mobile top header */}
+      <div className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white px-3 md:hidden">
+        <div className="flex items-center gap-2 pl-1">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-600 text-white">
             <Users className="h-5 w-5" />
           </div>
           <span className="text-lg font-bold text-gray-900">Rally</span>
         </div>
-        <button
-          onClick={() => setMobileOpen(true)}
-          aria-label="Open menu"
-          aria-expanded={mobileOpen}
-          aria-haspopup="dialog"
-          className="rounded-md p-2 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
+        <div className="flex items-center">
+          <button
+            onClick={() => setSearchOpen(true)}
+            aria-label="Search"
+            className="rounded-md p-2.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+          >
+            <Search className="h-5 w-5" />
+          </button>
+          <button
+            onClick={() => navigate('/notifications')}
+            aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+            className="relative rounded-md p-2.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+          >
+            <Bell className="h-5 w-5" />
+            <UnreadBadge count={unreadCount} />
+          </button>
+          <button
+            onClick={() => navigate('/profile')}
+            aria-label="My profile"
+            className="rounded-full p-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+          >
+            <Avatar name={displayName} src={profile?.photo_url} size="sm" />
+          </button>
+        </div>
       </div>
 
-      <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
-
       {/* Main content */}
-      <main className="md:pl-60">
+      <main className="pb-20 md:pb-0 md:pl-60">
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
           <Outlet />
         </div>
       </main>
+
+      <BottomNav
+        onMore={() => setMobileOpen(true)}
+        connectActive={connectOpen}
+        onConnect={() => setConnectOpen(true)}
+      />
+      <ConnectSheet open={connectOpen} onClose={() => setConnectOpen(false)} />
+      <GlobalSearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
     </div>
   )
 }

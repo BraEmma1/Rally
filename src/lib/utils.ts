@@ -62,3 +62,15 @@ export function isSafeUrl(raw: string | null | undefined): boolean {
 export function displayUrl(raw: string): string {
   return raw.replace(/^https?:\/\//, '').replace(/\/$/, '')
 }
+
+const PROFILE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+// Extracts a Rally profile id from a bare UUID or a /p/<uuid> profile URL.
+// Mirrors the logic ScanQRPage uses to resolve scanned or pasted QR payloads.
+export function extractProfileId(raw: string): string | null {
+  const trimmed = raw.trim()
+  const urlMatch = trimmed.match(/\/p\/([0-9a-f-]{36})/i)
+  if (urlMatch && PROFILE_ID_RE.test(urlMatch[1])) return urlMatch[1]
+  if (PROFILE_ID_RE.test(trimmed)) return trimmed
+  return null
+}
