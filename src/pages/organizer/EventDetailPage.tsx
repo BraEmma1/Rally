@@ -40,6 +40,7 @@ import type { EventAttendee, EventInvitationRow, OrganizerEvent } from '@/lib/su
 import { CheckInPanel } from '@/components/organizer/CheckInPanel'
 import { AttendeesPanel } from '@/components/organizer/AttendeesPanel'
 import { EventNetworkingPanel } from '@/components/organizer/EventNetworkingPanel'
+import { EventNetworkingAnalytics } from '@/components/organizer/EventNetworkingAnalytics'
 import { EventActivityPanel } from '@/components/organizer/EventActivityPanel'
 
 type Tab =
@@ -376,7 +377,16 @@ export default function EventDetailPage() {
       {tab === 'attendees' && <AttendeesPanel eventId={event.id} />}
 
       {tab === 'networking' && (
-        <EventNetworkingPanel eventId={event.id} eventName={event.name} />
+        <div className="space-y-6">
+          <EventNetworkingAnalytics eventId={event.id} eventName={event.name} />
+          <div>
+            <h2 className="text-lg font-bold text-gray-900">Attendee directory</h2>
+            <p className="mt-0.5 text-sm text-gray-500">
+              Connect with people registered for {event.name}.
+            </p>
+          </div>
+          <EventNetworkingPanel eventId={event.id} eventName={event.name} />
+        </div>
       )}
 
       {tab === 'invitations' && (
