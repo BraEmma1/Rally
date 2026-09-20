@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { Users, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
+import { accountHomePath } from '@/lib/routing'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/States'
 
@@ -22,7 +23,7 @@ function readVerificationError(): string | null {
 }
 
 export default function AuthCallbackPage() {
-  const { session, loading } = useAuth()
+  const { session, account, loading } = useAuth()
   const [verificationError] = useState(readVerificationError)
   // The client still has to exchange the grant in the URL for a session, which
   // happens after loading first flips false. Give it a moment before calling it
@@ -36,10 +37,10 @@ export default function AuthCallbackPage() {
   }, [verificationError])
 
   // Signed in, whether that came from a confirmation link or an OAuth provider.
-  // Routing by profile completeness is ProtectedRoute's job, so hand off rather
-  // than duplicating that decision here: it sends an incomplete profile to
-  // onboarding and a complete one straight to the dashboard.
-  if (session) return <Navigate to="/dashboard" replace />
+  // Where they land is decided by account type, and the guards on that route
+  // make the rest of the decisions — profile completeness for an attendee,
+  // having an organization for an organizer.
+  if (session) return <Navigate to={accountHomePath(account)} replace />
 
   if (!verificationError && (loading || !graceElapsed)) {
     return (

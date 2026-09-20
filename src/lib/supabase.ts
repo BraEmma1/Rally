@@ -203,3 +203,100 @@ export const RELATIONSHIP_TYPES = [
   'Media',
   'Other',
 ] as const
+
+// ---------------------------------------------------------------------------
+// Account model
+//
+// account_type is the authoritative answer to "what is this user". It is set by
+// the signup trigger and changed only by a platform admin through an audited
+// RPC; there is no client write path, and the types are mutually exclusive by
+// design — an organizer is not also an attendee.
+// ---------------------------------------------------------------------------
+export type AccountType = 'platform_admin' | 'organizer' | 'attendee' | 'vendor' | 'sponsor'
+export type AccountStatus = 'pending_approval' | 'active' | 'suspended'
+
+export type UserAccount = {
+  account_type: AccountType
+  status: AccountStatus
+}
+
+export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
+  platform_admin: 'Platform admin',
+  organizer: 'Organizer',
+  attendee: 'Attendee',
+  vendor: 'Vendor',
+  sponsor: 'Sponsor',
+}
+
+// ---------------------------------------------------------------------------
+// Organizations
+// ---------------------------------------------------------------------------
+export type OrgRole = 'owner' | 'admin' | 'manager'
+export type OrgType = 'organizer' | 'vendor' | 'sponsor'
+export type OrgApprovalStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
+
+export const ORG_ROLE_LABELS: Record<OrgRole, string> = {
+  owner: 'Owner',
+  admin: 'Admin',
+  manager: 'Event manager',
+}
+
+export const ORG_ROLE_DESCRIPTIONS: Record<OrgRole, string> = {
+  owner: 'Full control, including team and ownership.',
+  admin: 'Manages the organization, its events and its team.',
+  manager: 'Runs the events they are assigned to.',
+}
+
+export type Organization = {
+  id: string
+  name: string
+  slug: string | null
+  description: string
+  logo_url: string
+  website: string
+  org_type: OrgType
+  approval_status: OrgApprovalStatus
+  archived_at: string | null
+  created_by: string | null
+  created_at: string
+  updated_at: string
+}
+
+export type OrganizationMembership = {
+  role: OrgRole
+  organization: Organization
+}
+
+// Returned by organization_member_directory: the public professional card only.
+// No email or phone — a teammate is not entitled to more than any other user.
+export type OrganizationMember = {
+  user_id: string
+  role: OrgRole
+  created_at: string
+  full_name: string
+  job_title: string
+  company: string
+  photo_url: string
+  is_self: boolean
+}
+
+export type OrganizationInvitation = {
+  id: string
+  invited_user_id: string
+  invited_email: string
+  role: OrgRole
+  status: 'pending' | 'accepted' | 'declined' | 'revoked'
+  created_at: string
+  responded_at: string | null
+  full_name: string
+}
+
+export type IncomingInvitation = {
+  id: string
+  organization_id: string
+  organization_name: string
+  organization_type: OrgType
+  role: OrgRole
+  created_at: string
+  invited_by_name: string
+}

@@ -1,8 +1,11 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { OrganizerProvider, useOrganizer } from '@/context/OrganizerContext'
 import { isProfileComplete } from '@/lib/profile'
+import { accountHomePath, isActiveAttendee, isActiveOrganizer, isActivePlatformAdmin } from '@/lib/routing'
 import { Spinner } from '@/components/ui/States'
 import AppLayout from '@/components/AppLayout'
+import OrganizerLayout from '@/components/OrganizerLayout'
 import LoginPage from '@/pages/auth/LoginPage'
 import SignUpPage from '@/pages/auth/SignUpPage'
 import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
@@ -21,68 +24,192 @@ import FollowUpsPage from '@/pages/followups/FollowUpsPage'
 import OpportunitiesPage from '@/pages/opportunities/OpportunitiesPage'
 import OpportunityDetailPage from '@/pages/opportunities/OpportunityDetailPage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
+import AccountStatusPage from '@/pages/account/AccountStatusPage'
+import AdminPlaceholderPage from '@/pages/admin/AdminPlaceholderPage'
+import OrganizerDashboardPage from '@/pages/organizer/OrganizerDashboardPage'
+import OrganizationSetupPage from '@/pages/organizer/OrganizationSetupPage'
+import OrganizationSettingsPage from '@/pages/organizer/OrganizationSettingsPage'
+import TeamPage from '@/pages/organizer/TeamPage'
+import MyInvitationsPage from '@/pages/organizer/MyInvitationsPage'
 
-function ProtectedRoute({ children, requireComplete = false }: { children: React.ReactNode; requireComplete?: boolean }) {
-  const { session, profile, loading, isRecovery } = useAuth()
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Spinner size="lg" />
-      </div>
-    )
-  }
+function FullPageSpinner() {
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <Spinner size="lg" />
+    </div>
+  )
+}
+
+// Signed in, not mid-recovery. Everything past this point can assume a session.
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { session, loading, isRecovery } = useAuth()
+  if (loading) return <FullPageSpinner />
   if (!session) return <Navigate to="/login" replace />
   // A recovery grant is a session, but it is not a sign-in: it came from opening
   // a link in an inbox, not from proving knowledge of the password. Keep it on
   // the reset screen until a new password is set or the user signs out.
   if (isRecovery) return <Navigate to="/reset-password" replace />
-  if (requireComplete && profile && !isProfileComplete(profile)) {
-    return <Navigate to="/onboarding" replace />
+  return <>{children}</>
+}
+
+// The account type gate. Types are mutually exclusive, so a mismatch is not an
+// error to report — it means the user is somewhere they do not belong, and the
+// honest response is to put them where they do. This is a convenience, not a
+// security boundary: every read and write behind it is authorized again by RLS
+// against account_type and status.
+function RequireAccount({
+  allow,
+  children,
+}: {
+  allow: (account: ReturnType<typeof useAuth>['account']) => boolean
+  children: React.ReactNode
+}) {
+  const { account, loading } = useAuth()
+  if (loading) return <FullPageSpinner />
+  if (!allow(account)) return <Navigate to={accountHomePath(account)} replace />
+  return <>{children}</>
+}
+
+// The attendee app additionally requires a usable professional profile, which
+// is what the whole attendee experience is built around. Organizers are not
+// sent through it: their onboarding is creating an organization.
+function RequireCompleteProfile({ children }: { children: React.ReactNode }) {
+  const { profile } = useAuth()
+  if (profile && !isProfileComplete(profile)) return <Navigate to="/onboarding" replace />
+  return <>{children}</>
+}
+
+// An organizer with no organization has nothing to show, so the organizer area
+// redirects to setup until they have one — except setup itself, which is where
+// they either create one or accept an invitation to join one.
+function RequireOrganization({ children }: { children: React.ReactNode }) {
+  const { memberships, loading } = useOrganizer()
+  const location = useLocation()
+  if (loading) return <FullPageSpinner />
+  if (memberships.length === 0 && location.pathname !== '/organizer/setup') {
+    return <Navigate to="/organizer/setup" replace />
   }
   return <>{children}</>
 }
 
-export default function App() {
-  const { session, loading, isRecovery } = useAuth()
+// Where a signed-in user goes when they hit a route that is not theirs, or the
+// catch-all. Reads the account rather than assuming the attendee dashboard.
+function AccountHomeRedirect() {
+  const { account, loading } = useAuth()
+  if (loading) return <FullPageSpinner />
+  return <Navigate to={accountHomePath(account)} replace />
+}
 
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Spinner size="lg" />
-      </div>
-    )
-  }
+export default function App() {
+  const { session, account, loading, isRecovery } = useAuth()
+
+  if (loading) return <FullPageSpinner />
+
+  // Signed-in users are bounced off the auth screens to wherever their account
+  // type says they belong — not to /dashboard, which only attendees have.
+  const signedIn = session && !isRecovery
+  const home = accountHomePath(account)
 
   return (
     <Routes>
       {/* `session && !isRecovery` throughout: during recovery a session exists,
           and treating it as a normal sign-in is what sent "Back to sign in" to
           the dashboard instead of the login screen. */}
-      <Route path="/login" element={session && !isRecovery ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
-      <Route path="/signup" element={session && !isRecovery ? <Navigate to="/dashboard" replace /> : <SignUpPage />} />
-      <Route path="/forgot-password" element={session && !isRecovery ? <Navigate to="/dashboard" replace /> : <ForgotPasswordPage />} />
+      <Route path="/login" element={signedIn ? <Navigate to={home} replace /> : <LoginPage />} />
+      <Route path="/signup" element={signedIn ? <Navigate to={home} replace /> : <SignUpPage />} />
+      <Route
+        path="/forgot-password"
+        element={signedIn ? <Navigate to={home} replace /> : <ForgotPasswordPage />}
+      />
       {/* A recovery link signs the user in before they reach this page, so the
           form has to stay reachable while a session exists. */}
       <Route
         path="/reset-password"
-        element={session && !isRecovery ? <Navigate to="/dashboard" replace /> : <ResetPasswordPage />}
+        element={signedIn ? <Navigate to={home} replace /> : <ResetPasswordPage />}
       />
       {/* Where the email confirmation link lands. Must not be session-gated:
           verification signs the user in, and the page routes them onward. */}
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route path="/p/:id" element={<PublicProfilePage />} />
+
+      {/* Pending approval, suspended, vendor, sponsor, or a missing account
+          record. Any signed-in user may reach it; it redirects them onward if
+          their account turns out to have a home. */}
       <Route
-        path="/onboarding"
+        path="/account"
         element={
           <ProtectedRoute>
-            <OnboardingPage />
+            <AccountStatusPage />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <RequireAccount allow={isActivePlatformAdmin}>
+              <AdminPlaceholderPage />
+            </RequireAccount>
+          </ProtectedRoute>
+        }
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Organizer                                                           */}
+      {/* ------------------------------------------------------------------ */}
+      <Route
+        path="/organizer/setup"
+        element={
+          <ProtectedRoute>
+            <RequireAccount allow={isActiveOrganizer}>
+              <OrganizerProvider>
+                <OrganizationSetupPage />
+              </OrganizerProvider>
+            </RequireAccount>
           </ProtectedRoute>
         }
       />
       <Route
         element={
-          <ProtectedRoute requireComplete>
-            <AppLayout />
+          <ProtectedRoute>
+            <RequireAccount allow={isActiveOrganizer}>
+              <OrganizerProvider>
+                <RequireOrganization>
+                  <OrganizerLayout />
+                </RequireOrganization>
+              </OrganizerProvider>
+            </RequireAccount>
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/organizer" element={<OrganizerDashboardPage />} />
+        <Route path="/organizer/team" element={<TeamPage />} />
+        <Route path="/organizer/invitations" element={<MyInvitationsPage />} />
+        <Route path="/organizer/settings" element={<OrganizationSettingsPage />} />
+      </Route>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Attendee                                                            */}
+      {/* ------------------------------------------------------------------ */}
+      <Route
+        path="/onboarding"
+        element={
+          <ProtectedRoute>
+            <RequireAccount allow={isActiveAttendee}>
+              <OnboardingPage />
+            </RequireAccount>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        element={
+          <ProtectedRoute>
+            <RequireAccount allow={isActiveAttendee}>
+              <RequireCompleteProfile>
+                <AppLayout />
+              </RequireCompleteProfile>
+            </RequireAccount>
           </ProtectedRoute>
         }
       >
@@ -98,7 +225,15 @@ export default function App() {
         <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
       </Route>
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+
+      <Route
+        path="*"
+        element={
+          <ProtectedRoute>
+            <AccountHomeRedirect />
+          </ProtectedRoute>
+        }
+      />
     </Routes>
   )
 }

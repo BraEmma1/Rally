@@ -1,11 +1,16 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
-import { supabase, type Profile } from '@/lib/supabase'
+import { supabase, type Profile, type UserAccount } from '@/lib/supabase'
 
 type AuthContextValue = {
   session: Session | null
   user: User | null
   profile: Profile | null
+  // What this user is allowed to be. Null while loading, and null after loading
+  // only when the account record is genuinely missing — which the routing layer
+  // surfaces as a fault rather than guessing a type.
+  account: UserAccount | null
+  accountError: string | null
   loading: boolean
   isRecovery: boolean
   recoveryError: string | null
@@ -19,6 +24,7 @@ type AuthContextValue = {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
+  refreshAccount: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error: string | null }>
   updatePassword: (newPassword: string) => Promise<{ error: string | null }>
   signInWithGoogle: () => Promise<{ error: string | null }>
@@ -143,6 +149,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [account, setAccount] = useState<UserAccount | null>(null)
+  const [accountError, setAccountError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [isRecovery, setIsRecovery] = useState(
     () => detectRecoveryFromUrl() || readStored(RECOVERY_FLAG_KEY) === '1'
@@ -189,12 +197,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setProfile(data as Profile | null)
   }
 
+  // The row is readable only by its owner, so no filter on user_id is needed —
+  // RLS already narrows this to one row.
+  async function loadAccount(userId: string) {
+    const { data, error } = await supabase
+      .from('user_accounts')
+      .select('account_type, status')
+      .eq('user_id', userId)
+      .maybeSingle()
+    if (error) {
+      console.error('Error loading account:', error)
+      setAccount(null)
+      setAccountError(error.message)
+      return
+    }
+    setAccount((data as UserAccount | null) ?? null)
+    setAccountError(null)
+  }
+
+  // Both are needed before any routing decision can be made, so they load
+  // together and `loading` clears once.
+  async function loadIdentity(userId: string) {
+    await Promise.all([loadProfile(userId), loadAccount(userId)])
+  }
+
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
       setUser(data.session?.user ?? null)
       if (data.session?.user) {
-        loadProfile(data.session.user.id).finally(() => setLoading(false))
+        loadIdentity(data.session.user.id).finally(() => setLoading(false))
       } else {
         setLoading(false)
       }
@@ -210,11 +242,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(newSession?.user ?? null)
       if (newSession?.user) {
         (async () => {
-          await loadProfile(newSession.user.id)
+          await loadIdentity(newSession.user.id)
           setLoading(false)
         })()
       } else {
         setProfile(null)
+        setAccount(null)
+        setAccountError(null)
         setLoading(false)
       }
     })
@@ -253,12 +287,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signOut() {
     await supabase.auth.signOut()
     setProfile(null)
+    setAccount(null)
+    setAccountError(null)
     setIsRecovery(false)
     setRecoveryError(null)
   }
 
   async function refreshProfile() {
     if (user) await loadProfile(user.id)
+  }
+
+  // An organizer awaiting approval sits on a screen that has to notice when the
+  // decision lands, without making them sign out and back in.
+  async function refreshAccount() {
+    if (user) await loadAccount(user.id)
   }
 
   async function resetPassword(email: string) {
@@ -305,7 +347,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, loading, isRecovery, recoveryError, oauthError, clearOauthError: () => setOauthError(null), signUp, signIn, signOut, refreshProfile, resetPassword, updatePassword, signInWithGoogle, signInWithLinkedIn }}>
+    <AuthContext.Provider value={{ session, user, profile, account, accountError, loading, isRecovery, recoveryError, oauthError, clearOauthError: () => setOauthError(null), signUp, signIn, signOut, refreshProfile, refreshAccount, resetPassword, updatePassword, signInWithGoogle, signInWithLinkedIn }}>
       {children}
     </AuthContext.Provider>
   )
