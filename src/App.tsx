@@ -31,6 +31,10 @@ import OrganizationSetupPage from '@/pages/organizer/OrganizationSetupPage'
 import OrganizationSettingsPage from '@/pages/organizer/OrganizationSettingsPage'
 import TeamPage from '@/pages/organizer/TeamPage'
 import MyInvitationsPage from '@/pages/organizer/MyInvitationsPage'
+import EventsListPage from '@/pages/organizer/EventsListPage'
+import EventFormPage from '@/pages/organizer/EventFormPage'
+import OrganizerEventDetailPage from '@/pages/organizer/EventDetailPage'
+import PeoplePage from '@/pages/organizer/PeoplePage'
 
 function FullPageSpinner() {
   return (
@@ -184,6 +188,12 @@ export default function App() {
         }
       >
         <Route path="/organizer" element={<OrganizerDashboardPage />} />
+        <Route path="/organizer/events" element={<EventsListPage />} />
+        {/* Ordered before :id so "new" is not read as an event id. */}
+        <Route path="/organizer/events/new" element={<EventFormPage />} />
+        <Route path="/organizer/events/:id" element={<OrganizerEventDetailPage />} />
+        <Route path="/organizer/events/:id/edit" element={<EventFormPage />} />
+        <Route path="/organizer/people" element={<PeoplePage />} />
         <Route path="/organizer/team" element={<TeamPage />} />
         <Route path="/organizer/invitations" element={<MyInvitationsPage />} />
         <Route path="/organizer/settings" element={<OrganizationSettingsPage />} />

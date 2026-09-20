@@ -300,3 +300,68 @@ export type IncomingInvitation = {
   created_at: string
   invited_by_name: string
 }
+
+// ---------------------------------------------------------------------------
+// Organizer events
+//
+// The five lifecycle states are derived from three existing columns rather
+// than a new one: visibility (draft/published/unlisted), status
+// (upcoming/live/past) and archived_at. See eventLifecycle() in lib/events.ts.
+// ---------------------------------------------------------------------------
+export type EventVisibility = 'draft' | 'published' | 'unlisted'
+export type EventTimeStatus = 'upcoming' | 'live' | 'past'
+
+export type OrganizerEvent = {
+  id: string
+  organization_id: string | null
+  created_by: string | null
+  owner_id: string | null
+  name: string
+  description: string
+  location: string
+  start_date: string | null
+  end_date: string | null
+  start_time: string | null
+  end_time: string | null
+  image_url: string
+  capacity: number | null
+  visibility: EventVisibility
+  status: EventTimeStatus
+  archived_at: string | null
+  published_at: string | null
+  created_at: string
+}
+
+// Returned by event_attendee_list. The public professional card only — no
+// email or phone, by design.
+export type EventAttendee = {
+  user_id: string
+  full_name: string
+  job_title: string
+  company: string
+  photo_url: string
+  registered_at: string
+  status: string
+  checked_in_at: string | null
+}
+
+export type EventInvitationRow = {
+  id: string
+  invited_user_id: string
+  invited_email: string
+  full_name: string
+  status: 'Pending' | 'Accepted' | 'Declined'
+  created_at: string
+  responded_at: string | null
+}
+
+export type OrganizationPerson = {
+  user_id: string
+  full_name: string
+  job_title: string
+  company: string
+  photo_url: string
+  events_registered: number
+  first_seen: string
+  last_seen: string
+}

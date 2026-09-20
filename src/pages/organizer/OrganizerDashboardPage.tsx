@@ -7,7 +7,13 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/States'
 import { canManageTeam, listInvitations, listMembers } from '@/lib/organizer'
-import { ORG_ROLE_LABELS, type OrganizationInvitation, type OrganizationMember } from '@/lib/supabase'
+import { eventLifecycle, listOrganizationEvents } from '@/lib/events'
+import {
+  ORG_ROLE_LABELS,
+  type OrganizationInvitation,
+  type OrganizationMember,
+  type OrganizerEvent,
+} from '@/lib/supabase'
 
 function ApprovalBadge({ status }: { status: string }) {
   if (status === 'approved') return <Badge variant="success">Approved</Badge>
@@ -20,6 +26,7 @@ export default function OrganizerDashboardPage() {
   const { organization, role, loading: orgLoading, error: orgError, refresh } = useOrganizer()
   const [members, setMembers] = useState<OrganizationMember[]>([])
   const [invitations, setInvitations] = useState<OrganizationInvitation[]>([])
+  const [events, setEvents] = useState<OrganizerEvent[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -38,6 +45,9 @@ export default function OrganizerDashboardPage() {
       return
     }
     setMembers(membersResult.data)
+
+    const eventsResult = await listOrganizationEvents(orgId)
+    setEvents(eventsResult.data)
 
     // Only owners and admins may list invitations, so a manager simply sees
     // none rather than an error they can do nothing about.
@@ -65,6 +75,18 @@ export default function OrganizerDashboardPage() {
   if (!organization) return null // the route guard sends this case to setup
 
   const pending = invitations.filter((i) => i.status === 'pending')
+
+  const eventCounts = events.reduce(
+    (acc, event) => {
+      const lifecycle = eventLifecycle(event)
+      if (lifecycle === 'draft') acc.draft += 1
+      else if (lifecycle === 'live') acc.live += 1
+      else if (lifecycle === 'completed') acc.completed += 1
+      else if (lifecycle === 'published') acc.upcoming += 1
+      return acc
+    },
+    { draft: 0, upcoming: 0, live: 0, completed: 0 }
+  )
 
   return (
     <div className="space-y-6">
@@ -107,8 +129,9 @@ export default function OrganizerDashboardPage() {
         <Card className="border-warning-200 bg-warning-50">
           <CardContent>
             <p className="text-sm text-warning-700">
-              This organization has not been reviewed yet. You can set it up and build your team now;
-              review affects publishing events, which arrives in the next phase.
+              This organization has not been reviewed by Rally yet. Everything still works — your
+              team, your events and registrations are unaffected — and the badge disappears once a
+              Rally administrator reviews it.
             </p>
           </CardContent>
         </Card>
@@ -120,18 +143,54 @@ export default function OrganizerDashboardPage() {
         <LoadingState message="Loading organization details…" />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
-          {/* Event management is deliberately not built yet — this states that
-              plainly rather than showing numbers that would all be zero. */}
           <Card>
             <CardHeader className="flex flex-row items-center justify-between gap-2">
               <CardTitle>Events</CardTitle>
               <CalendarRange className="h-4 w-4 text-gray-400" />
             </CardHeader>
-            <CardContent>
-              <EmptyState
-                title="Event management is not available yet"
-                description="Creating and running events under this organization is the next phase of Rally's organizer tools."
-              />
+            <CardContent className="space-y-3">
+              {events.length === 0 ? (
+                <EmptyState
+                  icon={<CalendarRange className="h-8 w-8" />}
+                  title="No events yet"
+                  description="Create your first event and publish it when you are ready for attendees."
+                  action={
+                    manages ? (
+                      <Link to="/organizer/events/new">
+                        <Button size="sm">New event</Button>
+                      </Link>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                <>
+                  <p className="text-2xl font-bold text-gray-900">
+                    {eventCounts.upcoming + eventCounts.live}
+                    <span className="ml-1.5 text-sm font-normal text-gray-500">
+                      upcoming or live
+                    </span>
+                  </p>
+                  <ul className="space-y-1 text-sm text-gray-600">
+                    <li className="flex justify-between">
+                      <span>Drafts</span>
+                      <span className="font-medium text-gray-900">{eventCounts.draft}</span>
+                    </li>
+                    <li className="flex justify-between">
+                      <span>Published</span>
+                      <span className="font-medium text-gray-900">{eventCounts.upcoming}</span>
+                    </li>
+                    <li className="flex justify-between">
+                      <span>Past</span>
+                      <span className="font-medium text-gray-900">{eventCounts.completed}</span>
+                    </li>
+                  </ul>
+                  <Link to="/organizer/events">
+                    <Button variant="secondary" size="sm" className="w-full">
+                      Manage events
+                    </Button>
+                  </Link>
+                </>
+              )}
             </CardContent>
           </Card>
 
