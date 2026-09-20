@@ -15,7 +15,6 @@ import {
   Users,
 } from 'lucide-react'
 import { useOrganizer } from '@/context/OrganizerContext'
-import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -38,13 +37,25 @@ import {
 } from '@/lib/events'
 import { cn } from '@/lib/utils'
 import type { EventAttendee, EventInvitationRow, OrganizerEvent } from '@/lib/supabase'
+import { CheckInPanel } from '@/components/organizer/CheckInPanel'
+import { AttendeesPanel } from '@/components/organizer/AttendeesPanel'
+import { EventNetworkingPanel } from '@/components/organizer/EventNetworkingPanel'
+import { EventActivityPanel } from '@/components/organizer/EventActivityPanel'
 
-type Tab = 'overview' | 'registrations' | 'attendees' | 'invitations'
+type Tab =
+  | 'overview'
+  | 'registrations'
+  | 'checkin'
+  | 'attendees'
+  | 'networking'
+  | 'invitations'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'overview', label: 'Overview' },
   { key: 'registrations', label: 'Registrations' },
+  { key: 'checkin', label: 'Check-in' },
   { key: 'attendees', label: 'Attendees' },
+  { key: 'networking', label: 'Networking' },
   { key: 'invitations', label: 'Invitations' },
 ]
 
@@ -108,8 +119,6 @@ export default function EventDetailPage() {
 
   const lifecycle = eventLifecycle(event)
   const archived = event.archived_at !== null
-  const active = attendees.filter((a) => a.status !== 'cancelled')
-  const full = event.capacity !== null && active.length >= event.capacity
   const pendingInvites = invitations.filter((i) => i.status === 'Pending')
   const acceptedInvites = invitations.filter((i) => i.status === 'Accepted')
   const declinedInvites = invitations.filter((i) => i.status === 'Declined')
@@ -235,30 +244,7 @@ export default function EventDetailPage() {
 
       {tab === 'overview' && (
         <div className="space-y-4">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Card>
-              <CardContent>
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Registered</p>
-                <p className="mt-1 text-2xl font-bold text-gray-900">{active.length}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent>
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Capacity</p>
-                <p className={cn('mt-1 text-2xl font-bold', full ? 'text-warning-700' : 'text-gray-900')}>
-                  {event.capacity ?? '∞'}
-                </p>
-                {full && <p className="text-xs text-warning-700">Event is full</p>}
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent>
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Invitations</p>
-                <p className="mt-1 text-2xl font-bold text-gray-900">{pendingInvites.length}</p>
-                <p className="text-xs text-gray-500">awaiting a reply</p>
-              </CardContent>
-            </Card>
-          </div>
+          <EventActivityPanel eventId={event.id} />
 
           {event.description && (
             <Card>
@@ -385,40 +371,12 @@ export default function EventDetailPage() {
         </Card>
       )}
 
-      {tab === 'attendees' && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <CardTitle>Attendees</CardTitle>
-            <Users className="h-4 w-4 text-gray-400" />
-          </CardHeader>
-          <CardContent>
-            {active.length === 0 ? (
-              <EmptyState icon={<Users className="h-8 w-8" />} title="Nobody is attending yet" />
-            ) : (
-              <>
-                <ul className="divide-y divide-gray-100">
-                  {active.map((a) => (
-                    <li key={a.user_id} className="flex items-center gap-3 py-3">
-                      <Avatar name={a.full_name || 'Attendee'} src={a.photo_url} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-gray-900">
-                          {a.full_name || 'Rally member'}
-                        </p>
-                        <p className="truncate text-xs text-gray-500">
-                          {[a.job_title, a.company].filter(Boolean).join(' · ') || 'No title set'}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-4 text-xs text-gray-500">
-                  Rally does not show you attendees' email addresses or phone numbers. Attendees
-                  choose when to share those, and no attendee at this event has.
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
+      {tab === 'checkin' && <CheckInPanel eventId={event.id} />}
+
+      {tab === 'attendees' && <AttendeesPanel eventId={event.id} />}
+
+      {tab === 'networking' && (
+        <EventNetworkingPanel eventId={event.id} eventName={event.name} />
       )}
 
       {tab === 'invitations' && (
