@@ -25,6 +25,13 @@ function readVerificationError(): string | null {
 export default function AuthCallbackPage() {
   const { session, account, loading } = useAuth()
   const [verificationError] = useState(readVerificationError)
+  // An organization-invitation email thread put ?invitation=<id> on this
+  // callback URL at sign-up time. Once the confirmation lands with a session,
+  // finish the round trip by returning to the exact invitation instead of the
+  // account home. Absent the parameter, routing is unchanged.
+  const [invitationId] = useState(
+    () => new URLSearchParams(window.location.search).get('invitation')
+  )
   // The client still has to exchange the grant in the URL for a session, which
   // happens after loading first flips false. Give it a moment before calling it
   // a failure, otherwise a successful confirmation flashes an error.
@@ -39,7 +46,12 @@ export default function AuthCallbackPage() {
   // Signed in, whether that came from a confirmation link or an OAuth provider.
   // Where they land is decided by account type, and the guards on that route
   // make the rest of the decisions — profile completeness for an attendee,
-  // having an organization for an organizer.
+  // having an organization for an organizer. An invitation link overrides the
+  // destination: the invitation experience is reachable for any signed-in user
+  // and accepting is still an explicit action there.
+  if (session && invitationId) {
+    return <Navigate to={`/organizer/invitations?invitation=${encodeURIComponent(invitationId)}`} replace />
+  }
   if (session) return <Navigate to={accountHomePath(account)} replace />
 
   if (!verificationError && (loading || !graceElapsed)) {

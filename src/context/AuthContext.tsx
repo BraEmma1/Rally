@@ -19,7 +19,8 @@ type AuthContextValue = {
   signUp: (
     email: string,
     password: string,
-    fullName: string
+    fullName: string,
+    invitationId?: string
   ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
@@ -278,7 +279,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  async function signUp(email: string, password: string, fullName: string) {
+  async function signUp(email: string, password: string, fullName: string, invitationId?: string) {
+    // An organization-invitation email link carries ?invitation=<id>; threading
+    // it into emailRedirectTo means the confirmation email returns the user to
+    // /auth/callback with the id still attached, and the callback page routes
+    // them to the invitation instead of their account home. Without an id the
+    // redirect is exactly as before.
+    const callbackUrl = invitationId
+      ? `${window.location.origin}/auth/callback?invitation=${encodeURIComponent(invitationId)}`
+      : `${window.location.origin}/auth/callback`
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -287,7 +296,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Where the {{ .ConfirmationURL }} in the confirmation email sends the
         // user back to. /login would bounce them straight to the dashboard
         // without ever reporting a failed or expired link.
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
+        emailRedirectTo: callbackUrl,
       },
     })
     if (error) return { error: authErrorMessage(error.message), needsEmailConfirmation: false }

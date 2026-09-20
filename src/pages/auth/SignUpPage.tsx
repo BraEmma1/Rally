@@ -34,7 +34,12 @@ export default function SignUpPage() {
       return
     }
     setLoading(true)
-    const { error: signUpError, needsEmailConfirmation } = await signUp(email, password, fullName)
+    const { error: signUpError, needsEmailConfirmation } = await signUp(
+      email,
+      password,
+      fullName,
+      invitationId ?? undefined
+    )
     if (signUpError) {
       setError(signUpError)
       setLoading(false)
