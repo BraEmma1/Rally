@@ -56,6 +56,7 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
   const [upcomingCount, setUpcomingCount] = useState(0)
   const [pendingInvites, setPendingInvites] = useState(0)
   const [eventsExpanded, setEventsExpanded] = useState(false)
+  const [orgsExpanded, setOrgsExpanded] = useState(false)
 
   // Counts for the events sub-items. The user is always signed in when the
   // drawer is reachable; without a user the counts simply stay at zero.
@@ -156,7 +157,7 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
     )
 
   const activeRowClass =
-    'flex w-full items-center gap-4 py-3.5 text-[15px] font-medium bg-primary-50 text-primary-700 transition-colors'
+    'flex w-full items-center gap-4 px-5 py-3.5 text-[15px] font-medium bg-primary-50 text-primary-700 transition-colors'
 
   function renderRows(items: DrawerItem[], subItems = false) {
     return items.map((item) => (
@@ -276,36 +277,62 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
 
           <div className="mx-5 my-3 border-t border-gray-200" role="presentation" />
 
-          {/* Organization memberships. Only ever shown once loaded and only for
-              real memberships, so a revoked or absent membership leaves no
-              trace and a loading drawer leaks nothing. */}
+          {/* My Organizations as a collapsible group, matching the All Events
+              pattern: tapping the header expands to show each organization the
+              person can work in. Only shown once loaded and only for real
+              memberships, so a revoked or absent membership leaves no trace. */}
           {!orgLoading && memberships.length > 0 && (
             <div className="py-2" role="group" aria-label="My organizations">
-              <p className="px-5 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                My Organizations
-              </p>
-              {memberships.map((m) => (
-                <NavLink
-                  key={m.organization.id}
-                  to="/organizer"
-                  onClick={() => {
-                    selectOrganization(m.organization.id)
-                    onClose()
-                  }}
-                  className="flex w-full items-center gap-3 px-5 py-3 text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+              <div className="flex items-stretch">
+                <button
+                  type="button"
+                  onClick={() => setOrgsExpanded((v) => !v)}
+                  aria-expanded={orgsExpanded}
+                  className="flex min-w-0 flex-1 items-center gap-4 px-5 py-3.5 text-left text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
-                    <Building2 className="h-4.5 w-4.5" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{m.organization.name}</span>
-                    <span className="block truncate text-xs font-normal text-gray-500">
-                      {ORG_ROLE_LABELS[m.role]}
-                    </span>
-                  </span>
-                  <ArrowRight className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
-                </NavLink>
-              ))}
+                  <Building2 className="h-5 w-5 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate">My Organizations</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOrgsExpanded((v) => !v)}
+                  aria-expanded={orgsExpanded}
+                  aria-label={orgsExpanded ? 'Hide organizations submenu' : 'Show organizations submenu'}
+                  className="flex w-12 shrink-0 items-center justify-center text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600"
+                >
+                  <ChevronDown
+                    className={cn('h-5 w-5 transition-transform duration-200 motion-reduce:transition-none', orgsExpanded && 'rotate-180')}
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+
+              {orgsExpanded && (
+                <div role="group" aria-label="Organizations submenu">
+                  {memberships.map((m) => (
+                    <NavLink
+                      key={m.organization.id}
+                      to="/organizer"
+                      onClick={() => {
+                        selectOrganization(m.organization.id)
+                        onClose()
+                      }}
+                      className="flex w-full items-center gap-3 pl-11 pr-5 py-3 text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                    >
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
+                        <Building2 className="h-4.5 w-4.5" aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate">{m.organization.name}</span>
+                        <span className="block truncate text-xs font-normal text-gray-500">
+                          {ORG_ROLE_LABELS[m.role]}
+                        </span>
+                      </span>
+                      <ArrowRight className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                    </NavLink>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
