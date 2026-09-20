@@ -12,6 +12,7 @@ import {
   LogOut,
   X,
   MailOpen,
+  ChevronDown,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
@@ -33,8 +34,7 @@ const personalItems: DrawerItem[] = [
   { to: '/opportunities', label: 'My Opportunities', icon: Target },
 ]
 
-const eventItems: DrawerItem[] = [
-  { to: '/events', label: 'All Events', icon: Calendar },
+const eventSubItems: DrawerItem[] = [
   { to: '/events?tab=upcoming', label: 'Upcoming Events', icon: CalendarCheck },
   { to: '/events?tab=invitations', label: 'Invitations', icon: MailOpen },
 ]
@@ -47,6 +47,7 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
   const navigate = useNavigate()
   const [upcomingCount, setUpcomingCount] = useState(0)
   const [pendingInvites, setPendingInvites] = useState(0)
+  const [eventsExpanded, setEventsExpanded] = useState(false)
 
   // Counts for the events sub-items. The user is always signed in when the
   // drawer is reachable; without a user the counts simply stay at zero.
@@ -128,39 +129,40 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
     navigate('/profile')
   }
 
-  function renderRows(items: DrawerItem[]) {
-    return items.map((item) => {
-      const isSubItem = item.to.startsWith('/events?tab=')
-      return (
-        <NavLink
-          key={item.to}
-          to={item.to}
-          onClick={onClose}
-          className={({ isActive }) =>
-            cn(
-              'flex w-full items-center gap-4 py-3.5 text-[15px] font-medium transition-colors',
-              isSubItem ? 'pl-11 pr-5' : 'px-5',
-              isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-            )
-          }
-          end={!isSubItem}
-        >
-          <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 flex-1 truncate">{item.label}</span>
-          {item.to === '/events?tab=upcoming' && upcomingCount > 0 && (
-            <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700">{upcomingCount}</span>
-          )}
-          {item.to === '/events?tab=invitations' && pendingInvites > 0 && (
-            <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">{pendingInvites}</span>
-          )}
-          {item.badge !== undefined && item.badge > 0 && (
-            <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">
-              {item.badge > 99 ? '99+' : item.badge}
-            </span>
-          )}
-        </NavLink>
-      )
-    })
+  const rowClass = (subItem?: boolean) =>
+    cn(
+      'flex w-full items-center gap-4 py-3.5 text-[15px] font-medium transition-colors',
+      subItem ? 'pl-11 pr-5' : 'px-5',
+      'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+    )
+
+  const activeRowClass =
+    'flex w-full items-center gap-4 py-3.5 text-[15px] font-medium bg-primary-50 text-primary-700 transition-colors'
+
+  function renderRows(items: DrawerItem[], subItems = false) {
+    return items.map((item) => (
+      <NavLink
+        key={item.to}
+        to={item.to}
+        onClick={onClose}
+        className={({ isActive }) => (isActive ? activeRowClass : rowClass(subItems))}
+        end={!subItems}
+      >
+        <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+        <span className="min-w-0 flex-1 truncate">{item.label}</span>
+        {item.to === '/events?tab=upcoming' && upcomingCount > 0 && (
+          <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700">{upcomingCount}</span>
+        )}
+        {item.to === '/events?tab=invitations' && pendingInvites > 0 && (
+          <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">{pendingInvites}</span>
+        )}
+        {item.badge !== undefined && item.badge > 0 && (
+          <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">
+            {item.badge > 99 ? '99+' : item.badge}
+          </span>
+        )}
+      </NavLink>
+    ))
   }
 
   return (
@@ -222,7 +224,35 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
           <div className="mx-5 my-3 border-t border-gray-200" role="presentation" />
 
           <div className="py-2" role="group" aria-label="Events">
-            {renderRows(eventItems)}
+            {/* All Events with an attached dropdown toggle for its sub-items */}
+            <div className="flex items-stretch">
+              <NavLink
+                to="/events"
+                onClick={onClose}
+                end
+                className="flex min-w-0 flex-1 items-center gap-4 px-5 py-3.5 text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+              >
+                <Calendar className="h-5 w-5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">All Events</span>
+              </NavLink>
+              <button
+                onClick={() => setEventsExpanded((v) => !v)}
+                aria-expanded={eventsExpanded}
+                aria-label={eventsExpanded ? 'Hide events submenu' : 'Show events submenu'}
+                className="flex w-12 shrink-0 items-center justify-center text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600"
+              >
+                <ChevronDown
+                  className={cn('h-5 w-5 transition-transform duration-200 motion-reduce:transition-none', eventsExpanded && 'rotate-180')}
+                  aria-hidden="true"
+                />
+              </button>
+            </div>
+
+            {eventsExpanded && (
+              <div role="group" aria-label="Events submenu">
+                {renderRows(eventSubItems, true)}
+              </div>
+            )}
           </div>
 
           <div className="mx-5 my-3 border-t border-gray-200" role="presentation" />
