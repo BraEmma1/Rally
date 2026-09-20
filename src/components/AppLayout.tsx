@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { NavLink, useNavigate, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
-  User as UserIcon,
   Calendar,
   QrCode,
   CalendarClock,
@@ -12,6 +11,7 @@ import {
   LogOut,
   Search,
   ScanLine,
+  User as UserIcon,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
@@ -49,26 +49,6 @@ export default function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [connectOpen, setConnectOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
-  const profileMenuRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    if (!profileMenuOpen) return
-    function onDown(e: MouseEvent) {
-      if (profileMenuRef.current && !profileMenuRef.current.contains(e.target as Node)) {
-        setProfileMenuOpen(false)
-      }
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setProfileMenuOpen(false)
-    }
-    document.addEventListener('mousedown', onDown)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [profileMenuOpen])
 
   async function handleSignOut() {
     await signOut()
@@ -156,48 +136,12 @@ export default function AppLayout() {
           </button>
 
           <button
-            onClick={() => navigate('/scan')}
+            onClick={() => setConnectOpen(true)}
             className="flex h-9 items-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white transition-colors hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
           >
             <ScanLine className="h-4 w-4" aria-hidden="true" />
             Connect
           </button>
-
-          <div className="relative ml-1" ref={profileMenuRef}>
-          <button
-            onClick={() => setProfileMenuOpen((v) => !v)}
-            aria-label="Open profile menu"
-            aria-expanded={profileMenuOpen}
-            aria-haspopup="menu"
-            className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
-          >
-            <Avatar name={displayName} src={profile?.photo_url} size="sm" />
-          </button>
-          {profileMenuOpen && (
-            <div
-              role="menu"
-              className="absolute right-0 top-12 w-48 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg"
-            >
-              <button
-                role="menuitem"
-                onClick={() => {
-                  setProfileMenuOpen(false)
-                  navigate('/profile')
-                }}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <UserIcon className="h-4 w-4" aria-hidden="true" /> My profile
-              </button>
-              <button
-                role="menuitem"
-                onClick={handleSignOut}
-                className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50"
-              >
-                <LogOut className="h-4 w-4" aria-hidden="true" /> Sign out
-              </button>
-            </div>
-          )}
-        </div>
         </div>
       </header>
 
