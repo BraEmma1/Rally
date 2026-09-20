@@ -50,8 +50,11 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
   useEffect(() => {
     if (!rendered) return
     document.body.style.overflow = 'hidden'
-    closeButtonRef.current?.focus()
+    // Move focus into the drawer once it is visible; waiting a frame avoids
+    // focusing an element that is still mid-transition offscreen.
+    const raf = requestAnimationFrame(() => closeButtonRef.current?.focus())
     return () => {
+      cancelAnimationFrame(raf)
       document.body.style.overflow = ''
     }
   }, [rendered])
@@ -141,7 +144,7 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
         </button>
 
         {/* Profile header */}
-        <div className="bg-gradient-to-br from-primary-700 to-primary-900 px-5 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
+        <div className="bg-primary-700 px-5 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
           <button onClick={goToProfile} className="flex w-full items-center gap-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-md">
             <Avatar name={displayName} src={profile?.photo_url} size="lg" />
             <div className="min-w-0 flex-1">

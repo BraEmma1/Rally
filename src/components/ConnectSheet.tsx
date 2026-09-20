@@ -15,12 +15,17 @@ export default function ConnectSheet({ open, onClose }: { open: boolean; onClose
   const navigate = useNavigate()
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [shared, setShared] = useState(false)
+  const [shareError, setShareError] = useState('')
 
   const shareUrl = profile ? `${window.location.origin}/p/${profile.id}` : ''
 
   useEffect(() => {
     if (!open || !shareUrl) return
-    QRCode.toDataURL(shareUrl, { width: 512, margin: 2, color: { dark: '#0A66C2', light: '#ffffff' } })
+    QRCode.toDataURL(shareUrl, {
+      width: 512,
+      margin: 2,
+      color: { dark: '#1D4ED8', light: '#ffffff' },
+    })
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(''))
   }, [open, shareUrl])
@@ -46,21 +51,51 @@ export default function ConnectSheet({ open, onClose }: { open: boolean; onClose
 
   function handleScanSomeone() {
     onClose()
-    navigate('/scan')
+    navigate('/scan?open=scan')
+  }
+
+  async function copyToClipboard(text: string): Promise<boolean> {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+      return true
+    }
+    // Legacy fallback for browsers without the async clipboard API
+    const textarea = document.createElement('textarea')
+    textarea.value = text
+    textarea.setAttribute('readonly', '')
+    textarea.style.position = 'fixed'
+    textarea.style.opacity = '0'
+    document.body.appendChild(textarea)
+    textarea.select()
+    const ok = document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return ok
   }
 
   async function handleShare() {
     if (!shareUrl) return
+    setShareError('')
     try {
       if (navigator.share) {
-        await navigator.share({ title: `Connect with ${displayName} on Rally`, url: shareUrl })
-      } else {
-        await navigator.clipboard.writeText(shareUrl)
-        setShared(true)
-        setTimeout(() => setShared(false), 2000)
+        await navigator.share({
+          title: 'Rally',
+          text: `Connect with ${displayName} on Rally`,
+          url: shareUrl,
+        })
+        return
       }
+    } catch (err) {
+      // User cancelled the native share sheet — not an error
+      if ((err as Error)?.name === 'AbortError') return
+      // Any other share failure falls through to the clipboard fallback
+    }
+    try {
+      const ok = await copyToClipboard(shareUrl)
+      if (!ok) throw new Error('copy rejected')
+      setShared(true)
+      setTimeout(() => setShared(false), 2000)
     } catch {
-      // user cancelled share or clipboard unavailable
+      setShareError('Could not copy your profile link. Please try again.')
     }
   }
 
@@ -110,6 +145,7 @@ export default function ConnectSheet({ open, onClose }: { open: boolean; onClose
           {shared ? <Check className="h-5 w-5" /> : <Share2 className="h-5 w-5" />}
           {shared ? 'Link copied!' : 'Share my profile'}
         </Button>
+        {shareError && <p className="text-center text-sm text-error-600" role="alert">{shareError}</p>}
       </div>
     </div>
   )

@@ -131,35 +131,39 @@ export default function AppLayout() {
         </div>
       </aside>
 
-      {/* Desktop top header: search, connect, notifications, profile menu */}
-      <header className="sticky top-0 z-20 hidden h-16 items-center gap-4 border-b border-gray-200 bg-white px-6 md:flex md:pl-[17rem]">
-        <button
-          onClick={() => setSearchOpen(true)}
-          className="flex h-10 max-w-xl flex-1 items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 text-left text-sm text-gray-400 transition-colors hover:border-primary-300 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
-          aria-label="Search Rally"
-        >
-          <Search className="h-4 w-4" aria-hidden="true" />
-          Search connections, companies, events…
-        </button>
+      {/* Desktop top header: centered search, right-side actions. Branding
+          lives in the sidebar's top-left, so it is not duplicated here. */}
+      <header className="sticky top-0 z-20 hidden h-16 items-center gap-4 border-b border-gray-200 bg-white pr-6 md:flex md:pl-[17rem]">
+        <div className="flex flex-1 justify-center">
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="flex h-10 w-full max-w-xl items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 text-left text-sm text-gray-400 transition-colors hover:border-primary-300 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            aria-label="Search Rally"
+          >
+            <Search className="h-4 w-4" aria-hidden="true" />
+            Search connections, companies, events…
+          </button>
+        </div>
 
-        <button
-          onClick={() => navigate('/scan')}
-          className="flex h-9 items-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white transition-colors hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
-        >
-          <ScanLine className="h-4 w-4" aria-hidden="true" />
-          Connect
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => navigate('/notifications')}
+            aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+            className="relative rounded-md p-2 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+          >
+            <Bell className="h-5 w-5" aria-hidden="true" />
+            <UnreadBadge count={unreadCount} />
+          </button>
 
-        <button
-          onClick={() => navigate('/notifications')}
-          aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
-          className="relative rounded-md p-2 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
-        >
-          <Bell className="h-5 w-5" aria-hidden="true" />
-          <UnreadBadge count={unreadCount} />
-        </button>
+          <button
+            onClick={() => navigate('/scan')}
+            className="flex h-9 items-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white transition-colors hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
+          >
+            <ScanLine className="h-4 w-4" aria-hidden="true" />
+            Connect
+          </button>
 
-        <div className="relative" ref={profileMenuRef}>
+          <div className="relative ml-1" ref={profileMenuRef}>
           <button
             onClick={() => setProfileMenuOpen((v) => !v)}
             aria-label="Open profile menu"
@@ -193,6 +197,7 @@ export default function AppLayout() {
               </button>
             </div>
           )}
+        </div>
         </div>
       </header>
 

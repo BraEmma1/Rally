@@ -31,6 +31,17 @@ export default function ScanQRPage() {
   })
   const [connecting, setConnecting] = useState(false)
 
+  // The Connect sheet's "Scan someone" action deep-links straight into the
+  // camera step (?open=scan) so the scanner opens immediately instead of
+  // showing the intermediate choose screen.
+  const openParam = searchParams.get('open')
+  useEffect(() => {
+    if (openParam === 'scan') {
+      setSearchParams({}, { replace: true })
+      setStep('scan')
+    }
+  }, [openParam, setSearchParams])
+
   // A scanned QR payload can be handed to this page via ?code=<profile id>,
   // letting the bottom-nav Connect button, drawer, and share links reuse the
   // validation and connection flow that lives here.

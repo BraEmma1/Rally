@@ -15,7 +15,7 @@ export default function BottomNav({
 }) {
   const itemClass = ({ isActive }: { isActive: boolean }) =>
     cn(
-      'flex min-h-[44px] min-w-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium transition-colors',
+      'flex min-h-[44px] min-w-[44px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors motion-reduce:transition-none',
       isActive ? 'text-primary-600' : 'text-gray-500 hover:text-gray-700'
     )
 
@@ -42,20 +42,30 @@ export default function BottomNav({
         )}
       </NavLink>
 
-      {/* Elevated center Connect action */}
-      <div className="relative flex flex-1 items-start justify-center">
+      {/* Connect is ONE flex-column item: the label flows directly under the
+          button so they share the same horizontal center; only the circular
+          button is lifted above the bar via its negative top margin. */}
+      <div className="flex min-h-[44px] min-w-[44px] flex-1 flex-col items-center justify-center px-1">
         <button
           onClick={onConnect}
           aria-label="Connect"
           aria-expanded={connectActive}
+          aria-haspopup="dialog"
           className={cn(
-            '-mt-5 flex h-14 w-14 flex-col items-center justify-center rounded-full text-white shadow-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2',
+            '-mt-6 mb-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white shadow-md transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2',
             connectActive ? 'bg-primary-700' : 'bg-primary-600 hover:bg-primary-700'
           )}
         >
           <ScanLine className="h-6 w-6" aria-hidden="true" />
         </button>
-        <span className="mt-9 text-[11px] font-medium text-gray-500">Connect</span>
+        <span
+          className={cn(
+            'text-[11px] font-medium',
+            connectActive ? 'font-semibold text-primary-600' : 'text-gray-500'
+          )}
+        >
+          Connect
+        </span>
       </div>
 
       <NavLink to="/opportunities" className={itemClass} aria-label="Pipeline">
@@ -71,7 +81,7 @@ export default function BottomNav({
         onClick={onMore}
         aria-label="More menu"
         aria-haspopup="dialog"
-        className="flex min-h-[44px] min-w-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-1.5 text-[11px] font-medium text-gray-500 transition-colors hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600"
+        className="flex min-h-[44px] min-w-[44px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium text-gray-500 transition-colors hover:text-gray-700 motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600"
       >
         <Menu className="h-5 w-5" aria-hidden="true" />
         More
