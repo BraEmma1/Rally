@@ -20,6 +20,8 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import { useOrganizer } from '@/context/OrganizerContext'
+import { listMyPendingInvitations } from '@/lib/organizer'
+import type { IncomingInvitation } from '@/lib/supabase'
 import { ORG_ROLE_LABELS } from '@/lib/supabase'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
@@ -47,6 +49,7 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
   const { profile, user, signOut } = useAuth()
   const { unreadCount } = useNotifications()
   const { memberships, loading: orgLoading, selectOrganization } = useOrganizer()
+  const [pendingOrgInvitations, setPendingOrgInvitations] = useState<IncomingInvitation[]>([])
   const [rendered, setRendered] = useState(open)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
@@ -56,6 +59,17 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
 
   // Counts for the events sub-items. The user is always signed in when the
   // drawer is reachable; without a user the counts simply stay at zero.
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    void listMyPendingInvitations().then(({ data }) => {
+      if (!cancelled) setPendingOrgInvitations(data)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [user])
+
   useEffect(() => {
     if (!user) return
     let cancelled = false
@@ -290,6 +304,38 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
                     </span>
                   </span>
                   <ArrowRight className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                </NavLink>
+              ))}
+            </div>
+          )}
+
+          {/* Pending organization invitations, straight from the authorized
+              RPC — accepted, declined or revoked invitations disappear here
+              without any local tracking. */}
+          {!orgLoading && pendingOrgInvitations.length > 0 && (
+            <div className="py-2" role="group" aria-label="Pending invitations">
+              <p className="px-5 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                {pendingOrgInvitations.length === 1 ? 'Pending Invitation' : 'Pending Invitations'}
+              </p>
+              {pendingOrgInvitations.map((invitation) => (
+                <NavLink
+                  key={invitation.id}
+                  to="/invitations/organizations"
+                  onClick={onClose}
+                  className="flex w-full items-center gap-3 px-5 py-3 text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                >
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-warning-50 text-warning-700">
+                    <Building2 className="h-4.5 w-4.5" aria-hidden="true" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate">{invitation.organization_name}</span>
+                    <span className="block truncate text-xs font-normal text-gray-500">
+                      You've been invited to join as {ORG_ROLE_LABELS[invitation.role]}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">
+                    Review
+                  </span>
                 </NavLink>
               ))}
             </div>
