@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Users, Mail, Lock, Eye, EyeOff, X } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/Button'
@@ -10,6 +10,12 @@ import { LinkedInButton } from '@/components/ui/LinkedInButton'
 export default function LoginPage() {
   const { signIn, signInWithGoogle, signInWithLinkedIn, oauthError, clearOauthError } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  // An organization-invitation email links straight to the invitation
+  // experience; when the recipient had to sign in first, the id survives here
+  // and is honored after sign-in instead of dropping them on the dashboard.
+  const invitationId = new URLSearchParams(location.search).get('invitation')
+  const signupLink = invitationId ? `/signup?invitation=${encodeURIComponent(invitationId)}` : '/signup'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -35,6 +41,10 @@ export default function LoginPage() {
           : signInError
       )
       setLoading(false)
+      return
+    }
+    if (invitationId) {
+      navigate(`/organizer/invitations?invitation=${encodeURIComponent(invitationId)}`, { replace: true })
       return
     }
     navigate('/dashboard')
@@ -165,7 +175,7 @@ export default function LoginPage() {
 
         <p className="mt-4 text-center text-sm text-gray-500">
           New to Rally?{' '}
-          <Link to="/signup" className="font-medium text-primary-600 hover:text-primary-700">
+          <Link to={signupLink} className="font-medium text-primary-600 hover:text-primary-700">
             Create an account
           </Link>
         </p>

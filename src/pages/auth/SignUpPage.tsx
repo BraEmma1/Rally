@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { Users, Mail, Lock, User as UserIcon, Eye, EyeOff, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/Button'
@@ -10,6 +10,10 @@ import { LinkedInButton } from '@/components/ui/LinkedInButton'
 export default function SignUpPage() {
   const { signUp, signInWithGoogle, signInWithLinkedIn } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
+  // Invitation id from an organization-invitation email link, carried through
+  // sign-up so the new account lands on the invitation they came for.
+  const invitationId = new URLSearchParams(location.search).get('invitation')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -39,6 +43,10 @@ export default function SignUpPage() {
     setLoading(false)
     if (needsEmailConfirmation) {
       setConfirmationSent(true)
+      return
+    }
+    if (invitationId) {
+      navigate(`/organizer/invitations?invitation=${encodeURIComponent(invitationId)}`, { replace: true })
       return
     }
     navigate('/onboarding')
@@ -195,7 +203,10 @@ export default function SignUpPage() {
 
         <p className="mt-4 text-center text-sm text-gray-500">
           Already have an account?{' '}
-          <Link to="/login" className="font-medium text-primary-600 hover:text-primary-700">
+          <Link
+            to={invitationId ? `/login?invitation=${encodeURIComponent(invitationId)}` : '/login'}
+            className="font-medium text-primary-600 hover:text-primary-700"
+          >
             Sign in
           </Link>
         </p>

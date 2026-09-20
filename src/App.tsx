@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import {
   OrganizerProvider,
@@ -53,11 +53,15 @@ function FullPageSpinner() {
   )
 }
 
-// Signed in, not mid-recovery. Everything past this point can assume a session.
+// Signed out? Carry any query (e.g. ?invitation=) into the login screen so it
+// survives the round trip and can be honored after sign-in.
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { session, loading, isRecovery } = useAuth()
+  const location = useLocation()
   if (loading) return <FullPageSpinner />
-  if (!session) return <Navigate to="/login" replace />
+  if (!session) {
+    return <Navigate to={{ pathname: '/login', search: location.search }} replace />
+  }
   // A recovery grant is a session, but it is not a sign-in: it came from opening
   // a link in an inbox, not from proving knowledge of the password. Keep it on
   // the reset screen until a new password is set or the user signs out.
@@ -131,6 +135,25 @@ function AccountHomeRedirect() {
   const { account, loading } = useAuth()
   if (loading) return <FullPageSpinner />
   return <Navigate to={accountHomePath(account)} replace />
+}
+
+// Entry for organization-invitation emails, which link here with
+// `?invitation=<id>`. With that parameter the link is an invitation context,
+// not an organizer-area page: it opens the existing invitation review/accept
+// experience for whoever is signed in, regardless of account type — accepting
+// is decided by the invitation RPCs, not the account type. Without the
+// parameter this is the organizer's own invitations screen inside the organizer
+// area, guarded exactly as before.
+function OrganizerInvitationsEntry() {
+  const [searchParams] = useSearchParams()
+  if (searchParams.has('invitation')) return <OrganizationInvitationsPage />
+  return (
+    <RequireOrganizationAccess>
+      <RequireOrganization>
+        <OrganizerLayout />
+      </RequireOrganization>
+    </RequireOrganizationAccess>
+  )
 }
 
 export default function App() {
@@ -222,8 +245,23 @@ export default function App() {
         <Route path="/organizer/events/:id/edit" element={<EventFormPage />} />
         <Route path="/organizer/people" element={<PeoplePage />} />
         <Route path="/organizer/team" element={<TeamPage />} />
-        <Route path="/organizer/invitations" element={<MyInvitationsPage />} />
         <Route path="/organizer/settings" element={<OrganizationSettingsPage />} />
+      </Route>
+
+      {/* Email invitation entry. Standalone from the organizer area: with
+          ?invitation= it must reach the existing invitation experience for any
+          signed-in user; without it, the entry re-applies the same guards and
+          the index route renders the organizer's invitations screen inside the
+          organizer layout. */}
+      <Route
+        path="/organizer/invitations"
+        element={
+          <ProtectedRoute>
+            <OrganizerInvitationsEntry />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<MyInvitationsPage />} />
       </Route>
 
       {/* ------------------------------------------------------------------ */}
