@@ -151,6 +151,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   event_invitation: 'Event invitation',
   invitation_accepted: 'Invitation accepted',
   invitation_declined: 'Invitation declined',
+  organization_invitation: 'Organization invitation',
   follow_up_due: 'Follow-up due',
   follow_up_overdue: 'Follow-up overdue',
   opportunity_stage_changed: 'Opportunity update',
@@ -298,6 +299,7 @@ export type IncomingInvitation = {
   organization_type: OrgType
   role: OrgRole
   created_at: string
+  expires_at: string | null
   invited_by_name: string
 }
 
