@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Calendar, MapPin, Clock, Users, ArrowRight, CalendarCheck, MailOpen, Check, X } from 'lucide-react'
 import { supabase, type EventRow, type EventRegistration, type EventInvitation } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
@@ -44,7 +44,26 @@ export default function EventsPage() {
   const [registrations, setRegistrations] = useState<Set<string>>(new Set())
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({})
   const [invitations, setInvitations] = useState<InvitationWithEvent[]>([])
-  const [activeTab, setActiveTab] = useState<'upcoming' | 'past' | 'invitations'>('upcoming')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [activeTab, setActiveTabState] = useState<'upcoming' | 'past' | 'invitations'>(() => {
+    const tab = searchParams.get('tab')
+    return tab === 'invitations' || tab === 'past' ? tab : 'upcoming'
+  })
+
+  // Keep the active tab in the URL so drawer links like /events?tab=invitations
+  // land directly on the right section, even when the page is already open.
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    setActiveTabState(tab === 'invitations' || tab === 'past' ? tab : 'upcoming')
+  }, [searchParams])
+
+  function switchTab(tab: 'upcoming' | 'past' | 'invitations') {
+    setActiveTabState(tab)
+    const next = new URLSearchParams(searchParams)
+    if (tab === 'upcoming') next.delete('tab')
+    else next.set('tab', tab)
+    setSearchParams(next, { replace: true })
+  }
   const [responding, setResponding] = useState<string | null>(null)
 
   async function loadData() {
@@ -227,7 +246,7 @@ export default function EventsPage() {
       {/* Tabs */}
       <div className="mt-6 flex gap-1 border-b border-gray-200">
         <button
-          onClick={() => setActiveTab('upcoming')}
+          onClick={() => switchTab('upcoming')}
           className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === 'upcoming'
               ? 'border-primary-600 text-primary-700'
@@ -243,7 +262,7 @@ export default function EventsPage() {
           )}
         </button>
         <button
-          onClick={() => setActiveTab('past')}
+          onClick={() => switchTab('past')}
           className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === 'past'
               ? 'border-primary-600 text-primary-700'
@@ -254,7 +273,7 @@ export default function EventsPage() {
           Past
         </button>
         <button
-          onClick={() => setActiveTab('invitations')}
+          onClick={() => switchTab('invitations')}
           className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === 'invitations'
               ? 'border-primary-600 text-primary-700'

@@ -4,13 +4,16 @@ import {
   Users,
   QrCode,
   Calendar,
+  CalendarCheck,
   CalendarClock,
   Target,
   Bell,
   Pencil,
   LogOut,
   X,
+  MailOpen,
 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import { Avatar } from '@/components/ui/Avatar'
@@ -32,6 +35,8 @@ const personalItems: DrawerItem[] = [
 
 const eventItems: DrawerItem[] = [
   { to: '/events', label: 'All Events', icon: Calendar },
+  { to: '/events?tab=upcoming', label: 'Upcoming Events', icon: CalendarCheck },
+  { to: '/events?tab=invitations', label: 'Invitations', icon: MailOpen },
 ]
 
 export default function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -40,6 +45,42 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
   const [rendered, setRendered] = useState(open)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
+  const [upcomingCount, setUpcomingCount] = useState(0)
+  const [pendingInvites, setPendingInvites] = useState(0)
+
+  // Counts for the events sub-items. The user is always signed in when the
+  // drawer is reachable; without a user the counts simply stay at zero.
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    const userId = user.id
+
+    async function loadCounts() {
+      const today = new Date(new Date().toDateString()).toISOString()
+
+      const [regRes, inviteRes] = await Promise.all([
+        supabase
+          .from('event_registrations')
+          .select('event_id, events!inner(start_date)', { count: 'exact', head: true })
+          .eq('user_id', userId)
+          .gte('events.start_date', today),
+        supabase
+          .from('event_invitations')
+          .select('id', { count: 'exact', head: true })
+          .eq('invited_user_id', userId)
+          .eq('status', 'Pending'),
+      ])
+
+      if (cancelled) return
+      setUpcomingCount(regRes.count ?? 0)
+      setPendingInvites(inviteRes.count ?? 0)
+    }
+
+    loadCounts()
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   // Keep the drawer in the tree through the slide-out transition, and lock
   // background page scroll for the whole time it is visible.
@@ -87,24 +128,39 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
     navigate('/profile')
   }
 
-  const rowClass = ({ isActive }: { isActive: boolean }) =>
-    cn(
-      'flex w-full items-center gap-4 px-5 py-3.5 text-[15px] font-medium transition-colors',
-      isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
-    )
-
   function renderRows(items: DrawerItem[]) {
-    return items.map((item) => (
-      <NavLink key={item.to} to={item.to} onClick={onClose} className={rowClass} end={item.to === '/events'}>
-        <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate">{item.label}</span>
-        {item.badge !== undefined && item.badge > 0 && (
-          <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">
-            {item.badge > 99 ? '99+' : item.badge}
-          </span>
-        )}
-      </NavLink>
-    ))
+    return items.map((item) => {
+      const isSubItem = item.to.startsWith('/events?tab=')
+      return (
+        <NavLink
+          key={item.to}
+          to={item.to}
+          onClick={onClose}
+          className={({ isActive }) =>
+            cn(
+              'flex w-full items-center gap-4 py-3.5 text-[15px] font-medium transition-colors',
+              isSubItem ? 'pl-11 pr-5' : 'px-5',
+              isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+            )
+          }
+          end={!isSubItem}
+        >
+          <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate">{item.label}</span>
+          {item.to === '/events?tab=upcoming' && upcomingCount > 0 && (
+            <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700">{upcomingCount}</span>
+          )}
+          {item.to === '/events?tab=invitations' && pendingInvites > 0 && (
+            <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">{pendingInvites}</span>
+          )}
+          {item.badge !== undefined && item.badge > 0 && (
+            <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">
+              {item.badge > 99 ? '99+' : item.badge}
+            </span>
+          )}
+        </NavLink>
+      )
+    })
   }
 
   return (
