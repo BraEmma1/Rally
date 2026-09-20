@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
+  ArrowLeft,
   Building2,
   CalendarRange,
   LogOut,
@@ -32,7 +33,7 @@ export default function OrganizerMobileDrawer({
   open: boolean
   onClose: () => void
 }) {
-  const { profile, user, signOut } = useAuth()
+  const { profile, user, signOut, account } = useAuth()
   const { organization } = useOrganizer()
   const [rendered, setRendered] = useState(open)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
@@ -177,6 +178,18 @@ export default function OrganizerMobileDrawer({
 
           <div className="py-2" role="group" aria-label="Account">
             <p className={cn('px-5 pb-1 pt-3', sectionClass)}>Account</p>
+            {account?.account_type === 'attendee' && (
+              <button
+                onClick={() => {
+                  onClose()
+                  navigate('/dashboard')
+                }}
+                className={rowClass}
+              >
+                <ArrowLeft className="h-5 w-5 shrink-0" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate">Back to My Rally</span>
+              </button>
+            )}
             <NavLink
               to="/organizer/settings"
               onClick={onClose}

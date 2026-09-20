@@ -1,6 +1,8 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Bell,
+  Building2,
   Check,
   CheckCheck,
   ArrowRight,
@@ -12,7 +14,9 @@ import {
   AlertCircle,
   Target,
 } from 'lucide-react'
-import { NOTIFICATION_TYPE_LABELS } from '@/lib/supabase'
+import { NOTIFICATION_TYPE_LABELS, type AppNotification, ORG_ROLE_LABELS } from '@/lib/supabase'
+import type { IncomingInvitation } from '@/lib/supabase'
+import { listMyPendingInvitations } from '@/lib/organizer'
 import { useNotifications } from '@/context/NotificationContext'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -25,6 +29,7 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   event_invitation: <CalendarPlus className="h-4 w-4 text-warning-600" />,
   invitation_accepted: <CalendarCheck className="h-4 w-4 text-success-600" />,
   invitation_declined: <CalendarX className="h-4 w-4 text-error-600" />,
+  organization_invitation: <Building2 className="h-4 w-4 text-primary-600" />,
   follow_up_due: <CalendarClock className="h-4 w-4 text-warning-600" />,
   follow_up_overdue: <AlertCircle className="h-4 w-4 text-error-600" />,
   opportunity_stage_changed: <Target className="h-4 w-4 text-primary-600" />,
@@ -37,6 +42,7 @@ const TYPE_BADGE_VARIANTS: Record<string, 'primary' | 'success' | 'warning' | 'e
   event_invitation: 'warning',
   invitation_accepted: 'success',
   invitation_declined: 'error',
+  organization_invitation: 'primary',
   follow_up_due: 'warning',
   follow_up_overdue: 'error',
   opportunity_stage_changed: 'primary',
@@ -44,8 +50,48 @@ const TYPE_BADGE_VARIANTS: Record<string, 'primary' | 'success' | 'warning' | 'e
   upcoming_event: 'primary',
 }
 
+// Pending organization invitations rendered in the same stream as database
+// notifications. They are not stored: they come from the authorized invitations
+// RPC on each visit, so an accepted or declined invitation disappears on the
+// next load and no local record can drift from the backend.
+function useOrganizationInvitationEntries(): AppNotification[] {
+  const [invitations, setInvitations] = useState<IncomingInvitation[] | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    void listMyPendingInvitations().then(({ data }) => {
+      if (!cancelled) setInvitations(data)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  return useMemo(() => {
+    if (!invitations) return []
+    return invitations.map((invitation) => ({
+      id: `org-invitation-${invitation.id}`,
+      user_id: '',
+      type: 'organization_invitation',
+      title: 'Organization Invitation',
+      message: `${invitation.organization_name} has invited you to join their organization as ${ORG_ROLE_LABELS[invitation.role]}.`,
+      link: '/invitations/organizations',
+      read: false,
+      created_at: invitation.created_at,
+    }))
+  }, [invitations])
+}
+
 export default function NotificationsPage() {
   const { notifications, unreadCount, loading, markAsRead, markAllAsRead } = useNotifications()
+  const orgInvitationEntries = useOrganizationInvitationEntries()
+  const all = useMemo(
+    () =>
+      [...notifications, ...orgInvitationEntries].sort(
+        (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+      ),
+    [notifications, orgInvitationEntries]
+  )
 
   if (loading) return <LoadingState message="Loading notifications…" />
 
@@ -66,7 +112,7 @@ export default function NotificationsPage() {
       </div>
 
       <div className="mt-6">
-        {notifications.length === 0 ? (
+        {all.length === 0 ? (
           <Card>
             <CardContent>
               <EmptyState
@@ -77,7 +123,7 @@ export default function NotificationsPage() {
             </CardContent>
           </Card>
         ) : (
-          notifications.map((n) => {
+          all.map((n) => {
             const icon = TYPE_ICONS[n.type] || <Bell className="h-4 w-4 text-gray-500" />
             const label = NOTIFICATION_TYPE_LABELS[n.type] || 'Notification'
             const content = (
@@ -102,7 +148,7 @@ export default function NotificationsPage() {
                   <div className="flex flex-shrink-0 items-center gap-2">
                     {!n.read && (
                       <button
-                        onClick={(e) => { e.preventDefault(); markAsRead(n.id) }}
+                        onClick={(e) => { e.preventDefault(); if (!n.id.startsWith('org-invitation-')) markAsRead(n.id) }}
                         className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
                         aria-label="Mark as read"
                       >
@@ -115,7 +161,7 @@ export default function NotificationsPage() {
               </Card>
             )
             return n.link ? (
-              <Link key={n.id} to={n.link} onClick={() => { if (!n.read) markAsRead(n.id) }}>
+              <Link key={n.id} to={n.link} onClick={() => { if (!n.read && !n.id.startsWith('org-invitation-')) markAsRead(n.id) }}>
                 {content}
               </Link>
             ) : (

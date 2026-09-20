@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useOrganizer } from '@/context/OrganizerContext'
 import { Button } from '@/components/ui/Button'
+import { BannerUpload } from '@/components/ui/BannerUpload'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { LoadingState } from '@/components/ui/States'
@@ -67,7 +68,7 @@ export default function EventFormPage() {
   }, [id])
 
   if (orgLoading || loading) return <LoadingState message="Loading…" />
-  if (!organization) return null
+  if (!organization || !user) return null
 
   // Creating is an owner/admin act; a manager edits events assigned to them.
   // The database enforces both — this only avoids offering a doomed form.
@@ -98,7 +99,6 @@ export default function EventFormPage() {
       name: form.name.trim(),
       description: form.description.trim(),
       location: form.location.trim(),
-      image_url: form.image_url.trim(),
       // Empty date/time inputs come back as '' which Postgres rejects for a
       // date column; null is the honest representation of "not set yet".
       start_date: form.start_date || null,
@@ -188,25 +188,17 @@ export default function EventFormPage() {
             </div>
 
             <div>
-              <Label htmlFor="image_url">Banner image URL</Label>
-              <Input
-                id="image_url"
-                type="url"
-                value={form.image_url}
-                onChange={(e) => set('image_url', e.target.value)}
-                placeholder="https://example.com/banner.jpg"
+              <Label htmlFor="image_url">Banner image</Label>
+              <BannerUpload
+                userId={user.id}
+                currentUrl={form.image_url}
+                onUploaded={(url) => set('image_url', url)}
+                onClear={() => set('image_url', '')}
                 disabled={archived}
               />
-              {form.image_url && (
-                <img
-                  src={form.image_url}
-                  alt=""
-                  className="mt-2 h-32 w-full rounded-md object-cover"
-                  onError={(e) => {
-                    e.currentTarget.style.display = 'none'
-                  }}
-                />
-              )}
+              <p className="mt-1 text-xs text-gray-500">
+                Pick an image from your device — it becomes the event banner shown to attendees.
+              </p>
             </div>
           </CardContent>
         </Card>

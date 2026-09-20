@@ -11,10 +11,13 @@ import {
   LogOut,
   Search,
   ScanLine,
+  Building2,
   User as UserIcon,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
+import { useOrganizer } from '@/context/OrganizerContext'
+import { ORG_ROLE_LABELS } from '@/lib/supabase'
 import { Avatar } from '@/components/ui/Avatar'
 import MobileDrawer from '@/components/MobileDrawer'
 import BottomNav from '@/components/BottomNav'
@@ -45,6 +48,7 @@ function UnreadBadge({ count }: { count: number }) {
 export default function AppLayout() {
   const { profile, user, signOut } = useAuth()
   const { unreadCount } = useNotifications()
+  const { memberships, loading: orgLoading, selectOrganization } = useOrganizer()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [connectOpen, setConnectOpen] = useState(false)
@@ -56,6 +60,41 @@ export default function AppLayout() {
   }
 
   const displayName = profile?.full_name || user?.email || 'User'
+
+  // Organization entry point, desktop. Same data as the mobile More drawer:
+  // only loaded, real memberships produce rows, and selecting one sets the
+  // active organization context before the organizer layout opens.
+  function organizationSection() {
+    if (orgLoading || memberships.length === 0) return null
+    return (
+      <div className="mt-4 border-t border-gray-200 pt-3">
+        <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+          My Organizations
+        </p>
+        {memberships.map((m) => (
+          <NavLink
+            key={m.organization.id}
+            to="/organizer"
+            onClick={() => selectOrganization(m.organization.id)}
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+              )
+            }
+          >
+            <Building2 className="h-4 w-4" />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{m.organization.name}</span>
+              <span className="block truncate text-xs font-normal text-gray-500">
+                {ORG_ROLE_LABELS[m.role]}
+              </span>
+            </span>
+          </NavLink>
+        ))}
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -92,6 +131,8 @@ export default function AppLayout() {
             </NavLink>
           ))}
         </nav>
+
+        {organizationSection()}
 
         <div className="border-t border-gray-200 p-3">
           <div className="flex items-center gap-3 px-2 py-2">

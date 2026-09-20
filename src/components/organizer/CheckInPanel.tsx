@@ -21,6 +21,7 @@ import {
   undoCheckIn,
   type CheckInRow,
 } from '@/lib/checkin'
+import { CheckInConfirmation, type CheckInOutcome } from '@/components/organizer/CheckInConfirmation'
 
 // The event check-in desk. Two ways in — scan a badge QR or search the door
 // list — converge on the same backend RPC, exactly as the database does.
@@ -39,6 +40,7 @@ export function CheckInPanel({ eventId }: { eventId: string }) {
     title: string
     detail: string
   } | null>(null)
+  const [outcome, setOutcome] = useState<CheckInOutcome | null>(null)
   const feedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const refresh = useCallback(async () => {
@@ -93,13 +95,35 @@ export function CheckInPanel({ eventId }: { eventId: string }) {
       showFeedback('error', 'Not a Rally code', 'That QR code is not a valid Rally profile code.')
       return
     }
-    await checkInById(id, nameFromList(id))
-  }
+    const known = rows?.find((r) => r.user_id === id)
+    setProcessing(true)
+    const result = await checkInAttendee(eventId, id)
+    setProcessing(false)
 
-  // For a scanned QR we already have the door list loaded, so the confirmation
-  // can greet the attendee by name without another round trip.
-  function nameFromList(userId: string): string | undefined {
-    return rows?.find((r) => r.user_id === userId)?.full_name || undefined
+    if (result.error) {
+      if (/not registered/i.test(result.error)) {
+        setOutcome({ kind: 'not-registered' })
+      } else {
+        showFeedback('error', 'Check-in failed', result.error)
+      }
+      return
+    }
+    if (result.already_checked_in) {
+      setOutcome({
+        kind: 'already',
+        name: known?.full_name || 'Rally member',
+        company: known?.company || undefined,
+        checkedInAt: result.checked_in_at ?? new Date().toISOString(),
+      })
+    } else {
+      setOutcome({
+        kind: 'success',
+        name: known?.full_name || 'Rally member',
+        company: known?.company || undefined,
+        checkedInAt: result.checked_in_at ?? new Date().toISOString(),
+      })
+    }
+    await refresh()
   }
 
   async function checkInById(userId: string, name?: string) {
@@ -290,6 +314,15 @@ export function CheckInPanel({ eventId }: { eventId: string }) {
       </Card>
 
       {scanOpen && <QRScanner onScan={handleScan} onClose={() => setScanOpen(false)} />}
+
+      <CheckInConfirmation
+        outcome={outcome}
+        onClose={() => setOutcome(null)}
+        onContinueScanning={() => {
+          setOutcome(null)
+          setScanOpen(true)
+        }}
+      />
     </div>
   )
 }

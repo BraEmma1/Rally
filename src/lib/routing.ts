@@ -1,8 +1,13 @@
 import type { UserAccount } from '@/lib/supabase'
 
-// Where a signed-in user belongs. Account type is authoritative and the types
-// are mutually exclusive, so this is a total function over the account — there
-// is no "switch to my other role", because there is no other role.
+// Where a signed-in user belongs. Account type is authoritative for the
+// primary experience — attendee, organizer or platform admin — and the types
+// are mutually exclusive.
+//
+// Separately from the account type, a person of any type may hold active
+// organization memberships (an attendee on a team, most commonly). That grants
+// access to the organization area without changing where their account points,
+// so membership-based gating lives in the route guards, not here.
 //
 // Anything that is not an active attendee, organizer or platform admin lands on
 // /account, which explains the specific situation: awaiting approval, suspended,
