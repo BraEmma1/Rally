@@ -1,39 +1,50 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
-  Mail,
-  Phone,
+  MoreVertical,
   Linkedin,
-  Globe,
   MapPin,
-  Plus,
-  Trash2,
-  CheckCircle2,
+  MessageCircle,
+  CalendarPlus,
+  Share2,
+  Check,
   Circle,
+  Trash2,
   Pencil,
   Save,
   X,
-  Target,
-  MoreVertical,
-  CalendarClock,
+  Plus,
   StickyNote,
+  Target,
+  CalendarClock,
   Link2,
-  Briefcase,
-  CalendarCheck,
+  ChevronRight,
 } from 'lucide-react'
-import { supabase, type Connection, type Note, type FollowUp, type Opportunity, RELATIONSHIP_TYPES, OPPORTUNITY_TYPES, OPPORTUNITY_STAGES } from '@/lib/supabase'
+import {
+  supabase,
+  type Connection,
+  type Note,
+  type FollowUp,
+  type Opportunity,
+  RELATIONSHIP_TYPES,
+  OPPORTUNITY_TYPES,
+  OPPORTUNITY_STAGES,
+} from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar } from '@/components/ui/Avatar'
-import { Badge } from '@/components/ui/Badge'
-import { Button } from '@/components/ui/Button'
-import { Input, Label, Select, Textarea } from '@/components/ui/Input'
-import { Card, CardContent } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
-import { formatDate, formatRelativeDate, normalizeUrl, displayUrl, cn } from '@/lib/utils'
+import { formatDate, formatRelativeDate, normalizeUrl, cn } from '@/lib/utils'
 
-// Relationship history timeline, built only from rows that already exist:
-// the connection itself, its notes, its follow-ups and its opportunities.
+type TabKey = 'overview' | 'notes' | 'meetings' | 'history'
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'notes', label: 'Notes' },
+  { key: 'meetings', label: 'Meetings' },
+  { key: 'history', label: 'History' },
+]
+
 type HistoryItem = {
   key: string
   type: 'Connected' | 'Note' | 'Follow-up' | 'Opportunity'
@@ -43,11 +54,11 @@ type HistoryItem = {
   tone: 'primary' | 'accent' | 'gray' | 'warning'
 }
 
-function localDateString(d: Date): string {
-  const y = d.getFullYear()
+function todayString(): string {
+  const d = new Date()
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  return `${d.getFullYear()}-${m}-${day}`
 }
 
 function buildHistory(
@@ -56,108 +67,83 @@ function buildHistory(
   followUps: FollowUp[],
   opportunities: Opportunity[]
 ): HistoryItem[] {
-  const items: HistoryItem[] = []
-
-  items.push({
-    key: 'connected',
-    type: 'Connected',
-    title: connection.event_name ? `Met at ${connection.event_name}` : 'Connection created',
-    detail: connection.event_name ? undefined : 'You added this person to your network.',
-    when: connection.created_at,
-    tone: 'primary',
-  })
-
-  for (const note of notes) {
-    items.push({
-      key: `note-${note.id}`,
-      type: 'Note',
-      title: note.content.length > 120 ? `${note.content.slice(0, 117)}…` : note.content,
-      when: note.created_at,
-      tone: 'gray',
-    })
-  }
-
-  for (const fu of followUps) {
-    items.push({
-      key: `followup-${fu.id}`,
-      type: 'Follow-up',
-      title: fu.title,
-      detail: fu.completed
-        ? `Completed ${fu.completed_at ? formatDate(fu.completed_at) : ''}`.trim()
-        : `Due ${formatRelativeDate(fu.due_date)}`,
-      when: fu.completed_at ?? fu.created_at,
-      tone: fu.completed ? 'accent' : fu.due_date < localDateString(new Date()) ? 'warning' : 'gray',
-    })
-  }
-
-  for (const opp of opportunities) {
-    items.push({
-      key: `opportunity-${opp.id}`,
-      type: 'Opportunity',
-      title: opp.title,
-      detail: [opp.stage, opp.value > 0 ? opp.value.toLocaleString() : null].filter(Boolean).join(' · '),
-      when: opp.updated_at,
-      tone: 'accent',
-    })
-  }
-
+  const items: HistoryItem[] = [
+    {
+      key: 'connected',
+      type: 'Connected',
+      title: connection.event_name ? `Met at ${connection.event_name}` : 'Connection created',
+      when: connection.created_at,
+      tone: 'primary',
+    },
+    ...notes.map((n) => ({
+      key: `note-${n.id}`,
+      type: 'Note' as const,
+      title: n.content.length > 100 ? `${n.content.slice(0, 97)}…` : n.content,
+      when: n.created_at,
+      tone: 'gray' as const,
+    })),
+    ...followUps.map((f) => ({
+      key: `followup-${f.id}`,
+      type: 'Follow-up' as const,
+      title: f.title,
+      detail: f.completed ? 'Completed' : `Due ${formatRelativeDate(f.due_date)}`,
+      when: f.completed_at ?? f.created_at,
+      tone: f.completed ? ('accent' as const) : f.due_date < todayString() ? ('warning' as const) : ('gray' as const),
+    })),
+    ...opportunities.map((o) => ({
+      key: `opportunity-${o.id}`,
+      type: 'Opportunity' as const,
+      title: o.title,
+      detail: [o.stage, o.value > 0 ? o.value.toLocaleString() : null].filter(Boolean).join(' · '),
+      when: o.updated_at,
+      tone: 'accent' as const,
+    })),
+  ]
   return items.sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime())
 }
 
-const TIMELINE_ICONS = {
-  Connected: Link2,
-  Note: StickyNote,
-  'Follow-up': CalendarClock,
-  Opportunity: Target,
-} as const
-
-const TIMELINE_DOT_STYLES = {
-  primary: 'bg-primary-600',
-  accent: 'bg-accent-600',
-  gray: 'bg-gray-300',
-  warning: 'bg-warning-500',
-} as const
-
-type TabKey = 'about' | 'notes' | 'followups' | 'opportunities'
-
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'about', label: 'About' },
-  { key: 'notes', label: 'Notes' },
-  { key: 'followups', label: 'Follow-ups' },
-  { key: 'opportunities', label: 'Opportunities' },
-]
+const TIMELINE_ICONS = { Connected: Link2, Note: StickyNote, 'Follow-up': CalendarClock, Opportunity: Target } as const
+const TIMELINE_DOTS = { primary: 'bg-primary-600', accent: 'bg-accent-600', gray: 'bg-gray-300', warning: 'bg-warning-500' } as const
 
 export default function ConnectionDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
+
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [connection, setConnection] = useState<Connection | null>(null)
   const [notes, setNotes] = useState<Note[]>([])
   const [followUps, setFollowUps] = useState<FollowUp[]>([])
+  const [opportunities, setOpportunities] = useState<Opportunity[]>([])
 
-  const [tab, setTab] = useState<TabKey>('about')
+  const [tab, setTab] = useState<TabKey>('overview')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [stepMenuOpen, setStepMenuOpen] = useState(false)
+  const [showAllNotes, setShowAllNotes] = useState(false)
 
-  // Relationship type editor
+  // Existing functionality, kept: relationship edit, note CRUD, follow-up add/toggle/delete,
+  // opportunity create — all surfaced from the reference's header/action rows.
   const [editingRelationship, setEditingRelationship] = useState(false)
-  const [savingRelationship, setSavingRelationship] = useState(false)
   const [relationshipType, setRelationshipType] = useState('Other')
+  const [savingRelationship, setSavingRelationship] = useState(false)
 
-  // Note editing
+  const [noteFormOpen, setNoteFormOpen] = useState(false)
   const [newNote, setNewNote] = useState('')
   const [savingNote, setSavingNote] = useState(false)
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null)
   const [editNoteContent, setEditNoteContent] = useState('')
   const [savingEditNote, setSavingEditNote] = useState(false)
 
+  const [followUpFormOpen, setFollowUpFormOpen] = useState(false)
   const [newFollowUp, setNewFollowUp] = useState({ title: '', due_date: '' })
   const [savingFollowUp, setSavingFollowUp] = useState(false)
-  const [opportunities, setOpportunities] = useState<Opportunity[]>([])
-  const [showOppForm, setShowOppForm] = useState(false)
+
+  const [oppFormOpen, setOppFormOpen] = useState(false)
   const [savingOpp, setSavingOpp] = useState(false)
   const [oppForm, setOppForm] = useState({ title: '', type: 'Sales', value: '', stage: 'New', expected_close_date: '', description: '' })
+
+  const [shareState, setShareState] = useState<'idle' | 'shared' | 'copied'>('idle')
 
   async function loadData() {
     if (!id || !user) return
@@ -173,15 +159,12 @@ export default function ConnectionDetailPage() {
       if (connRes.error) throw connRes.error
       if (notesRes.error) throw notesRes.error
       if (followRes.error) throw followRes.error
-
       if (!connRes.data) {
         setError('Connection not found.')
-        setLoading(false)
         return
       }
-      const conn = connRes.data as Connection
-      setConnection(conn)
-      setRelationshipType(conn.relationship_type || 'Other')
+      setConnection(connRes.data as Connection)
+      setRelationshipType((connRes.data as Connection).relationship_type || 'Other')
       setNotes(notesRes.data as Note[])
       setFollowUps(followRes.data as FollowUp[])
       setOpportunities((oppRes.data as Opportunity[]) || [])
@@ -194,6 +177,7 @@ export default function ConnectionDetailPage() {
 
   useEffect(() => {
     loadData()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user])
 
   async function handleSaveRelationship(e: FormEvent) {
@@ -205,13 +189,12 @@ export default function ConnectionDetailPage() {
       .update({ relationship_type: relationshipType, updated_at: new Date().toISOString() })
       .eq('id', id)
       .eq('owner_id', user.id)
+    setSavingRelationship(false)
     if (updateError) {
       setError(updateError.message)
-      setSavingRelationship(false)
       return
     }
     setConnection({ ...connection!, relationship_type: relationshipType })
-    setSavingRelationship(false)
     setEditingRelationship(false)
   }
 
@@ -224,25 +207,20 @@ export default function ConnectionDetailPage() {
       .insert({ connection_id: id, owner_id: user.id, content: newNote.trim() })
       .select()
       .single()
+    setSavingNote(false)
     if (noteError) {
       setError(noteError.message)
-      setSavingNote(false)
       return
     }
     setNotes([data as Note, ...notes])
     setNewNote('')
-    setSavingNote(false)
+    setNoteFormOpen(false)
   }
 
   async function handleDeleteNote(noteId: string) {
     if (!user) return
     await supabase.from('notes').delete().eq('id', noteId).eq('owner_id', user.id)
     setNotes(notes.filter((n) => n.id !== noteId))
-  }
-
-  function startEditNote(note: Note) {
-    setEditingNoteId(note.id)
-    setEditNoteContent(note.content)
   }
 
   async function handleSaveEditNote(e: FormEvent) {
@@ -254,15 +232,13 @@ export default function ConnectionDetailPage() {
       .update({ content: editNoteContent.trim(), updated_at: new Date().toISOString() })
       .eq('id', editingNoteId)
       .eq('owner_id', user.id)
+    setSavingEditNote(false)
     if (noteError) {
       setError(noteError.message)
-      setSavingEditNote(false)
       return
     }
-    setNotes(notes.map((n) => n.id === editingNoteId ? { ...n, content: editNoteContent.trim() } : n))
+    setNotes(notes.map((n) => (n.id === editingNoteId ? { ...n, content: editNoteContent.trim() } : n)))
     setEditingNoteId(null)
-    setEditNoteContent('')
-    setSavingEditNote(false)
   }
 
   async function handleAddFollowUp(e: FormEvent) {
@@ -271,22 +247,17 @@ export default function ConnectionDetailPage() {
     setSavingFollowUp(true)
     const { data, error: fuError } = await supabase
       .from('follow_ups')
-      .insert({
-        connection_id: id,
-        owner_id: user.id,
-        title: newFollowUp.title.trim(),
-        due_date: newFollowUp.due_date,
-      })
+      .insert({ connection_id: id, owner_id: user.id, title: newFollowUp.title.trim(), due_date: newFollowUp.due_date })
       .select()
       .single()
+    setSavingFollowUp(false)
     if (fuError) {
       setError(fuError.message)
-      setSavingFollowUp(false)
       return
     }
     setFollowUps([...followUps, data as FollowUp].sort((a, b) => a.due_date.localeCompare(b.due_date)))
     setNewFollowUp({ title: '', due_date: '' })
-    setSavingFollowUp(false)
+    setFollowUpFormOpen(false)
   }
 
   async function toggleFollowUp(fu: FollowUp) {
@@ -298,20 +269,13 @@ export default function ConnectionDetailPage() {
       .eq('id', fu.id)
       .eq('owner_id', user.id)
     if (updateError) return
-    setFollowUps(followUps.map((f) => f.id === fu.id ? { ...f, completed, completed_at: completed ? new Date().toISOString() : null } : f))
+    setFollowUps(followUps.map((f) => (f.id === fu.id ? { ...f, completed, completed_at: completed ? new Date().toISOString() : null } : f)))
   }
 
   async function deleteFollowUp(fuId: string) {
     if (!user) return
     await supabase.from('follow_ups').delete().eq('id', fuId).eq('owner_id', user.id)
     setFollowUps(followUps.filter((f) => f.id !== fuId))
-  }
-
-  async function handleDeleteConnection() {
-    if (!id || !user) return
-    if (!confirm('Delete this connection and all its notes and follow-ups?')) return
-    await supabase.from('connections').delete().eq('id', id).eq('owner_id', user.id)
-    navigate('/connections')
   }
 
   async function handleAddOpportunity(e: FormEvent) {
@@ -334,15 +298,46 @@ export default function ConnectionDetailPage() {
       })
       .select()
       .single()
+    setSavingOpp(false)
     if (oppError) {
       setError(oppError.message)
-      setSavingOpp(false)
       return
     }
     setOpportunities([data as Opportunity, ...opportunities])
     setOppForm({ title: '', type: 'Sales', value: '', stage: 'New', expected_close_date: '', description: '' })
-    setShowOppForm(false)
-    setSavingOpp(false)
+    setOppFormOpen(false)
+  }
+
+  async function handleDeleteConnection() {
+    if (!id || !user) return
+    if (!confirm('Delete this connection and all its notes and follow-ups?')) return
+    await supabase.from('connections').delete().eq('id', id).eq('owner_id', user.id)
+    navigate('/connections')
+  }
+
+  async function handleShareContact() {
+    if (!connection) return
+    const text = [
+      connection.full_name,
+      [connection.job_title, connection.company].filter(Boolean).join(' | '),
+      connection.email,
+      connection.phone,
+      normalizeUrl(connection.linkedin),
+    ]
+      .filter(Boolean)
+      .join('\n')
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: connection.full_name, text })
+        setShareState('shared')
+      } else {
+        await navigator.clipboard.writeText(text)
+        setShareState('copied')
+      }
+    } catch {
+      /* user cancelled the share sheet */
+    }
+    setTimeout(() => setShareState('idle'), 2000)
   }
 
   if (loading) return <LoadingState message="Loading connection…" />
@@ -350,43 +345,48 @@ export default function ConnectionDetailPage() {
   if (!connection) return <ErrorState message="Connection not found." />
 
   const linkedinUrl = normalizeUrl(connection.linkedin)
-  const websiteUrl = normalizeUrl(connection.website)
   const history = buildHistory(connection, notes, followUps, opportunities)
-  const openFollowUps = followUps.filter((f) => !f.completed)
-  const nextFollowUp = openFollowUps[0]
-  const nextIsOverdue = nextFollowUp && nextFollowUp.due_date < localDateString(new Date())
+  const nextStep = followUps.filter((f) => !f.completed)[0]
+  const nextOverdue = nextStep && nextStep.due_date < todayString()
+  const visibleNotes = showAllNotes ? notes : notes.slice(0, 3)
+  const titleLine = [connection.job_title, connection.company].filter(Boolean).join(' | ')
+
+  const actionButtons = [
+    {
+      label: shareState === 'shared' ? 'Shared' : shareState === 'copied' ? 'Copied' : 'Share Contact',
+      icon: Share2,
+      onClick: handleShareContact,
+      disabled: false,
+    },
+  ]
 
   return (
     <div className="mx-auto max-w-md pb-10">
-      {/* Top bar */}
-      <div className="relative flex items-center justify-between py-3">
-        <Link to="/connections" aria-label="Back to network" className="rounded-full p-2 -ml-2 text-gray-500 hover:text-gray-700">
+      {/* 1. Top header */}
+      <div className="relative flex items-center justify-between border-b border-gray-100 py-2.5">
+        <button onClick={() => navigate('/connections')} aria-label="Back to network" className="-ml-2 rounded-full p-2 text-gray-500 hover:text-gray-700">
           <ArrowLeft className="h-5 w-5" />
-        </Link>
-        <span className="text-sm font-semibold text-gray-700">Connection</span>
-        <button
-          onClick={() => setMenuOpen(!menuOpen)}
-          aria-label="Connection options"
-          className="rounded-full p-2 -mr-2 text-gray-500 hover:text-gray-700"
-        >
+        </button>
+        <span className="max-w-[55%] truncate text-sm font-semibold text-gray-900">{connection.full_name}</span>
+        <button onClick={() => setMenuOpen(!menuOpen)} aria-label="Connection options" className="-mr-2 rounded-full p-2 text-gray-500 hover:text-gray-700">
           <MoreVertical className="h-5 w-5" />
         </button>
         {menuOpen && (
-          <div className="absolute right-0 top-12 z-20 w-52 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg">
+          <div className="absolute right-0 top-11 z-20 w-56 overflow-hidden rounded-md border border-gray-200 bg-white text-left shadow-lg">
             <button
-              onClick={() => {
-                setEditingRelationship(true)
-                setMenuOpen(false)
-              }}
+              onClick={() => { setEditingRelationship(!editingRelationship); setMenuOpen(false) }}
               className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
             >
               <Pencil className="h-4 w-4 text-gray-400" /> Edit relationship
             </button>
             <button
-              onClick={() => {
-                setMenuOpen(false)
-                void handleDeleteConnection()
-              }}
+              onClick={() => { setOppFormOpen(!oppFormOpen); setTab('overview'); setMenuOpen(false) }}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+            >
+              <Target className="h-4 w-4 text-gray-400" /> Create opportunity
+            </button>
+            <button
+              onClick={() => { setMenuOpen(false); void handleDeleteConnection() }}
               className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2.5 text-sm text-error-600 hover:bg-error-50"
             >
               <Trash2 className="h-4 w-4" /> Remove connection
@@ -395,453 +395,513 @@ export default function ConnectionDetailPage() {
         )}
       </div>
 
-      {/* Person — compact profile header */}
-      <div className="flex items-center gap-3">
-        <Avatar name={connection.full_name} src={connection.photo_url} size="lg" />
-        <div className="min-w-0">
-          <h1 className="truncate text-lg font-bold text-gray-900">{connection.full_name}</h1>
-          <p className="truncate text-sm text-gray-600">
-            {connection.job_title}
-            {connection.company ? (connection.job_title ? ` · ${connection.company}` : connection.company) : ''}
-          </p>
-          <p className="mt-0.5 truncate text-xs text-gray-400">
-            {connection.event_name ? `Connected at ${connection.event_name}` : `Connected on ${formatDate(connection.created_at)}`}
-          </p>
-        </div>
+      {/* 2. Tabs */}
+      <div className="flex items-center gap-1 border-b border-gray-100">
+        {TABS.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={cn(
+              'relative flex-1 px-2 py-2.5 text-xs font-medium transition-colors',
+              tab === key ? 'text-primary-600' : 'text-gray-500 hover:text-gray-700'
+            )}
+          >
+            {label}
+            {tab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-primary-600" />}
+          </button>
+        ))}
       </div>
 
-      {editingRelationship && (
-        <Card className="mt-4">
-          <CardContent>
-            <form onSubmit={handleSaveRelationship} className="space-y-3">
+      {tab === 'overview' && (
+        <div className="pt-3">
+          {/* 3. Compact profile row */}
+          <div className="flex items-center gap-3">
+            <Avatar name={connection.full_name} src={connection.photo_url} size="lg" className="h-14 w-14" />
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-[15px] font-bold text-gray-900">{connection.full_name}</h1>
+              {titleLine && <p className="truncate text-xs text-gray-600">{titleLine}</p>}
+              {connection.location && (
+                <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-gray-500">
+                  <MapPin className="h-3 w-3 flex-shrink-0 text-gray-400" /> {connection.location}
+                </p>
+              )}
+            </div>
+            {linkedinUrl && (
+              <a
+                href={linkedinUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label={`${connection.full_name} on LinkedIn`}
+                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary-600 text-white transition-colors hover:bg-primary-700"
+              >
+                <Linkedin className="h-4 w-4" />
+              </a>
+            )}
+          </div>
+
+          {editingRelationship && (
+            <form onSubmit={handleSaveRelationship} className="mt-3 space-y-2 rounded-md border border-gray-200 p-3">
               <div className="flex items-center justify-between">
-                <Label>Relationship type</Label>
-                <button type="button" onClick={() => setEditingRelationship(false)} aria-label="Close editor" className="text-gray-400 hover:text-gray-600">
+                <span className="text-xs font-semibold text-gray-700">Relationship type</span>
+                <button type="button" onClick={() => setEditingRelationship(false)} aria-label="Close" className="text-gray-400 hover:text-gray-600">
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              <Select value={relationshipType} onChange={(e) => setRelationshipType(e.target.value)}>
+              <select
+                value={relationshipType}
+                onChange={(e) => setRelationshipType(e.target.value)}
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-gray-900 focus:border-primary-600 focus:outline-none"
+              >
                 {RELATIONSHIP_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-              </Select>
-              <p className="text-xs text-gray-400">
-                Your private label for how you know this person. Their profile information is read-only.
-              </p>
-              <Button type="submit" size="sm" disabled={savingRelationship} className="w-full">
+              </select>
+              <p className="text-[11px] text-gray-400">Your private label for how you know this person.</p>
+              <button
+                type="submit"
+                disabled={savingRelationship}
+                className="inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md bg-primary-600 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+              >
                 <Save className="h-3.5 w-3.5" /> {savingRelationship ? 'Saving…' : 'Save'}
-              </Button>
+              </button>
             </form>
-          </CardContent>
-        </Card>
-      )}
+          )}
 
-      {/* Pill tabs */}
-      <div className="mt-4 -mx-4 overflow-x-auto px-4">
-        <div className="flex w-max gap-2">
-          {TABS.map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={cn(
-                'shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
-                tab === key
-                  ? 'bg-primary-600 text-white'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-              )}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-4">
-        {tab === 'about' && (
-          <>
-            {/* Profile card */}
-            <Card>
-              <CardContent className="pt-5">
-                <div className="flex flex-col items-center text-center">
-                  <Avatar name={connection.full_name} src={connection.photo_url} size="xl" />
-                  <h2 className="mt-3 text-base font-bold text-gray-900">{connection.full_name}</h2>
-                  <p className="mt-0.5 text-sm text-gray-600">
-                    {connection.job_title}
-                    {connection.company ? (connection.job_title ? ` · ${connection.company}` : connection.company) : ''}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-gray-500">
-                    {connection.location && (
-                      <span className="inline-flex items-center gap-1">
-                        <MapPin className="h-3 w-3" /> {connection.location}
-                      </span>
-                    )}
-                    {connection.industry && <span>{connection.industry}</span>}
-                    <span>Connected on {formatDate(connection.created_at)}</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap justify-center gap-2">
-                    <Badge variant="primary">{connection.relationship_type}</Badge>
-                    {connection.event_name && (
-                      <Badge variant="gray">
-                        <Briefcase className="mr-1 inline h-3 w-3" />
-                        {connection.event_name}
-                      </Badge>
-                    )}
-                  </div>
-                  {(linkedinUrl || websiteUrl) && (
-                    <div className="mt-4 flex w-full flex-col gap-2 border-t border-gray-100 pt-4">
-                      {linkedinUrl && (
-                        <a href={linkedinUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2.5 text-sm text-gray-700 transition-colors hover:border-primary-300 hover:text-primary-700">
-                          <span className="inline-flex items-center gap-2">
-                            <Linkedin className="h-4 w-4 text-primary-600" /> LinkedIn
-                          </span>
-                          <span className="truncate text-xs text-gray-400">{displayUrl(linkedinUrl)}</span>
-                        </a>
-                      )}
-                      {websiteUrl && (
-                        <a href={websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between rounded-md border border-gray-200 px-3 py-2.5 text-sm text-gray-700 transition-colors hover:border-primary-300 hover:text-primary-700">
-                          <span className="inline-flex items-center gap-2">
-                            <Globe className="h-4 w-4 text-gray-400" /> Website
-                          </span>
-                          <span className="truncate text-xs text-gray-400">{displayUrl(websiteUrl)}</span>
-                        </a>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick contact actions — only channels that exist */}
-            {(connection.email || connection.phone) && (
+          {oppFormOpen && (
+            <form onSubmit={handleAddOpportunity} className="mt-3 space-y-2 rounded-md border border-gray-200 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-700">New opportunity</span>
+                <button type="button" onClick={() => setOppFormOpen(false)} aria-label="Close" className="text-gray-400 hover:text-gray-600">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <input
+                required
+                value={oppForm.title}
+                onChange={(e) => setOppForm({ ...oppForm, title: e.target.value })}
+                placeholder="Opportunity title"
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-primary-600 focus:outline-none"
+              />
               <div className="grid grid-cols-2 gap-2">
-                {connection.email && (
-                  <a href={`mailto:${connection.email}`}>
-                    <Button variant="secondary" size="sm" className="w-full"><Mail className="h-4 w-4" /> Message</Button>
-                  </a>
-                )}
-                {connection.phone && (
-                  <a href={`tel:${connection.phone}`}>
-                    <Button variant="secondary" size="sm" className="w-full"><Phone className="h-4 w-4" /> Call</Button>
-                  </a>
-                )}
+                <select
+                  value={oppForm.type}
+                  onChange={(e) => setOppForm({ ...oppForm, type: e.target.value })}
+                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-primary-600 focus:outline-none"
+                >
+                  {OPPORTUNITY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+                <select
+                  value={oppForm.stage}
+                  onChange={(e) => setOppForm({ ...oppForm, stage: e.target.value })}
+                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-primary-600 focus:outline-none"
+                >
+                  {OPPORTUNITY_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <input
+                type="number"
+                min="0"
+                step="1000"
+                value={oppForm.value}
+                onChange={(e) => setOppForm({ ...oppForm, value: e.target.value })}
+                placeholder="Value ($)"
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-primary-600 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={savingOpp}
+                className="inline-flex h-8 w-full items-center justify-center rounded-md bg-primary-600 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+              >
+                {savingOpp ? 'Creating…' : 'Create opportunity'}
+              </button>
+            </form>
+          )}
+
+          {/* 4. Action row */}
+          <div className="mt-3 grid grid-cols-4 gap-2">
+            {connection.email ? (
+              <a href={`mailto:${connection.email}`} className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50">
+                <MessageCircle className="h-4 w-4 text-primary-600" />
+                <span className="text-[11px] font-medium">Message</span>
+              </a>
+            ) : (
+              <div className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-300" title="No email on file">
+                <MessageCircle className="h-4 w-4" />
+                <span className="text-[11px] font-medium">Message</span>
               </div>
             )}
+            <button
+              onClick={() => setFollowUpFormOpen(!followUpFormOpen)}
+              className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
+            >
+              <CalendarPlus className="h-4 w-4 text-primary-600" />
+              <span className="text-[11px] font-medium">Schedule</span>
+            </button>
+            {actionButtons.map(({ label, icon: Icon, onClick }) => (
+              <button
+                key={label}
+                onClick={onClick}
+                className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
+              >
+                <Icon className="h-4 w-4 text-primary-600" />
+                <span className="text-[11px] font-medium">{label}</span>
+              </button>
+            ))}
+            <button
+              onClick={() => setMenuOpen(true)}
+              className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
+            >
+              <MoreVertical className="h-4 w-4 text-primary-600" />
+              <span className="text-[11px] font-medium">More</span>
+            </button>
+          </div>
 
-            {/* Next Step */}
-            <div>
-              <h3 className="text-sm font-bold text-gray-900">Next step</h3>
-              {nextFollowUp ? (
-                <div className={cn('mt-2 rounded-md p-4', nextIsOverdue ? 'bg-warning-50' : 'bg-primary-50')}>
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Next step</p>
-                  <p className="mt-1 text-sm font-semibold text-gray-900">{nextFollowUp.title}</p>
-                  <p className={cn('mt-1 text-xs', nextIsOverdue ? 'text-warning-700' : 'text-primary-700')}>
-                    {nextIsOverdue ? 'Overdue — due ' : 'Due '}
-                    {formatRelativeDate(nextFollowUp.due_date)}
-                  </p>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" onClick={() => void toggleFollowUp(nextFollowUp)}>
-                      <CheckCircle2 className="h-4 w-4" /> Complete
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-2 rounded-md bg-gray-50 p-4">
-                  <p className="text-sm text-gray-600">No open follow-up scheduled.</p>
-                  <Button size="sm" variant="secondary" className="mt-3" onClick={() => setTab('followups')}>
-                    <Plus className="h-4 w-4" /> Add follow-up
-                  </Button>
-                </div>
-              )}
+          {followUpFormOpen && (
+            <form onSubmit={handleAddFollowUp} className="mt-3 space-y-2 rounded-md border border-gray-200 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-gray-700">Schedule follow-up</span>
+                <button type="button" onClick={() => setFollowUpFormOpen(false)} aria-label="Close" className="text-gray-400 hover:text-gray-600">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <input
+                required
+                value={newFollowUp.title}
+                onChange={(e) => setNewFollowUp({ ...newFollowUp, title: e.target.value })}
+                placeholder="What's the next step?"
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-primary-600 focus:outline-none"
+              />
+              <input
+                type="date"
+                required
+                value={newFollowUp.due_date}
+                onChange={(e) => setNewFollowUp({ ...newFollowUp, due_date: e.target.value })}
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-gray-900 focus:border-primary-600 focus:outline-none"
+              />
+              <button
+                type="submit"
+                disabled={savingFollowUp}
+                className="inline-flex h-8 w-full items-center justify-center rounded-md bg-primary-600 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+              >
+                {savingFollowUp ? 'Adding…' : 'Add follow-up'}
+              </button>
+            </form>
+          )}
+
+          {/* 5. Your Notes */}
+          <div className="mt-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-gray-900">Your Notes</h2>
+              <button
+                onClick={() => setNoteFormOpen(!noteFormOpen)}
+                className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add Note
+              </button>
             </div>
 
-            {/* Relationship history */}
-            <Card>
-              <CardContent className="py-4">
-                <h3 className="text-sm font-bold text-gray-900">Relationship history</h3>
-                {history.length === 0 ? (
-                  <EmptyState title="No history yet" description="Notes, follow-ups and opportunities will appear here as they happen." />
-                ) : (
-                  <ol className="relative mt-3 space-y-4 border-l border-gray-200 pl-5">
-                    {history.map((item) => {
-                      const Icon = TIMELINE_ICONS[item.type]
-                      return (
-                        <li key={item.key} className="relative">
-                          <span
-                            className={cn(
-                              'absolute -left-[27px] flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white',
-                              TIMELINE_DOT_STYLES[item.tone]
-                            )}
-                          >
-                            <Icon className="h-2.5 w-2.5 text-white" />
-                          </span>
-                          <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{item.type}</p>
-                          <p className="mt-0.5 text-sm font-medium text-gray-900">{item.title}</p>
-                          {item.detail && <p className="mt-0.5 text-xs text-gray-500">{item.detail}</p>}
-                          <p className="mt-0.5 text-xs text-gray-400">{formatDate(item.when)}</p>
-                        </li>
-                      )
-                    })}
-                  </ol>
-                )}
-              </CardContent>
-            </Card>
-          </>
-        )}
-
-        {tab === 'notes' && (
-          <>
-            <Card>
-              <CardContent>
-                <form onSubmit={handleAddNote} className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <StickyNote className="h-4 w-4 text-gray-400" />
-                    <Label>Add a note</Label>
-                  </div>
-                  <Textarea
-                    placeholder="Context about this person, topics discussed…"
-                    rows={3}
-                    value={newNote}
-                    onChange={(e) => setNewNote(e.target.value)}
-                  />
-                  <Button type="submit" size="sm" disabled={savingNote || !newNote.trim()} className="w-full">
-                    {savingNote ? 'Saving…' : 'Add note'}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-
-            {notes.length === 0 ? (
-              <Card>
-                <CardContent>
-                  <EmptyState
-                    icon={<StickyNote className="h-8 w-8" />}
-                    title="No notes yet"
-                    description="Record context about this person and your interactions."
-                  />
-                </CardContent>
-              </Card>
-            ) : (
-              <div className="space-y-3">
-                {notes.map((note) => (
-                  <Card key={note.id}>
-                    <CardContent>
-                      {editingNoteId === note.id ? (
-                        <form onSubmit={handleSaveEditNote} className="space-y-2">
-                          <Textarea
-                            rows={3}
-                            value={editNoteContent}
-                            onChange={(e) => setEditNoteContent(e.target.value)}
-                            autoFocus
-                          />
-                          <div className="flex gap-2">
-                            <Button type="submit" size="sm" disabled={savingEditNote || !editNoteContent.trim()}>
-                              <Save className="h-3.5 w-3.5" /> {savingEditNote ? 'Saving…' : 'Save'}
-                            </Button>
-                            <Button type="button" size="sm" variant="secondary" onClick={() => setEditingNoteId(null)}>
-                              <X className="h-3.5 w-3.5" /> Cancel
-                            </Button>
-                          </div>
-                        </form>
-                      ) : (
-                        <>
-                          <p className="whitespace-pre-wrap text-sm text-gray-700">{note.content}</p>
-                          <div className="mt-2 flex items-center justify-between">
-                            <span className="text-xs text-gray-400">{formatDate(note.created_at)}</span>
-                            <div className="flex items-center gap-3">
-                              <button
-                                onClick={() => startEditNote(note)}
-                                aria-label="Edit note"
-                                className="text-gray-300 hover:text-primary-600"
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteNote(note.id)}
-                                aria-label="Delete note"
-                                className="text-gray-300 hover:text-error-600"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {tab === 'followups' && (
-          <>
-            {/* Next Step block */}
-            {nextFollowUp ? (
-              <div className={cn('rounded-md p-4', nextIsOverdue ? 'bg-warning-50' : 'bg-primary-50')}>
-                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Next step</p>
-                <p className="mt-1 text-sm font-semibold text-gray-900">{nextFollowUp.title}</p>
-                <p className={cn('mt-1 text-xs', nextIsOverdue ? 'text-warning-700' : 'text-primary-700')}>
-                  {nextIsOverdue ? 'Overdue — due ' : 'Due '}
-                  {formatRelativeDate(nextFollowUp.due_date)}
-                </p>
-                <Button size="sm" className="mt-3" onClick={() => void toggleFollowUp(nextFollowUp)}>
-                  <CheckCircle2 className="h-4 w-4" /> Complete
-                </Button>
-              </div>
-            ) : (
-              <div className="rounded-md bg-gray-50 p-4">
-                <p className="text-sm text-gray-600">No open follow-up scheduled.</p>
-              </div>
+            {noteFormOpen && (
+              <form onSubmit={handleAddNote} className="mt-2 space-y-2 rounded-md border border-gray-200 p-3">
+                <textarea
+                  rows={3}
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                  placeholder="Write a note…"
+                  autoFocus
+                  className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-primary-600 focus:outline-none"
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={savingNote || !newNote.trim()}
+                    className="inline-flex h-8 flex-1 items-center justify-center rounded-md bg-primary-600 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {savingNote ? 'Saving…' : 'Save note'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNoteFormOpen(false)}
+                    className="inline-flex h-8 items-center justify-center rounded-md border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
             )}
 
-            {followUps.length > 0 && (
-              <Card>
-                <CardContent className="space-y-2">
-                  <h3 className="flex items-center gap-2 text-sm font-bold text-gray-900">
-                    <CalendarCheck className="h-4 w-4 text-gray-400" /> All follow-ups
-                  </h3>
-                  {followUps.map((fu) => {
-                    const isOverdue = !fu.completed && fu.due_date < localDateString(new Date())
-                    return (
-                      <div key={fu.id} className="flex items-center gap-3 rounded-md border border-gray-200 p-3">
-                        <button onClick={() => toggleFollowUp(fu)} className="flex-shrink-0" aria-label={fu.completed ? 'Mark as open' : 'Mark as completed'}>
-                          {fu.completed ? (
-                            <CheckCircle2 className="h-5 w-5 text-accent-600" />
-                          ) : (
-                            <Circle className="h-5 w-5 text-gray-300 hover:text-gray-400" />
-                          )}
-                        </button>
-                        <div className="min-w-0 flex-1">
-                          <p className={cn('text-sm font-medium', fu.completed ? 'text-gray-400 line-through' : 'text-gray-900')}>{fu.title}</p>
-                          <p className={cn('text-xs', isOverdue ? 'text-error-600' : 'text-gray-500')}>
-                            {formatRelativeDate(fu.due_date)}
-                          </p>
+            {notes.length === 0 && !noteFormOpen ? (
+              <p className="mt-2 rounded-md border border-dashed border-gray-200 px-3 py-4 text-center text-xs text-gray-400">
+                No notes yet. Use “Add Note” to record context from your conversations.
+              </p>
+            ) : (
+              <ul className="mt-1 divide-y divide-gray-100">
+                {visibleNotes.map((note) => (
+                  <li key={note.id} className="py-2.5">
+                    {editingNoteId === note.id ? (
+                      <form onSubmit={handleSaveEditNote} className="space-y-2">
+                        <textarea
+                          rows={3}
+                          value={editNoteContent}
+                          onChange={(e) => setEditNoteContent(e.target.value)}
+                          autoFocus
+                          className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-primary-600 focus:outline-none"
+                        />
+                        <div className="flex gap-2">
+                          <button type="submit" disabled={savingEditNote || !editNoteContent.trim()} className="inline-flex h-7 items-center gap-1 rounded-md bg-primary-600 px-3 text-xs font-medium text-white hover:bg-primary-700 disabled:opacity-50">
+                            <Save className="h-3 w-3" /> {savingEditNote ? 'Saving…' : 'Save'}
+                          </button>
+                          <button type="button" onClick={() => setEditingNoteId(null)} className="inline-flex h-7 items-center gap-1 rounded-md border border-gray-300 px-3 text-xs text-gray-700 hover:bg-gray-50">
+                            <X className="h-3 w-3" /> Cancel
+                          </button>
                         </div>
-                        <button onClick={() => deleteFollowUp(fu.id)} aria-label="Delete follow-up" className="text-gray-400 hover:text-error-600">
-                          <Trash2 className="h-4 w-4" />
+                      </form>
+                    ) : (
+                      <div className="flex gap-2.5">
+                        <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-accent-600" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-medium text-gray-400">{formatDate(note.created_at)}</p>
+                          <p className="mt-0.5 whitespace-pre-wrap text-xs leading-relaxed text-gray-700">{note.content}</p>
+                        </div>
+                        <div className="flex flex-shrink-0 items-start gap-2">
+                          <button onClick={() => { setEditingNoteId(note.id); setEditNoteContent(note.content) }} aria-label="Edit note" className="text-gray-300 hover:text-primary-600">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button onClick={() => handleDeleteNote(note.id)} aria-label="Delete note" className="text-gray-300 hover:text-error-600">
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {notes.length > 3 && (
+              <button
+                onClick={() => setShowAllNotes(!showAllNotes)}
+                className="mt-1 inline-flex items-center gap-0.5 text-xs font-medium text-primary-600 hover:text-primary-700"
+              >
+                {showAllNotes ? 'Show fewer notes' : `Show all notes (${notes.length})`}
+                <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', showAllNotes && 'rotate-90')} />
+              </button>
+            )}
+          </div>
+
+          {/* 6. Next Step */}
+          <div className="mt-4">
+            <h2 className="text-sm font-bold text-gray-900">Next Step</h2>
+            {nextStep ? (
+              <div className={cn('relative mt-2 flex items-center gap-2.5 rounded-md border p-3', nextOverdue ? 'border-warning-300 bg-warning-50' : 'border-gray-200 bg-white')}>
+                <button onClick={() => toggleFollowUp(nextStep)} aria-label="Mark as completed" className="flex-shrink-0">
+                  <Circle className="h-5 w-5 text-primary-600 hover:text-primary-700" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-semibold text-gray-900">{nextStep.title}</p>
+                  <p className={cn('mt-0.5 text-[11px]', nextOverdue ? 'text-warning-700' : 'text-gray-500')}>
+                    {formatDate(nextStep.due_date)}
+                  </p>
+                </div>
+                <button onClick={() => setStepMenuOpen(!stepMenuOpen)} aria-label="Step options" className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600">
+                  <MoreVertical className="h-4 w-4" />
+                </button>
+                {stepMenuOpen && (
+                  <div className="absolute right-2 top-10 z-10 w-40 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg">
+                    <button
+                      onClick={() => { setFollowUpFormOpen(true); setStepMenuOpen(false) }}
+                      className="flex w-full items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
+                    >
+                      <Plus className="h-3.5 w-3.5 text-gray-400" /> Add another step
+                    </button>
+                    <button
+                      onClick={() => { deleteFollowUp(nextStep.id); setStepMenuOpen(false) }}
+                      className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2 text-xs text-error-600 hover:bg-error-50"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" /> Delete step
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="mt-2 flex items-center justify-between rounded-md border border-dashed border-gray-200 px-3 py-3">
+                <p className="text-xs text-gray-500">No next step scheduled.</p>
+                <button
+                  onClick={() => setFollowUpFormOpen(true)}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Schedule
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {tab === 'notes' && (
+        <div className="pt-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-bold text-gray-900">All Notes</h2>
+            <button onClick={() => setNoteFormOpen(true)} className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
+              <Plus className="h-3.5 w-3.5" /> Add Note
+            </button>
+          </div>
+          {noteFormOpen && (
+            <form onSubmit={handleAddNote} className="mt-2 space-y-2 rounded-md border border-gray-200 p-3">
+              <textarea
+                rows={3}
+                value={newNote}
+                onChange={(e) => setNewNote(e.target.value)}
+                placeholder="Write a note…"
+                autoFocus
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-primary-600 focus:outline-none"
+              />
+              <div className="flex gap-2">
+                <button type="submit" disabled={savingNote || !newNote.trim()} className="inline-flex h-8 flex-1 items-center justify-center rounded-md bg-primary-600 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50">
+                  {savingNote ? 'Saving…' : 'Save note'}
+                </button>
+                <button type="button" onClick={() => setNoteFormOpen(false)} className="inline-flex h-8 items-center justify-center rounded-md border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50">
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+          {notes.length === 0 ? (
+            <EmptyState
+              icon={<StickyNote className="h-8 w-8" />}
+              title="No notes yet"
+              description="Record context about this person and your conversations."
+            />
+          ) : (
+            <ul className="mt-1 divide-y divide-gray-100">
+              {notes.map((note) => (
+                <li key={note.id} className="py-2.5">
+                  {editingNoteId === note.id ? (
+                    <form onSubmit={handleSaveEditNote} className="space-y-2">
+                      <textarea
+                        rows={3}
+                        value={editNoteContent}
+                        onChange={(e) => setEditNoteContent(e.target.value)}
+                        autoFocus
+                        className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-primary-600 focus:outline-none"
+                      />
+                      <div className="flex gap-2">
+                        <button type="submit" disabled={savingEditNote || !editNoteContent.trim()} className="inline-flex h-7 items-center gap-1 rounded-md bg-primary-600 px-3 text-xs font-medium text-white hover:bg-primary-700 disabled:opacity-50">
+                          <Save className="h-3 w-3" /> {savingEditNote ? 'Saving…' : 'Save'}
+                        </button>
+                        <button type="button" onClick={() => setEditingNoteId(null)} className="inline-flex h-7 items-center gap-1 rounded-md border border-gray-300 px-3 text-xs text-gray-700 hover:bg-gray-50">
+                          <X className="h-3 w-3" /> Cancel
                         </button>
                       </div>
-                    )
-                  })}
-                </CardContent>
-              </Card>
-            )}
+                    </form>
+                  ) : (
+                    <div className="flex gap-2.5">
+                      <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-accent-600" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-medium text-gray-400">{formatDate(note.created_at)}</p>
+                        <p className="mt-0.5 whitespace-pre-wrap text-xs leading-relaxed text-gray-700">{note.content}</p>
+                      </div>
+                      <div className="flex flex-shrink-0 items-start gap-2">
+                        <button onClick={() => { setEditingNoteId(note.id); setEditNoteContent(note.content) }} aria-label="Edit note" className="text-gray-300 hover:text-primary-600">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button onClick={() => handleDeleteNote(note.id)} aria-label="Delete note" className="text-gray-300 hover:text-error-600">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
-            <Card>
-              <CardContent>
-                <form onSubmit={handleAddFollowUp} className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <CalendarClock className="h-4 w-4 text-gray-400" />
-                    <Label>Schedule a follow-up</Label>
-                  </div>
-                  <Input
-                    placeholder="Follow-up title…"
-                    value={newFollowUp.title}
-                    onChange={(e) => setNewFollowUp({ ...newFollowUp, title: e.target.value })}
-                    required
-                  />
-                  <Input
-                    type="date"
-                    value={newFollowUp.due_date}
-                    onChange={(e) => setNewFollowUp({ ...newFollowUp, due_date: e.target.value })}
-                    required
-                  />
-                  <Button type="submit" size="sm" disabled={savingFollowUp} className="w-full">
-                    <Plus className="h-4 w-4" /> {savingFollowUp ? 'Adding…' : 'Add follow-up'}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-          </>
-        )}
-
-        {tab === 'opportunities' && (
-          <>
-            <Button size="sm" variant="secondary" onClick={() => setShowOppForm(!showOppForm)} className="w-full">
-              {showOppForm ? <><X className="h-4 w-4" /> Cancel</> : <><Plus className="h-4 w-4" /> Create opportunity</>}
-            </Button>
-
-            {showOppForm && (
-              <Card>
-                <CardContent>
-                  <form onSubmit={handleAddOpportunity} className="space-y-3">
-                    <div>
-                      <Label>Title *</Label>
-                      <Input required value={oppForm.title} onChange={(e) => setOppForm({ ...oppForm, title: e.target.value })} placeholder="Enterprise deal" />
-                    </div>
-                    <div>
-                      <Label>Type</Label>
-                      <Select value={oppForm.type} onChange={(e) => setOppForm({ ...oppForm, type: e.target.value })}>
-                        {OPPORTUNITY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Value ($)</Label>
-                      <Input type="number" min="0" step="1000" value={oppForm.value} onChange={(e) => setOppForm({ ...oppForm, value: e.target.value })} placeholder="50000" />
-                    </div>
-                    <div>
-                      <Label>Stage</Label>
-                      <Select value={oppForm.stage} onChange={(e) => setOppForm({ ...oppForm, stage: e.target.value })}>
-                        {OPPORTUNITY_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Expected close date</Label>
-                      <Input type="date" value={oppForm.expected_close_date} onChange={(e) => setOppForm({ ...oppForm, expected_close_date: e.target.value })} />
-                    </div>
-                    <div>
-                      <Label>Description</Label>
-                      <Textarea rows={2} value={oppForm.description} onChange={(e) => setOppForm({ ...oppForm, description: e.target.value })} placeholder="Describe this opportunity…" />
-                    </div>
-                    <Button type="submit" size="sm" disabled={savingOpp} className="w-full">
-                      {savingOpp ? 'Creating…' : 'Create opportunity'}
-                    </Button>
-                  </form>
-                </CardContent>
-              </Card>
-            )}
-
-            {opportunities.length > 0 ? (
-              <div className="space-y-2">
-                {opportunities.map((opp) => (
-                  <Link
-                    key={opp.id}
-                    to={`/opportunities/${opp.id}`}
-                    className="flex items-center gap-3 rounded-md border border-gray-200 bg-white p-3 transition-colors hover:border-primary-300 hover:bg-primary-50/30"
-                  >
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-50">
-                      <Target className="h-4 w-4 text-primary-600" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-gray-900">{opp.title}</p>
-                      <p className="truncate text-xs text-gray-500">
-                        {[opp.type, opp.value > 0 ? opp.value.toLocaleString() : null].filter(Boolean).join(' · ')}
-                      </p>
-                    </div>
-                    <Badge variant={opp.stage === 'Won' ? 'success' : opp.stage === 'Lost' ? 'error' : 'primary'}>
-                      {opp.stage}
-                    </Badge>
-                  </Link>
-                ))}
+      {tab === 'meetings' && (
+        <div className="pt-3">
+          <EmptyState
+            icon={<CalendarClock className="h-8 w-8" />}
+            title="No meetings tracked"
+            description="Meetings you schedule with this connection will appear here."
+            action={
+              <button
+                onClick={() => setFollowUpFormOpen(true)}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700"
+              >
+                <Plus className="h-4 w-4" /> Schedule follow-up
+              </button>
+            }
+          />
+          {followUpFormOpen && (
+            <form onSubmit={handleAddFollowUp} className="mt-2 space-y-2 rounded-md border border-gray-200 p-3">
+              <input
+                required
+                value={newFollowUp.title}
+                onChange={(e) => setNewFollowUp({ ...newFollowUp, title: e.target.value })}
+                placeholder="What's the next step?"
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm focus:border-primary-600 focus:outline-none"
+              />
+              <input
+                type="date"
+                required
+                value={newFollowUp.due_date}
+                onChange={(e) => setNewFollowUp({ ...newFollowUp, due_date: e.target.value })}
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-gray-900 focus:border-primary-600 focus:outline-none"
+              />
+              <div className="flex gap-2">
+                <button type="submit" disabled={savingFollowUp} className="inline-flex h-8 flex-1 items-center justify-center rounded-md bg-primary-600 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50">
+                  {savingFollowUp ? 'Adding…' : 'Add'}
+                </button>
+                <button type="button" onClick={() => setFollowUpFormOpen(false)} className="inline-flex h-8 items-center justify-center rounded-md border border-gray-300 px-3 text-sm text-gray-700 hover:bg-gray-50">
+                  Cancel
+                </button>
               </div>
-            ) : !showOppForm ? (
-              <Card>
-                <CardContent>
-                  <EmptyState
-                    icon={<Target className="h-8 w-8" />}
-                    title="No opportunities yet"
-                    description="Track deals, investments, or partnerships from this connection."
-                    action={
-                      <Button size="sm" variant="secondary" onClick={() => setShowOppForm(true)}>
-                        <Plus className="h-4 w-4" /> Create opportunity
-                      </Button>
-                    }
-                  />
-                </CardContent>
-              </Card>
-            ) : null}
-          </>
-        )}
-      </div>
+            </form>
+          )}
+          {followUps.length > 0 && (
+            <ul className="mt-3 divide-y divide-gray-100">
+              {followUps.map((fu) => (
+                <li key={fu.id} className="flex items-center gap-2.5 py-2.5">
+                  <button onClick={() => toggleFollowUp(fu)} aria-label={fu.completed ? 'Mark as open' : 'Mark as completed'} className="flex-shrink-0">
+                    {fu.completed ? <Check className="h-4 w-4 text-accent-600" /> : <Circle className="h-4 w-4 text-gray-300 hover:text-gray-400" />}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className={cn('truncate text-xs font-medium', fu.completed ? 'text-gray-400 line-through' : 'text-gray-900')}>{fu.title}</p>
+                    <p className="text-[11px] text-gray-500">{formatDate(fu.due_date)}</p>
+                  </div>
+                  <button onClick={() => deleteFollowUp(fu.id)} aria-label="Delete" className="flex-shrink-0 text-gray-300 hover:text-error-600">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {tab === 'history' && (
+        <div className="pt-3">
+          <h2 className="text-sm font-bold text-gray-900">History</h2>
+          {history.length === 0 ? (
+            <EmptyState title="No history yet" description="Notes, follow-ups and opportunities will appear here." />
+          ) : (
+            <ol className="relative mt-3 space-y-4 border-l border-gray-200 pl-5">
+              {history.map((item) => {
+                const Icon = TIMELINE_ICONS[item.type]
+                return (
+                  <li key={item.key} className="relative">
+                    <span className={cn('absolute -left-[27px] flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white', TIMELINE_DOTS[item.tone])}>
+                      <Icon className="h-2.5 w-2.5 text-white" />
+                    </span>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{item.type}</p>
+                    <p className="mt-0.5 text-xs font-medium text-gray-900">{item.title}</p>
+                    {item.detail && <p className="mt-0.5 text-[11px] text-gray-500">{item.detail}</p>}
+                    <p className="mt-0.5 text-[11px] text-gray-400">{formatDate(item.when)}</p>
+                  </li>
+                )
+              })}
+            </ol>
+          )}
+        </div>
+      )}
     </div>
   )
 }
