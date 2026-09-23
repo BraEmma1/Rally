@@ -14,6 +14,7 @@ import {
 import { Spinner } from '@/components/ui/States'
 import AppLayout from '@/components/AppLayout'
 import EventModeLayout from '@/components/eventmode/EventModeLayout'
+import { EventModeProvider } from '@/context/EventModeContext'
 import OrganizerLayout from '@/components/OrganizerLayout'
 import LoginPage from '@/pages/auth/LoginPage'
 import SignUpPage from '@/pages/auth/SignUpPage'
@@ -310,7 +311,9 @@ export default function App() {
             <ProtectedRoute>
               <RequireAccount allow={isActiveAttendee}>
                 <RequireCompleteProfile>
-                  <EventModeLayout />
+                  <EventModeProvider>
+                    <EventModeLayout />
+                  </EventModeProvider>
                 </RequireCompleteProfile>
               </RequireAccount>
             </ProtectedRoute>
