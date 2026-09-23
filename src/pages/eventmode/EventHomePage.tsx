@@ -1,213 +1,168 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import {
-  CalendarDays,
-  CheckCircle2,
-  Circle,
-  ScanLine,
-  CalendarRange,
   Users,
+  Bell,
+  CalendarRange,
+  MapPin,
   Mic,
   Store,
-  CalendarClock,
-  Map,
-  Radio,
-  ArrowRight,
+  Briefcase,
+  CheckCircle2,
+  Sparkles,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { useNotifications } from '@/context/NotificationContext'
 import { useEventModeId } from '@/context/EventModeContext'
 import { useEventModeOutlet } from '@/components/eventmode/EventModeLayout'
-import EventModeConnectFlow from '@/components/eventmode/EventModeConnectFlow'
-import { Card, CardContent } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
-import { cn } from '@/lib/utils'
+import { Avatar } from '@/components/ui/Avatar'
+import { formatDate } from '@/lib/utils'
 
-// A feature tile. Tiles without backend support still get an entry point but
-// route to the shared coming-soon state instead of fabricating content.
-function Tile({ icon: Icon, label, onClick }: { icon: typeof Users; label: string; onClick?: () => void }) {
-  const body = (
-    <>
-      <Icon className="h-5 w-5" aria-hidden="true" />
-      <span className="text-xs font-medium text-gray-700">{label}</span>
-    </>
-  )
-  if (!onClick) {
-    return (
-      <Link
-        to="coming-soon"
-        className="flex h-20 flex-col items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white transition-colors hover:border-primary-300 hover:bg-primary-50/30"
-      >
-        {body}
-      </Link>
-    )
-  }
+// Event Home, following the reference layout: event hero (branding, name,
+// dates, location, cover image, notification bell), an overlapping greeting
+// card, a 3-column feature grid, and the "You're at {event}" context card.
+// QR actions live only in the bottom-nav CONNECT sheet, not on this page.
+function Tile({ icon: Icon, label, to }: { icon: typeof Users; label: string; to: string }) {
   return (
-    <button
-      onClick={onClick}
-      className="flex h-20 flex-col items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white transition-colors hover:border-primary-300 hover:bg-primary-50/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+    <Link
+      to={to}
+      className="flex h-20 flex-col items-center justify-center gap-2 rounded-xl border border-gray-200 bg-gray-100 transition-colors hover:border-primary-300 hover:bg-primary-50/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
     >
-      {body}
-    </button>
-  )
-}
-
-function ComingSoonNote({ feature }: { feature: string }) {
-  return (
-    <p className="text-center text-sm text-gray-500">
-      {feature} is not available yet for this event.
-    </p>
+      <Icon className="h-5 w-5 text-gray-800" aria-hidden="true" />
+      <span className="text-xs font-medium text-gray-800">{label}</span>
+    </Link>
   )
 }
 
 export default function EventHomePage() {
   const eventId = useEventModeId()
-  const { event, eventBasePath, connectOpen, setConnectOpen } = useEventModeOutlet()
-  const { user } = useAuth()
-  const navigate = useNavigate()
-
-  const [checkedIn, setCheckedIn] = useState<boolean | null>(null)
-  const [myConnectionCount, setMyConnectionCount] = useState<number | null>(null)
+  const { event, eventBasePath } = useEventModeOutlet()
+  const { profile } = useAuth()
+  const { unreadCount } = useNotifications()
+  const [checkedIn, setCheckedIn] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     async function load() {
-      if (!user) return
-      // Registration + check-in live on the same row; checked_in_at is the
-      // authoritative arrival signal. Read-only here: check-in state changes
-      // only through the organizer's secure check-in RPCs.
+      const { data: session } = await supabase.auth.getSession()
+      const userId = session.session?.user.id
+      if (!userId) return
       const { data } = await supabase
         .from('event_registrations')
         .select('id, checked_in_at')
         .eq('event_id', eventId)
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .maybeSingle()
-      if (cancelled) return
-      setCheckedIn(!!data?.checked_in_at)
-      setMyConnectionCount(null)
-
-      const { count } = await supabase
-        .from('connections')
-        .select('id', { count: 'exact', head: true })
-        .eq('owner_id', user.id)
-        .eq('event_id', eventId)
-      if (!cancelled) setMyConnectionCount(count ?? 0)
+      if (!cancelled) setCheckedIn(!!data?.checked_in_at)
     }
     void load()
     return () => {
       cancelled = true
     }
-  }, [eventId, user])
+  }, [eventId])
 
-  const tiles = [
-    { key: 'agenda', label: 'Agenda', icon: CalendarRange },
-    { key: 'attendees', label: 'Attendees', icon: Users, onClick: () => navigate(`${eventBasePath}/network`) },
-    { key: 'speakers', label: 'Speakers', icon: Mic },
-    { key: 'exhibitors', label: 'Exhibitors', icon: Store },
-    { key: 'schedule', label: 'My Schedule', icon: CalendarClock },
-    { key: 'map', label: 'Map', icon: Map },
-  ]
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  const displayName = profile?.full_name || 'Welcome'
+
+  const dateLabel = event.start_date
+    ? `${formatDate(event.start_date)}${event.end_date && event.end_date !== event.start_date ? ` – ${formatDate(event.end_date)}` : ''}`
+    : 'Dates to be announced'
 
   return (
-    <div className="space-y-5">
-      {/* 1. Event identity */}
-      <section>
-        <h1 className="text-2xl font-bold text-gray-900">{event.name}</h1>
-        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600">
-          {event.start_date && (
-            <span className="flex items-center gap-1">
-              <CalendarDays className="h-3.5 w-3.5" />
-              {new Date(event.start_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              {event.end_date && event.end_date !== event.start_date
-                ? ` – ${new Date(event.end_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
-                : ''}
-            </span>
-          )}
-          {event.location && <span>{event.location}</span>}
-        </div>
-      </section>
-
-      {/* 2. Check-in status — read-only, driven by the organizer check-in data */}
-      <section>
-        {checkedIn === null ? (
-          <Badge variant="gray">Registration not found</Badge>
-        ) : checkedIn ? (
-          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-accent-700">
-            <CheckCircle2 className="h-4 w-4" /> Checked in
-          </span>
+    <div>
+      {/* Event hero */}
+      <div className="relative">
+        {event.image_url ? (
+          <img
+            src={event.image_url}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+          />
         ) : (
-          <span className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500">
-            <Circle className="h-4 w-4" /> Not checked in
-          </span>
+          <div className="absolute inset-0 bg-primary-700" aria-hidden="true" />
         )}
-      </section>
+        <div className="absolute inset-0 bg-gradient-to-b from-black/65 via-black/40 to-black/70" aria-hidden="true" />
 
-      {/* 3. CONNECT — the primary action of Event Mode */}
-      <section>
-        <button
-          onClick={() => setConnectOpen(true)}
-          className={cn(
-            'flex w-full flex-col items-center justify-center gap-1.5 rounded-xl bg-[#0A66C2] py-8 text-white shadow-sm transition-colors',
-            'hover:bg-[#095cad] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0A66C2] focus-visible:ring-offset-2'
-          )}
-        >
-          <ScanLine className="h-7 w-7" aria-hidden="true" />
-          <span className="text-lg font-bold tracking-wide">CONNECT</span>
-          <span className="text-xs text-white/85">Scan to connect</span>
-        </button>
-        {myConnectionCount !== null && myConnectionCount > 0 && (
-          <p className="mt-2 text-center text-xs text-gray-500">
-            You've made {myConnectionCount} connection{myConnectionCount === 1 ? '' : 's'} at {event.name}.
-          </p>
-        )}
-      </section>
+        <div className="relative px-4 pb-12 pt-[max(1.25rem,env(safe-area-inset-top))] md:px-8">
+          <div className="mx-auto max-w-5xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/15">
+                  <Users className="h-5 w-5 text-white" aria-hidden="true" />
+                </div>
+                <span className="text-xl font-bold text-white">Rally</span>
+              </div>
+              <Link
+                to="/notifications"
+                aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+                className="relative rounded-full bg-white/15 p-2.5 text-white transition-colors hover:bg-white/25 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              >
+                <Bell className="h-5 w-5" aria-hidden="true" />
+                {unreadCount > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-error-600 px-1 text-[10px] font-semibold text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
+                )}
+              </Link>
+            </div>
 
-      {/* 4. Event navigation tiles */}
-      <section>
-        <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-3 md:grid-cols-6">
-          {tiles.map((tile) => (
-            <Tile key={tile.key} icon={tile.icon} label={tile.label} onClick={tile.onClick} />
-          ))}
+            <div className="mt-7">
+              <h1 className="text-3xl font-bold leading-tight text-white">{event.name}</h1>
+              <p className="mt-1.5 text-sm text-white/90">
+                {dateLabel}
+                {event.location ? ` | ${event.location}` : ''}
+              </p>
+              {checkedIn && (
+                <span className="mt-2.5 inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1 text-xs font-medium text-white">
+                  <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" /> Checked in
+                </span>
+              )}
+            </div>
+          </div>
         </div>
-      </section>
+      </div>
 
-      {/* 5. Happening Now / Next Up — only with real agenda data */}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">Happening now</h2>
-        <Card>
-          <CardContent className="flex items-center gap-3 py-4">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-error-50 text-error-600">
-              <Radio className="h-4.5 w-4.5" />
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-gray-900">No schedule published</p>
-              <p className="text-xs text-gray-500">When the organizer publishes an agenda, the current session will appear here.</p>
+      {/* White sheet overlapping the hero: greeting, feature grid, context card */}
+      <div className="relative -mt-7 rounded-t-2xl bg-gray-50 pb-8 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] md:mx-auto md:max-w-5xl md:px-8">
+        <div className="px-4 pt-5 md:px-0">
+          {/* Personal greeting card */}
+          <div className="flex items-center gap-4">
+            <Avatar name={displayName} src={profile?.photo_url} size="lg" />
+            <div className="min-w-0">
+              <p className="text-sm text-gray-500">{greeting},</p>
+              <p className="truncate text-lg font-bold text-gray-900">{displayName}</p>
+              <p className="mt-0.5 text-xs leading-snug text-gray-500">
+                Great connections
+                <br />
+                lead to greater opportunities.
+              </p>
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-400">Next up</h2>
-        <Card>
-          <CardContent className="flex items-center gap-3 py-4">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-500">
-              <ArrowRight className="h-4.5 w-4.5" />
+          {/* Feature grid */}
+          <div className="mt-5 grid grid-cols-3 gap-2.5">
+            <Tile icon={CalendarRange} label="Agenda" to={`${eventBasePath}/agenda`} />
+            <Tile icon={Users} label="Attendees" to={`${eventBasePath}/network`} />
+            <Tile icon={MapPin} label="Map" to={`${eventBasePath}/map`} />
+            <Tile icon={Mic} label="Speakers" to={`${eventBasePath}/speakers`} />
+            <Tile icon={Store} label="Exhibitors" to={`${eventBasePath}/exhibitors`} />
+            <Tile icon={Briefcase} label="Deal Room" to={`${eventBasePath}/deal-room`} />
+          </div>
+
+          {/* Event context card */}
+          <div className="mt-5 flex items-center gap-3 rounded-xl bg-primary-50 p-4">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-white text-primary-600">
+              <Sparkles className="h-5 w-5" aria-hidden="true" />
             </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-gray-900">Nothing scheduled yet</p>
-              <p className="text-xs text-gray-500">Upcoming sessions will be listed here once an agenda exists.</p>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-bold text-gray-900">You're at {event.name}</p>
+              <p className="text-sm text-gray-500">Let's make it count.</p>
             </div>
-          </CardContent>
-        </Card>
-      </section>
-
-      <ComingSoonNote feature="Agenda, speakers, exhibitors, My Schedule and Map" />
-
-      <EventModeConnectFlow
-        event={event}
-        open={connectOpen}
-        onClose={() => setConnectOpen(false)}
-        userId={user?.id ?? ''}
-      />
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

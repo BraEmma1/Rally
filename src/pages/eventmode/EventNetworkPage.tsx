@@ -20,7 +20,7 @@ import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
 // Deliberately not the global Rally network.
 export default function EventNetworkPage() {
   const eventId = useEventModeId()
-  const { event, setConnectOpen } = useEventModeOutlet()
+  const { event, openScan } = useEventModeOutlet()
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -165,7 +165,7 @@ export default function EventNetworkPage() {
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-gray-900">Attendees</h2>
-          <Button size="sm" variant="secondary" onClick={() => setConnectOpen(true)}>
+          <Button size="sm" variant="secondary" onClick={openScan}>
             <ScanLine className="h-4 w-4" /> Scan QR
           </Button>
         </div>

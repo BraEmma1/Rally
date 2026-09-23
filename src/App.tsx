@@ -327,6 +327,7 @@ export default function App() {
           <Route path="/events/:eventId/exhibitors" element={<EventComingSoonPage />} />
           <Route path="/events/:eventId/schedule" element={<EventComingSoonPage />} />
           <Route path="/events/:eventId/map" element={<EventComingSoonPage />} />
+          <Route path="/events/:eventId/deal-room" element={<EventComingSoonPage />} />
           <Route path="/events/:eventId/coming-soon" element={<EventComingSoonPage />} />
         </Route>
 
