@@ -360,7 +360,7 @@ export default function ConnectionDetailPage() {
   ]
 
   return (
-    <div className="mx-auto max-w-md pb-10">
+    <div className="mx-auto max-w-md pb-10 md:max-w-2xl md:pb-0">
       {/* 1. Top header */}
       <div className="relative flex items-center justify-between border-b border-gray-100 py-2.5">
         <button onClick={() => navigate('/connections')} aria-label="Back to network" className="-ml-2 rounded-full p-2 text-gray-500 hover:text-gray-700">
