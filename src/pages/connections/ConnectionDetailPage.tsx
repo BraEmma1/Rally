@@ -349,7 +349,6 @@ export default function ConnectionDetailPage() {
   const nextStep = followUps.filter((f) => !f.completed)[0]
   const nextOverdue = nextStep && nextStep.due_date < todayString()
   const visibleNotes = showAllNotes ? notes : notes.slice(0, 3)
-  const titleLine = [connection.job_title, connection.company].filter(Boolean).join(' | ')
 
   const actionButtons = [
     {
@@ -416,10 +415,11 @@ export default function ConnectionDetailPage() {
         <div className="pt-3">
           {/* 3. Compact profile row */}
           <div className="flex items-center gap-3">
-            <Avatar name={connection.full_name} src={connection.photo_url} size="lg" className="h-14 w-14" />
+            <Avatar name={connection.full_name} src={connection.photo_url} size="xl" className="h-20 w-20" />
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-[15px] font-bold text-gray-900">{connection.full_name}</h1>
-              {titleLine && <p className="truncate text-xs text-gray-600">{titleLine}</p>}
+              {connection.job_title && <p className="truncate text-xs text-gray-600">{connection.job_title}</p>}
+              {connection.company && <p className="truncate text-xs text-gray-600">{connection.company}</p>}
               {connection.location && (
                 <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-gray-500">
                   <MapPin className="h-3 w-3 flex-shrink-0 text-gray-400" /> {connection.location}
