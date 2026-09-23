@@ -1,18 +1,12 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, ScanLine, MessagesSquare, Menu } from 'lucide-react'
+import { Home, Users, MessagesSquare, Menu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Fixed attendee bottom navigation. "More" is a button that opens the side
 // drawer rather than a route, so it is rendered separately from the NavLinks.
-export default function BottomNav({
-  onMore,
-  connectActive,
-  onConnect,
-}: {
-  onMore: () => void
-  connectActive: boolean
-  onConnect: () => void
-}) {
+// No CONNECT item here: QR connecting is an Event Mode action and lives in the
+// Event Mode navigation only.
+export default function BottomNav({ onMore }: { onMore: () => void }) {
   const itemClass = ({ isActive }: { isActive: boolean }) =>
     cn(
       'flex min-h-[44px] min-w-[44px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors motion-reduce:transition-none',
@@ -41,32 +35,6 @@ export default function BottomNav({
           </>
         )}
       </NavLink>
-
-      {/* Connect is ONE flex-column item: the label flows directly under the
-          button so they share the same horizontal center; only the circular
-          button is lifted above the bar via its negative top margin. */}
-      <div className="flex min-h-[44px] min-w-[44px] flex-1 flex-col items-center justify-center px-1">
-        <button
-          onClick={onConnect}
-          aria-label="Connect"
-          aria-expanded={connectActive}
-          aria-haspopup="dialog"
-          className={cn(
-            '-mt-6 mb-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-white shadow-md transition-colors motion-reduce:transition-none focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2',
-            connectActive ? 'bg-primary-700' : 'bg-primary-600 hover:bg-primary-700'
-          )}
-        >
-          <ScanLine className="h-6 w-6" aria-hidden="true" />
-        </button>
-        <span
-          className={cn(
-            'text-[11px] font-medium',
-            connectActive ? 'font-semibold text-primary-600' : 'text-gray-500'
-          )}
-        >
-          Connect
-        </span>
-      </div>
 
       <NavLink to="/messages" className={itemClass} aria-label="Messages">
         {({ isActive }) => (

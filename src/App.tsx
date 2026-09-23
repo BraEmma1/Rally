@@ -338,6 +338,12 @@ export default function App() {
         <Route path="/events/:eventId/map" element={<EventComingSoonPage />} />
         <Route path="/events/:eventId/deal-room" element={<EventComingSoonPage />} />
         <Route path="/events/:eventId/coming-soon" element={<EventComingSoonPage />} />
+
+        {/* Messaging inside Event Mode: the existing Rally messaging pages
+            reuse with event-scoped URLs, so the Event Mode nav stays visible
+            and Messages can highlight correctly. */}
+        <Route path="/events/:eventId/messages" element={<MessagesInboxPage />} />
+        <Route path="/events/:eventId/messages/:conversationId" element={<ConversationPage />} />
       </Route>
 
       <Route

@@ -48,7 +48,7 @@ function matchQuery(q: string, fields: (string | null | undefined)[]) {
 
 export default function EventNetworkPage() {
   const eventId = useEventModeId()
-  const { event } = useEventModeOutlet()
+  const { event, eventBasePath } = useEventModeOutlet()
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -107,8 +107,8 @@ export default function EventNetworkPage() {
       event_id: eventId,
     })
     setMessagingId(null)
-    if (data) navigate(`/messages/${data}`)
-    else navigate('/messages')
+    if (data) navigate(`${eventBasePath}/messages/${data}`)
+    else navigate(`${eventBasePath}/messages`)
   }
 
   const noResults = search.trim().length > 0

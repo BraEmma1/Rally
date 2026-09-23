@@ -97,7 +97,7 @@ export default function EventModeLayout() {
         </header>
       )}
 
-      <main className="flex-1 pb-24 md:pb-8">
+      <main className="flex-1 pb-24">
         <Outlet context={{ event, eventBasePath, openScan: () => setScanOpen(true) }} />
       </main>
 

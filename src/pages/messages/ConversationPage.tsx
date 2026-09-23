@@ -233,7 +233,7 @@ export default function ConversationPage() {
   if (!conversationId || (pageError && !loading && !summary)) {
     return (
       <div className="mx-auto max-w-md md:max-w-2xl">
-        <ErrorState message={pageError ?? 'Conversation not found.'} onRetry={() => navigate('/messages')} />
+        <ErrorState message={pageError ?? 'Conversation not found.'} onRetry={() => navigate(-1)} />
       </div>
     )
   }
@@ -246,7 +246,7 @@ export default function ConversationPage() {
       {/* Compact chat header */}
       <div className="flex items-center gap-2 border-b border-gray-200 bg-white py-3 pl-1 pr-2 md:py-3.5">
         <button
-          onClick={() => navigate('/messages')}
+          onClick={() => navigate(-1)}
           aria-label="Back to messages"
           className="rounded-full p-2 text-gray-500 hover:text-gray-700"
         >

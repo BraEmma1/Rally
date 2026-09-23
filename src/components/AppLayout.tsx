@@ -11,7 +11,6 @@ import {
   Bell,
   LogOut,
   Search,
-  ScanLine,
   Building2,
   User as UserIcon,
 } from 'lucide-react'
@@ -22,7 +21,6 @@ import { ORG_ROLE_LABELS } from '@/lib/supabase'
 import { Avatar } from '@/components/ui/Avatar'
 import MobileDrawer from '@/components/MobileDrawer'
 import BottomNav from '@/components/BottomNav'
-import ConnectSheet from '@/components/ConnectSheet'
 import GlobalSearchDialog from '@/components/GlobalSearchDialog'
 import { cn } from '@/lib/utils'
 
@@ -58,7 +56,6 @@ export default function AppLayout() {
   // backs out to the inbox.
   const inConversation = /^\/messages\/[^/]+$/.test(location.pathname)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [connectOpen, setConnectOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
 
   async function handleSignOut() {
@@ -192,14 +189,6 @@ export default function AppLayout() {
             <Bell className="h-5 w-5" aria-hidden="true" />
             <UnreadBadge count={unreadCount} />
           </button>
-
-          <button
-            onClick={() => setConnectOpen(true)}
-            className="flex h-9 items-center gap-2 rounded-lg bg-primary-600 px-4 text-sm font-medium text-white transition-colors hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
-          >
-            <ScanLine className="h-4 w-4" aria-hidden="true" />
-            Connect
-          </button>
         </div>
       </header>
 
@@ -252,11 +241,8 @@ export default function AppLayout() {
       {!inConversation && (
       <BottomNav
         onMore={() => setMobileOpen(true)}
-        connectActive={connectOpen}
-        onConnect={() => setConnectOpen(true)}
       />
       )}
-      <ConnectSheet open={connectOpen} onClose={() => setConnectOpen(false)} />
       <GlobalSearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
       <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
     </div>
