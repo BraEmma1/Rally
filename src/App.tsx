@@ -38,6 +38,7 @@ import ConversationPage from '@/pages/messages/ConversationPage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
 import EventHomePage from '@/pages/eventmode/EventHomePage'
 import EventNetworkPage from '@/pages/eventmode/EventNetworkPage'
+import EventAgendaPage from '@/pages/eventmode/EventAgendaPage'
 import EventComingSoonPage from '@/pages/eventmode/EventComingSoonPage'
 import OrganizationInvitationsPage from '@/pages/organizer/OrganizationInvitationsPage'
 import AccountStatusPage from '@/pages/account/AccountStatusPage'
@@ -331,7 +332,7 @@ export default function App() {
         <Route path="/events/:eventId/home" element={<EventHomePage />} />
         <Route path="/events/:eventId/network" element={<EventNetworkPage />} />
         <Route path="/events/:eventId/info" element={<EventComingSoonPage />} />
-        <Route path="/events/:eventId/agenda" element={<EventComingSoonPage />} />
+        <Route path="/events/:eventId/agenda" element={<EventAgendaPage />} />
         <Route path="/events/:eventId/speakers" element={<EventComingSoonPage />} />
         <Route path="/events/:eventId/exhibitors" element={<EventComingSoonPage />} />
         <Route path="/events/:eventId/schedule" element={<EventComingSoonPage />} />
