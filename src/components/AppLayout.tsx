@@ -104,7 +104,17 @@ export default function AppLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div
+      className={cn(
+        'bg-gray-50',
+        // In a conversation the shell is a fixed-height app frame so the page
+        // itself never scrolls; h-screen is the fallback for browsers without
+        // dynamic viewport units.
+        inConversation
+          ? 'flex h-screen flex-col overflow-hidden supports-[height:100dvh]:h-[100dvh]'
+          : 'min-h-screen'
+      )}
+    >
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-gray-200 bg-white md:flex md:flex-col">
         <div className="flex h-16 items-center gap-2 border-b border-gray-200 px-5">
@@ -223,11 +233,16 @@ export default function AppLayout() {
       )}
 
       {/* Main content */}
-      <main className={cn('md:pl-60', !inConversation && 'pb-20 md:pb-0')}>
+      <main
+        className={cn(
+          'md:pl-60',
+          inConversation ? 'min-h-0 flex-1 overflow-hidden' : 'pb-20 md:pb-0'
+        )}
+      >
         <div
           className={cn(
             'mx-auto max-w-5xl',
-            inConversation ? 'md:max-w-3xl' : 'px-4 py-6 md:px-8 md:py-8'
+            inConversation ? 'h-full md:max-w-3xl' : 'px-4 py-6 md:px-8 md:py-8'
           )}
         >
           <Outlet />

@@ -242,7 +242,7 @@ export default function ConversationPage() {
   const subtitle = [summary?.other_job_title, summary?.other_company].filter(Boolean).join(' | ')
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden">
       {/* Compact chat header */}
       <div className="flex items-center gap-2 border-b border-gray-200 bg-white py-2 pl-1 pr-2">
         <button
