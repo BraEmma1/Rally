@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, MoreVertical, Send } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
@@ -14,22 +14,58 @@ import {
   type ConversationSummary,
 } from '@/lib/messages'
 import { Avatar } from '@/components/ui/Avatar'
-import { Spinner, LoadingState, ErrorState } from '@/components/ui/States'
+import { Spinner, ErrorState } from '@/components/ui/States'
 import { cn } from '@/lib/utils'
 
 function formatMessageTime(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+function formatDaySeparator(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
   const now = new Date()
-  if (d.toDateString() === now.toDateString()) {
-    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  }
+  if (d.toDateString() === now.toDateString()) return 'Today'
   const yesterday = new Date(now)
   yesterday.setDate(now.getDate() - 1)
-  if (d.toDateString() === yesterday.toDateString()) {
-    return `Yesterday ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
-  }
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
+  return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+}
+
+// Group consecutive messages: a new block starts on a sender change or when the
+// gap between two messages exceeds five minutes. Only block starts get extra
+// breathing room, so a rapid exchange reads as one tight thread.
+const GROUP_GAP_MS = 5 * 60 * 1000
+
+type BubbleBlock = { message: ChatMessage; startsBlock: boolean; firstOfTheDay: boolean }
+
+function buildBlocks(messages: ChatMessage[]): BubbleBlock[] {
+  return messages.map((m, i) => {
+    const prev = messages[i - 1]
+    const startsBlock =
+      !prev ||
+      prev.is_mine !== m.is_mine ||
+      new Date(m.created_at).getTime() - new Date(prev.created_at).getTime() > GROUP_GAP_MS
+    const firstOfTheDay = !prev || new Date(prev.created_at).toDateString() !== new Date(m.created_at).toDateString()
+    return { message: m, startsBlock, firstOfTheDay }
+  })
+}
+
+function ChatSkeleton() {
+  return (
+    <div className="space-y-3" aria-hidden="true">
+      {[70, 45, 60, 40, 55].map((width, i) => (
+        <div key={i} className={cn('flex', i % 2 === 0 ? 'justify-start' : 'justify-end')}>
+          <div
+            className="h-9 animate-pulse rounded-2xl bg-gray-200"
+            style={{ width: `${width}%`, borderTopLeftRadius: i % 2 === 0 && i === 0 ? '0.25rem' : undefined }}
+          />
+        </div>
+      ))}
+    </div>
+  )
 }
 
 export default function ConversationPage() {
@@ -54,6 +90,8 @@ export default function ConversationPage() {
   const pinnedToBottomRef = useRef(true)
   const seenMessageIdsRef = useRef<Set<string>>(new Set())
   const realtimeAliveRef = useRef(true)
+
+  const blocks = useMemo(() => buildBlocks(messages), [messages])
 
   // Locate the conversation's header info from the user's conversation list.
   const loadSummary = useCallback(async () => {
@@ -153,6 +191,11 @@ export default function ConversationPage() {
 
   async function loadOlder() {
     if (!conversationId || loadingOlder || messages.length === 0) return
+    const el = scrollRef.current
+    // Remember the viewport position so inserting a page above does not yank
+    // the reader away from the message they were reading.
+    const previousHeight = el?.scrollHeight ?? 0
+    const previousTop = el?.scrollTop ?? 0
     setLoadingOlder(true)
     setOlderError(null)
     const oldest = messages[0]?.created_at
@@ -164,6 +207,10 @@ export default function ConversationPage() {
       fresh.forEach((m) => seenMessageIdsRef.current.add(m.id))
       setMessages((prev) => [...fresh, ...prev])
       setHasOlder(data.length === MESSAGE_PAGE_SIZE)
+      requestAnimationFrame(() => {
+        const node = scrollRef.current
+        if (node) node.scrollTop = previousTop + (node.scrollHeight - previousHeight)
+      })
     }
     setLoadingOlder(false)
   }
@@ -192,50 +239,46 @@ export default function ConversationPage() {
   }
 
   const headerName = summary?.other_full_name || 'Conversation'
+  const subtitle = [summary?.other_job_title, summary?.other_company].filter(Boolean).join(' | ')
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden">
-      {/* Header */}
-      <div className="relative flex items-center justify-between border-b border-gray-100 py-2">
+      {/* Compact chat header */}
+      <div className="flex items-center gap-2 border-b border-gray-200 bg-white py-2 pl-1 pr-2">
         <button
           onClick={() => navigate('/messages')}
           aria-label="Back to messages"
-          className="-ml-2 rounded-full p-2 text-gray-500 hover:text-gray-700"
+          className="rounded-full p-2 text-gray-500 hover:text-gray-700"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <span className="max-w-[60%] truncate text-base font-semibold text-gray-900">{headerName}</span>
-        <button aria-label="Conversation options" className="-mr-2 rounded-full p-2 text-gray-500 hover:text-gray-700">
+        <Avatar name={headerName} src={summary?.other_photo_url} size="sm" className="h-9 w-9 flex-shrink-0" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[15px] font-semibold leading-tight text-gray-900">{headerName}</p>
+          {subtitle && <p className="truncate text-xs leading-tight text-gray-500">{subtitle}</p>}
+        </div>
+        <button aria-label="Conversation options" className="rounded-full p-2 text-gray-500 hover:text-gray-700">
           <MoreVertical className="h-5 w-5" />
         </button>
       </div>
 
-      {/* Compact relationship context */}
-      {summary && (
-        <div className="flex flex-col items-center gap-1 border-b border-gray-100 py-3">
-          <Avatar name={summary.other_full_name} src={summary.other_photo_url} size="md" className="h-11 w-11" />
-          <p className="mt-1 max-w-full truncate text-sm font-semibold text-gray-900">{summary.other_full_name}</p>
-          {(summary.other_job_title || summary.other_company) && (
-            <p className="max-w-full truncate text-xs text-gray-500">
-              {[summary.other_job_title, summary.other_company].filter(Boolean).join(' | ')}
-            </p>
-          )}
-          {summary.event_name && (
-            <p className="text-xs text-gray-400">Met at {summary.event_name}</p>
-          )}
-        </div>
+      {/* Subtle relationship context */}
+      {summary?.event_name && (
+        <p className="border-b border-gray-200 bg-white py-1.5 text-center text-xs text-gray-400">
+          Met at {summary.event_name}
+        </p>
       )}
 
       {/* Messages — the only scrollable region on this screen */}
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#efefef] px-3 py-3">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#f1f2f4] px-3 py-3">
         {loading ? (
-          <LoadingState message="Loading messages…" />
+          <ChatSkeleton />
         ) : (
           <>
             {olderError && (
               <button
                 onClick={() => void loadOlder()}
-                className="mx-auto mb-2 block rounded-md bg-gray-100 px-3 py-1.5 text-xs text-gray-600 hover:bg-gray-200"
+                className="mx-auto mb-2 block rounded-md bg-white px-3 py-1.5 text-xs text-gray-600 shadow-sm"
               >
                 {olderError} Tap to retry.
               </button>
@@ -255,25 +298,44 @@ export default function ConversationPage() {
             )}
 
             {messages.length === 0 ? (
-              <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-                <p className="text-sm font-medium text-gray-700">No messages yet</p>
-                <p className="max-w-xs text-sm text-gray-400">Say hello — your message starts the conversation.</p>
+              <div className="flex h-full flex-col items-center justify-center gap-1 px-6 text-center">
+                <p className="text-[15px] font-medium text-gray-700">Start the conversation</p>
+                <p className="max-w-xs text-sm text-gray-400">
+                  Say hello to {headerName}
+                  {summary?.event_name ? ` from ${summary.event_name}` : ''} — your message begins the thread.
+                </p>
               </div>
             ) : (
-              <ul className="space-y-2">
-                {messages.map((m) => (
-                  <li key={m.id} className={cn('flex', m.is_mine ? 'justify-end' : 'justify-start')}>
-                    <div
-                      className={cn(
-                        'max-w-[78%] rounded-2xl px-3.5 py-2',
-                        m.is_mine ? 'bg-primary-600 text-white' : 'bg-white text-gray-900 border border-gray-200',
-                        m.pending && 'opacity-60'
-                      )}
-                    >
-                      <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">{m.body}</p>
-                      <p className={cn('mt-0.5 text-right text-[11px]', m.is_mine ? 'text-primary-100' : 'text-gray-400')}>
-                        {formatMessageTime(m.created_at)}
-                      </p>
+              <ul>
+                {blocks.map(({ message: m, startsBlock, firstOfTheDay }) => (
+                  <li key={m.id}>
+                    {firstOfTheDay && (
+                      <div className="flex justify-center py-2">
+                        <span className="rounded-full bg-white/80 px-3 py-1 text-[11px] font-medium text-gray-500 shadow-sm">
+                          {formatDaySeparator(m.created_at)}
+                        </span>
+                      </div>
+                    )}
+                    <div className={cn('flex', m.is_mine ? 'justify-end' : 'justify-start', startsBlock ? 'mt-2' : 'mt-0.5')}>
+                      <div
+                        className={cn(
+                          'max-w-[78%] px-3 py-1.5 shadow-sm',
+                          m.is_mine
+                            ? cn('rounded-2xl bg-primary-600 text-white', startsBlock ? 'rounded-br-md' : 'rounded-br-2xl')
+                            : cn('rounded-2xl border border-gray-200 bg-white text-gray-900', startsBlock ? 'rounded-bl-md' : 'rounded-bl-2xl'),
+                          m.pending && 'opacity-60'
+                        )}
+                      >
+                        <p className="whitespace-pre-wrap break-words text-[15px] leading-snug">{m.body}</p>
+                        <p
+                          className={cn(
+                            'mt-0.5 text-right text-[10.5px]',
+                            m.is_mine ? 'text-primary-100' : 'text-gray-400'
+                          )}
+                        >
+                          {formatMessageTime(m.created_at)}
+                        </p>
+                      </div>
                     </div>
                   </li>
                 ))}
@@ -285,9 +347,9 @@ export default function ConversationPage() {
       </div>
 
       {/* Composer */}
-      <div className="border-t border-gray-100 bg-white pb-[env(safe-area-inset-bottom)]">
+      <div className="border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]">
         {sendError && <p className="px-3 pt-2 text-xs text-error-600">{sendError}</p>}
-        <form onSubmit={handleSend} className="flex items-end gap-2 px-3 py-2.5">
+        <form onSubmit={handleSend} className="flex items-end gap-2 px-3 py-2">
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -300,15 +362,15 @@ export default function ConversationPage() {
             rows={1}
             aria-label="Type a message"
             placeholder="Type a message..."
-            className="max-h-32 min-h-[42px] flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-[15px] text-gray-900 placeholder:text-gray-400 focus:border-primary-600 focus:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            className="max-h-28 min-h-[40px] flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-[15px] text-gray-900 placeholder:text-gray-400 focus:border-primary-600 focus:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
           />
           <button
             type="submit"
             disabled={!draft.trim() || sending}
             aria-label="Send message"
-            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-primary-600 text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-40"
+            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 enabled:bg-primary-600 enabled:hover:bg-primary-700"
           >
-            {sending ? <Spinner size="sm" className="text-white" /> : <Send className="h-4.5 w-4.5" />}
+            {sending ? <Spinner size="sm" className="text-white" /> : <Send className="h-4 w-4" />}
           </button>
         </form>
       </div>
