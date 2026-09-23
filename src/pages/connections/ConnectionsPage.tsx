@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Plus, Users, X, CalendarClock, AlertCircle, Clock } from 'lucide-react'
+import { Search, Plus, Users, X, CalendarClock, AlertCircle, Clock, Filter } from 'lucide-react'
 import { supabase, type Connection, type FollowUp, RELATIONSHIP_TYPES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar } from '@/components/ui/Avatar'
@@ -93,6 +93,54 @@ const EMPTY_PER_TAB: Record<Exclude<TabKey, 'all'>, { title: string; description
   },
 }
 
+type FollowUpFilter = 'all' | 'none' | 'scheduled' | 'overdue'
+
+type AdvancedFilters = {
+  relationshipType: string
+  event: string
+  followUp: FollowUpFilter
+}
+
+const DEFAULT_FILTERS: AdvancedFilters = { relationshipType: 'all', event: 'all', followUp: 'all' }
+
+const FOLLOW_UP_FILTER_OPTIONS: { value: FollowUpFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'none', label: 'No follow-up' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'overdue', label: 'Overdue' },
+]
+
+function FilterSection({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div>
+      <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{label}</p>
+      <div className="mt-1.5 flex flex-wrap gap-1.5">{children}</div>
+    </div>
+  )
+}
+
+function FilterOptionPill({
+  label,
+  selected,
+  onClick,
+}: {
+  label: string
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors',
+        selected ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+      )}
+    >
+      {label}
+    </button>
+  )
+}
+
 export default function ConnectionsPage() {
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
@@ -104,6 +152,9 @@ export default function ConnectionsPage() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
+  const [filters, setFilters] = useState<AdvancedFilters>(DEFAULT_FILTERS)
+  const [draftFilters, setDraftFilters] = useState<AdvancedFilters>(DEFAULT_FILTERS)
+  const [showFilters, setShowFilters] = useState(false)
 
   const [newConn, setNewConn] = useState({
     full_name: '',
@@ -211,6 +262,16 @@ export default function ConnectionsPage() {
   }
 
   // Follow-up state per connection, computed once for tabs and rows.
+  function openFilters() {
+    setDraftFilters(filters)
+    setShowFilters(true)
+  }
+
+  function applyFilters() {
+    setFilters(draftFilters)
+    setShowFilters(false)
+  }
+
   const followUpStateById = useMemo(() => {
     const map: Record<string, FollowUpState> = {}
     for (const conn of connections) {
@@ -229,6 +290,19 @@ export default function ConnectionsPage() {
     return c
   }, [connections, followUpStateById])
 
+  const eventNames = useMemo(
+    () => [...new Set(connections.map((c) => c.event_name).filter(Boolean))].sort(),
+    [connections]
+  )
+
+  const activeFilterCount = useMemo(
+    () =>
+      (filters.relationshipType !== 'all' ? 1 : 0) +
+      (filters.event !== 'all' ? 1 : 0) +
+      (filters.followUp !== 'all' ? 1 : 0),
+    [filters]
+  )
+
   const filtered = connections.filter((conn) => {
     const matchesSearch =
       !search ||
@@ -238,11 +312,50 @@ export default function ConnectionsPage() {
     const state = followUpStateById[conn.id]
     const matchesTab =
       tab === 'all' || (tab === 'overdue' ? state === 'overdue' : state === 'upcoming' || state === 'today')
-    return matchesSearch && matchesTab
+    const matchesFilters =
+      (filters.relationshipType === 'all' || conn.relationship_type === filters.relationshipType) &&
+      (filters.event === 'all' || conn.event_name === filters.event) &&
+      (filters.followUp === 'all' ||
+        (filters.followUp === 'none' && state === 'none') ||
+        (filters.followUp === 'scheduled' && (state === 'upcoming' || state === 'today')) ||
+        (filters.followUp === 'overdue' && state === 'overdue'))
+    return matchesSearch && matchesTab && matchesFilters
   })
 
   if (loading) return <NetworkSkeleton />
   if (error) return <ErrorState message={error} onRetry={loadConnections} />
+
+  const filterPanel = (
+    <div className="space-y-4">
+      <p className="text-sm font-semibold text-gray-900">Filter</p>
+      <FilterSection label="Relationship type">
+        <FilterOptionPill label="All" selected={draftFilters.relationshipType === 'all'} onClick={() => setDraftFilters({ ...draftFilters, relationshipType: 'all' })} />
+        {RELATIONSHIP_TYPES.map((t) => (
+          <FilterOptionPill key={t} label={t} selected={draftFilters.relationshipType === t} onClick={() => setDraftFilters({ ...draftFilters, relationshipType: t })} />
+        ))}
+      </FilterSection>
+      <FilterSection label="Event">
+        <FilterOptionPill label="All events" selected={draftFilters.event === 'all'} onClick={() => setDraftFilters({ ...draftFilters, event: 'all' })} />
+        {eventNames.map((name) => (
+          <FilterOptionPill key={name} label={name} selected={draftFilters.event === name} onClick={() => setDraftFilters({ ...draftFilters, event: name })} />
+        ))}
+      </FilterSection>
+      <FilterSection label="Follow-up">
+        {FOLLOW_UP_FILTER_OPTIONS.map(({ value, label }) => (
+          <FilterOptionPill key={value} label={label} selected={draftFilters.followUp === value} onClick={() => setDraftFilters({ ...draftFilters, followUp: value })} />
+        ))}
+      </FilterSection>
+      <div className="flex items-center justify-between border-t border-gray-100 pt-3">
+        <button
+          onClick={() => setDraftFilters(DEFAULT_FILTERS)}
+          className="text-sm font-medium text-gray-500 hover:text-gray-900"
+        >
+          Clear all
+        </button>
+        <Button size="sm" onClick={applyFilters}>Apply</Button>
+      </div>
+    </div>
+  )
 
   return (
     <div className="mx-auto max-w-xl">
@@ -319,25 +432,65 @@ export default function ConnectionsPage() {
         </Card>
       )}
 
-      {/* Filter pills */}
-      <div className="mt-3 flex gap-2">
-        {TABS.map(({ key, label }) => {
-          const tint = TAB_TINTS[key]
-          return (
+      {/* Filter pills + advanced filter, one row */}
+      <div className="relative mt-3 flex items-center justify-between gap-1.5 sm:gap-2">
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+          {TABS.map(({ key, label }) => {
+            const tint = TAB_TINTS[key]
+            return (
+              <button
+                key={key}
+                onClick={() => setTab(key)}
+                className={cn(
+                  'shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                  tint.base,
+                  tab === key ? cn(tint.selected, 'font-semibold') : 'opacity-80 hover:opacity-100'
+                )}
+              >
+                {label} ({counts[key]})
+              </button>
+            )
+          })}
+        </div>
+        <button
+          onClick={openFilters}
+          aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : 'Filters'}
+          className={cn(
+            'relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600',
+            activeFilterCount ? 'bg-primary-50 text-primary-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          )}
+        >
+          <Filter className="h-4 w-4" />
+          {activeFilterCount > 0 && (
+            <span className="absolute -right-1 -top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary-600 px-1 text-[10px] font-semibold text-white">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+
+        {showFilters && (
+          <>
             <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={cn(
-                'shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-all',
-                tint.base,
-                tab === key ? cn(tint.selected, 'font-semibold') : 'opacity-80 hover:opacity-100'
-              )}
-            >
-              {label} ({counts[key]})
-            </button>
-          )
-        })}
+              className="fixed inset-0 z-40 hidden cursor-default md:block"
+              aria-hidden="true"
+              onClick={() => setShowFilters(false)}
+            />
+            <div className="absolute right-0 top-full z-50 mt-2 hidden max-h-[70vh] w-72 overflow-y-auto rounded-xl border border-gray-100 bg-white p-4 shadow-lg md:block">
+              {filterPanel}
+            </div>
+          </>
+        )}
       </div>
+
+      {showFilters && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <button className="absolute inset-0 bg-black/40" aria-hidden="true" onClick={() => setShowFilters(false)} />
+          <div className="absolute inset-x-0 bottom-0 max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white p-4 pb-8 shadow-2xl">
+            <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-gray-200" aria-hidden="true" />
+            {filterPanel}
+          </div>
+        </div>
+      )}
 
       {/* Search */}
       <div className="relative mt-3">
@@ -361,7 +514,7 @@ export default function ConnectionsPage() {
                 title="Your network is empty"
                 description="Connect with people at events to start building your professional network."
               />
-            ) : tab !== 'all' && !search ? (
+            ) : tab !== 'all' && !search && activeFilterCount === 0 ? (
               <EmptyState
                 icon={<CalendarClock className="h-10 w-10" />}
                 title={EMPTY_PER_TAB[tab].title}
