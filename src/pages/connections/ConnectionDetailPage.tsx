@@ -32,6 +32,7 @@ import {
   OPPORTUNITY_STAGES,
 } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { createDirectConversation, toFriendlyMessageError } from '@/lib/messages'
 import { Avatar } from '@/components/ui/Avatar'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
 import { formatDate, formatRelativeDate, normalizeUrl, cn } from '@/lib/utils'
@@ -145,6 +146,8 @@ export default function ConnectionDetailPage() {
   const [oppForm, setOppForm] = useState({ title: '', type: 'Sales', value: '', stage: 'New', expected_close_date: '', description: '' })
 
   const [shareState, setShareState] = useState<'idle' | 'shared' | 'copied'>('idle')
+  const [startingMessage, setStartingMessage] = useState(false)
+  const [messageError, setMessageError] = useState<string | null>(null)
 
   async function loadData() {
     if (!id || !user) return
@@ -325,6 +328,25 @@ export default function ConnectionDetailPage() {
     if (!confirm('Delete this connection and all its notes and follow-ups?')) return
     await supabase.from('connections').delete().eq('id', id).eq('owner_id', user.id)
     navigate('/connections')
+  }
+
+  // Messaging goes through the backend RPC: it authorizes the connection and
+  // reuses an existing direct conversation rather than creating duplicates.
+  // Event context comes from the connection row — the user never picks it.
+  async function handleStartMessage() {
+    if (!connection?.connected_user_id || startingMessage) return
+    setStartingMessage(true)
+    setMessageError(null)
+    const { data: conversationId, error: convError } = await createDirectConversation(
+      connection.connected_user_id,
+      connection.event_id
+    )
+    setStartingMessage(false)
+    if (convError || !conversationId) {
+      setMessageError(toFriendlyMessageError(convError, 'Could not open the conversation. Please try again.'))
+      return
+    }
+    navigate(`/messages/${conversationId}`)
   }
 
   async function handleShareContact() {
@@ -531,13 +553,17 @@ export default function ConnectionDetailPage() {
 
           {/* 4. Action row */}
           <div className="mt-3 grid grid-cols-4 gap-2">
-            {connection.email ? (
-              <a href={`mailto:${connection.email}`} className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50">
+            {connection.connected_user_id ? (
+              <button
+                onClick={() => void handleStartMessage()}
+                disabled={startingMessage}
+                className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50 disabled:opacity-60"
+              >
                 <MessageCircle className="h-4 w-4 text-primary-600" />
                 <span className="text-[13px] font-medium leading-tight md:text-sm">Message</span>
-              </a>
+              </button>
             ) : (
-              <div className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-300" title="No email on file">
+              <div className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-300" title="Messaging unavailable for this connection">
                 <MessageCircle className="h-4 w-4" />
                 <span className="text-[13px] font-medium leading-tight md:text-sm">Message</span>
               </div>
@@ -567,6 +593,8 @@ export default function ConnectionDetailPage() {
               <span className="text-[13px] font-medium leading-tight md:text-sm">More</span>
             </button>
           </div>
+
+          {messageError && <p className="mt-2 text-xs text-error-600">{messageError}</p>}
 
           {followUpFormOpen && (
             <form onSubmit={handleAddFollowUp} className="mt-3 space-y-2 rounded-md border border-gray-200 p-3">

@@ -3,6 +3,7 @@ import { NavLink, useNavigate, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
+  MessagesSquare,
   Calendar,
   QrCode,
   CalendarClock,
@@ -28,6 +29,7 @@ import { cn } from '@/lib/utils'
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/connections', label: 'Connections', icon: Users },
+  { to: '/messages', label: 'Messages', icon: MessagesSquare },
   { to: '/scan', label: 'Scan QR', icon: QrCode },
   { to: '/events', label: 'Events', icon: Calendar },
   { to: '/follow-ups', label: 'Follow-ups', icon: CalendarClock },

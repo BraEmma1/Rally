@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import {
   Building2,
   Users,
+  MessagesSquare,
   QrCode,
   Calendar,
   CalendarCheck,
@@ -33,7 +34,8 @@ interface DrawerItem {
   badge?: number
 }
 
-const personalItems: DrawerItem[] = [
+const personalItems: (Omit<DrawerItem, 'to'> & { to: string })[] = [
+  { to: '/messages', label: 'My Messages', icon: MessagesSquare },
   { to: '/scan', label: 'My QR Code & Scanning', icon: QrCode },
   { to: '/connections', label: 'My Contacts', icon: Users },
   { to: '/follow-ups', label: 'My Follow-ups', icon: CalendarClock },

@@ -31,6 +31,8 @@ import EventDetailPage from '@/pages/events/EventDetailPage'
 import FollowUpsPage from '@/pages/followups/FollowUpsPage'
 import OpportunitiesPage from '@/pages/opportunities/OpportunitiesPage'
 import OpportunityDetailPage from '@/pages/opportunities/OpportunityDetailPage'
+import MessagesInboxPage from '@/pages/messages/MessagesInboxPage'
+import ConversationPage from '@/pages/messages/ConversationPage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
 import OrganizationInvitationsPage from '@/pages/organizer/OrganizationInvitationsPage'
 import AccountStatusPage from '@/pages/account/AccountStatusPage'
@@ -298,6 +300,8 @@ export default function App() {
         <Route path="/follow-ups" element={<FollowUpsPage />} />
         <Route path="/opportunities" element={<OpportunitiesPage />} />
         <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />
+        <Route path="/messages" element={<MessagesInboxPage />} />
+        <Route path="/messages/:conversationId" element={<ConversationPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/invitations/organizations" element={<OrganizationInvitationsPage />} />
       </Route>
