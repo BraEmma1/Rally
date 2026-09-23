@@ -382,7 +382,8 @@ export default function ConnectionsPage() {
               const state = followUpStateById[conn.id]
               const identity = [conn.job_title, conn.company].filter(Boolean).join(' | ')
               return (
-                <li key={conn.id} className={cn(index > 0 && 'border-t border-gray-100 sm:ml-16')}>
+                <li key={conn.id}>
+                  {index > 0 && <div className="ml-16 h-px bg-gray-100" aria-hidden="true" />}
                   <Link
                     to={`/connections/${conn.id}`}
                     className="flex items-start gap-4 px-1 py-4 transition-colors hover:bg-gray-50"
