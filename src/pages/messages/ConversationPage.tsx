@@ -227,7 +227,7 @@ export default function ConversationPage() {
       )}
 
       {/* Messages — the only scrollable region on this screen */}
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#efefef] px-3 py-3">
         {loading ? (
           <LoadingState message="Loading messages…" />
         ) : (
