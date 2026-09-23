@@ -367,3 +367,38 @@ export type OrganizationPerson = {
   first_seen: string
   last_seen: string
 }
+
+// ---------------------------------------------------------------------------
+// My organization access
+//
+// One entry per organization the signed-in user belongs to, carrying their own
+// organization role and their own event assignments. Event assignments are
+// nested rather than being separate top-level entries: an event manager
+// assigned to three events belongs to one organization, not three.
+// ---------------------------------------------------------------------------
+export type EventAssignment = {
+  event_id: string
+  event_name: string
+  start_date: string | null
+  visibility: EventVisibility
+  archived_at: string | null
+  role: 'event_manager'
+}
+
+export type OrganizationAccess = {
+  organization_id: string
+  organization_name: string
+  organization_slug: string | null
+  organization_description: string
+  organization_logo_url: string
+  organization_website: string
+  organization_type: OrgType
+  approval_status: OrgApprovalStatus
+  archived_at: string | null
+  organization_created_by: string | null
+  organization_created_at: string
+  organization_updated_at: string
+  organization_role: OrgRole
+  joined_at: string
+  event_assignments: EventAssignment[]
+}
