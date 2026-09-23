@@ -194,7 +194,7 @@ export default function ConversationPage() {
   const headerName = summary?.other_full_name || 'Conversation'
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-3rem)] max-w-md flex-col md:h-[calc(100dvh-4rem)] md:max-w-2xl md:px-2">
+    <div className="flex h-dvh flex-col overflow-hidden">
       {/* Header */}
       <div className="relative flex items-center justify-between border-b border-gray-100 py-2">
         <button
@@ -226,8 +226,8 @@ export default function ConversationPage() {
         </div>
       )}
 
-      {/* Messages */}
-      <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto px-3 py-3">
+      {/* Messages — the only scrollable region on this screen */}
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-3">
         {loading ? (
           <LoadingState message="Loading messages…" />
         ) : (

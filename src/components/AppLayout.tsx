@@ -223,8 +223,13 @@ export default function AppLayout() {
       )}
 
       {/* Main content */}
-      <main className="pb-20 md:pb-0 md:pl-60">
-        <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
+      <main className={cn('md:pl-60', !inConversation && 'pb-20 md:pb-0')}>
+        <div
+          className={cn(
+            'mx-auto max-w-5xl',
+            inConversation ? 'md:max-w-3xl' : 'px-4 py-6 md:px-8 md:py-8'
+          )}
+        >
           <Outlet />
         </div>
       </main>
