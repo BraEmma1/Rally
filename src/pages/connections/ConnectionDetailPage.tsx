@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -119,6 +119,7 @@ export default function ConnectionDetailPage() {
 
   const [tab, setTab] = useState<TabKey>('overview')
   const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
   const [stepMenuOpen, setStepMenuOpen] = useState(false)
   const [showAllNotes, setShowAllNotes] = useState(false)
 
@@ -179,6 +180,17 @@ export default function ConnectionDetailPage() {
     loadData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, user])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    function onPointerDown(e: PointerEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false)
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown)
+    return () => document.removeEventListener('pointerdown', onPointerDown)
+  }, [menuOpen])
 
   async function handleSaveRelationship(e: FormEvent) {
     e.preventDefault()
@@ -367,31 +379,33 @@ export default function ConnectionDetailPage() {
           <ArrowLeft className="h-5 w-5" />
         </button>
         <span className="max-w-[55%] truncate text-sm font-semibold text-gray-900">{connection.full_name}</span>
-        <button onClick={() => setMenuOpen(!menuOpen)} aria-label="Connection options" className="-mr-2 rounded-full p-2 text-gray-500 hover:text-gray-700">
-          <MoreVertical className="h-5 w-5" />
-        </button>
-        {menuOpen && (
-          <div className="absolute right-0 top-11 z-20 w-56 overflow-hidden rounded-md border border-gray-200 bg-white text-left shadow-lg">
-            <button
-              onClick={() => { setEditingRelationship(!editingRelationship); setMenuOpen(false) }}
-              className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              <Pencil className="h-4 w-4 text-gray-400" /> Edit relationship
-            </button>
-            <button
-              onClick={() => { setOppFormOpen(!oppFormOpen); setTab('overview'); setMenuOpen(false) }}
-              className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              <Target className="h-4 w-4 text-gray-400" /> Create opportunity
-            </button>
-            <button
-              onClick={() => { setMenuOpen(false); void handleDeleteConnection() }}
-              className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2.5 text-sm text-error-600 hover:bg-error-50"
-            >
-              <Trash2 className="h-4 w-4" /> Remove connection
-            </button>
-          </div>
-        )}
+        <div ref={menuRef} className="relative -mr-2">
+          <button onClick={() => setMenuOpen(!menuOpen)} aria-label="Connection options" className="rounded-full p-2 text-gray-500 hover:text-gray-700">
+            <MoreVertical className="h-5 w-5" />
+          </button>
+          {menuOpen && (
+            <div className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-md border border-gray-200 bg-white text-left shadow-lg">
+              <button
+                onClick={() => { setEditingRelationship(!editingRelationship); setMenuOpen(false) }}
+                className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Pencil className="h-4 w-4 text-gray-400" /> Edit relationship
+              </button>
+              <button
+                onClick={() => { setOppFormOpen(!oppFormOpen); setTab('overview'); setMenuOpen(false) }}
+                className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Target className="h-4 w-4 text-gray-400" /> Create opportunity
+              </button>
+              <button
+                onClick={() => { setMenuOpen(false); void handleDeleteConnection() }}
+                className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2.5 text-sm text-error-600 hover:bg-error-50"
+              >
+                <Trash2 className="h-4 w-4" /> Remove connection
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* 2. Tabs */}
