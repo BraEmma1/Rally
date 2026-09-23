@@ -244,7 +244,7 @@ export default function ConversationPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Compact chat header */}
-      <div className="flex items-center gap-2 border-b border-gray-200 bg-white py-2 pl-1 pr-2">
+      <div className="flex items-center gap-2 border-b border-gray-200 bg-white py-3 pl-1 pr-2 md:py-3.5">
         <button
           onClick={() => navigate('/messages')}
           aria-label="Back to messages"
