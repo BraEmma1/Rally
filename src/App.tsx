@@ -13,6 +13,7 @@ import {
 } from '@/lib/routing'
 import { Spinner } from '@/components/ui/States'
 import AppLayout from '@/components/AppLayout'
+import EventModeLayout from '@/components/eventmode/EventModeLayout'
 import OrganizerLayout from '@/components/OrganizerLayout'
 import LoginPage from '@/pages/auth/LoginPage'
 import SignUpPage from '@/pages/auth/SignUpPage'
@@ -34,6 +35,9 @@ import OpportunityDetailPage from '@/pages/opportunities/OpportunityDetailPage'
 import MessagesInboxPage from '@/pages/messages/MessagesInboxPage'
 import ConversationPage from '@/pages/messages/ConversationPage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
+import EventHomePage from '@/pages/eventmode/EventHomePage'
+import EventNetworkPage from '@/pages/eventmode/EventNetworkPage'
+import EventComingSoonPage from '@/pages/eventmode/EventComingSoonPage'
 import OrganizationInvitationsPage from '@/pages/organizer/OrganizationInvitationsPage'
 import AccountStatusPage from '@/pages/account/AccountStatusPage'
 import AdminPlaceholderPage from '@/pages/admin/AdminPlaceholderPage'
@@ -297,6 +301,32 @@ export default function App() {
         <Route path="/connections/:id" element={<ConnectionDetailPage />} />
         <Route path="/events" element={<EventsPage />} />
         <Route path="/events/:id" element={<EventDetailPage />} />
+
+        {/* Event Mode — a dedicated shell for one event, its own nav and its
+            own connect flow. Same attendee guards and profile gate as the main
+            attendee app; the event id comes from the route itself. */}
+        <Route
+          element={
+            <ProtectedRoute>
+              <RequireAccount allow={isActiveAttendee}>
+                <RequireCompleteProfile>
+                  <EventModeLayout />
+                </RequireCompleteProfile>
+              </RequireAccount>
+            </ProtectedRoute>
+          }
+        >
+          <Route path="/events/:eventId/home" element={<EventHomePage />} />
+          <Route path="/events/:eventId/network" element={<EventNetworkPage />} />
+          <Route path="/events/:eventId/info" element={<EventComingSoonPage />} />
+          <Route path="/events/:eventId/agenda" element={<EventComingSoonPage />} />
+          <Route path="/events/:eventId/speakers" element={<EventComingSoonPage />} />
+          <Route path="/events/:eventId/exhibitors" element={<EventComingSoonPage />} />
+          <Route path="/events/:eventId/schedule" element={<EventComingSoonPage />} />
+          <Route path="/events/:eventId/map" element={<EventComingSoonPage />} />
+          <Route path="/events/:eventId/coming-soon" element={<EventComingSoonPage />} />
+        </Route>
+
         <Route path="/follow-ups" element={<FollowUpsPage />} />
         <Route path="/opportunities" element={<OpportunitiesPage />} />
         <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />

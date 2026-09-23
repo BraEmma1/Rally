@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   Calendar,
@@ -59,6 +59,7 @@ export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
   const { refresh: refreshNotifications } = useNotifications()
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [event, setEvent] = useState<EventRow | null>(null)
@@ -393,6 +394,15 @@ export default function EventDetailPage() {
                 {isRegistered && <Badge variant="success">You're registered</Badge>}
                 {past && !isRegistered && <Badge variant="gray">Past event</Badge>}
               </div>
+              {isRegistered && (
+                <Button
+                  size="sm"
+                  className="mt-3"
+                  onClick={() => navigate(`/events/${event.id}/home`)}
+                >
+                  Enter Event Mode <ArrowRight className="h-4 w-4" />
+                </Button>
+              )}
             </div>
             {!past && (
               isRegistered ? (
