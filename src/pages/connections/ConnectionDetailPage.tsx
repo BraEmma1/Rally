@@ -431,12 +431,12 @@ export default function ConnectionDetailPage() {
           <div className="flex items-center gap-3">
             <Avatar name={connection.full_name} src={connection.photo_url} size="xl" className="h-20 w-20" />
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-[15px] font-bold text-gray-900">{connection.full_name}</h1>
-              {connection.job_title && <p className="truncate text-xs text-gray-600">{connection.job_title}</p>}
-              {connection.company && <p className="truncate text-xs text-gray-600">{connection.company}</p>}
+              <h1 className="truncate text-xl font-bold text-gray-900">{connection.full_name}</h1>
+              {connection.job_title && <p className="truncate text-sm text-gray-600">{connection.job_title}</p>}
+              {connection.company && <p className="truncate text-sm text-gray-600">{connection.company}</p>}
               {connection.location && (
-                <p className="mt-0.5 flex items-center gap-1 truncate text-xs text-gray-500">
-                  <MapPin className="h-3 w-3 flex-shrink-0 text-gray-400" /> {connection.location}
+                <p className="mt-1 flex items-center gap-1.5 truncate text-sm text-gray-500">
+                  <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" /> {connection.location}
                 </p>
               )}
             </div>
