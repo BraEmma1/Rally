@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Plus, Users, X, QrCode, ChevronRight, CalendarClock, AlertCircle } from 'lucide-react'
+import { Search, Plus, Users, X, QrCode, ChevronRight, CalendarClock, AlertCircle, Clock } from 'lucide-react'
 import { supabase, type Connection, type FollowUp, RELATIONSHIP_TYPES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { Card, CardContent } from '@/components/ui/Card'
-import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
+import { ErrorState, EmptyState } from '@/components/ui/States'
 import { formatDate, normalizeUrl } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -61,32 +61,48 @@ const FOLLOW_UP_STYLES: Record<FollowUpState, string> = {
   none: 'text-gray-400',
 }
 
-type TabKey = 'all' | 'overdue' | 'today' | 'upcoming' | 'none'
+function formatDayMonth(date: string): string {
+  const d = new Date(date)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function NetworkSkeleton() {
+  return (
+    <Card>
+      <CardContent className="divide-y divide-gray-100 py-0" aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="flex items-center gap-3 px-4 py-4">
+            <div className="h-11 w-11 shrink-0 animate-pulse rounded-full bg-gray-200" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="h-4 w-1/3 animate-pulse rounded bg-gray-200" />
+              <div className="h-3 w-1/2 animate-pulse rounded bg-gray-100" />
+              <div className="h-3 w-2/5 animate-pulse rounded bg-gray-100" />
+            </div>
+            <div className="h-3 w-10 shrink-0 animate-pulse rounded bg-gray-100" />
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  )
+}
+
+type TabKey = 'all' | 'overdue' | 'upcoming'
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'overdue', label: 'Overdue' },
-  { key: 'today', label: 'Today' },
   { key: 'upcoming', label: 'Upcoming' },
-  { key: 'none', label: 'No Follow-up' },
 ]
 
 const EMPTY_PER_TAB: Record<Exclude<TabKey, 'all'>, { title: string; description: string }> = {
   overdue: {
-    title: 'Nothing overdue',
-    description: 'You are all caught up — no follow-ups are past their date.',
-  },
-  today: {
-    title: 'Nothing due today',
-    description: 'No follow-ups are due today. Overdue and upcoming items appear on the other tabs.',
+    title: 'No overdue follow-ups',
+    description: 'You are all caught up — nothing is past its due date.',
   },
   upcoming: {
     title: 'No upcoming follow-ups',
     description: 'Schedule a follow-up from a connection to see it here.',
-  },
-  none: {
-    title: 'Everyone has a follow-up',
-    description: 'Every connection here has a follow-up scheduled or completed.',
   },
 }
 
@@ -218,8 +234,12 @@ export default function ConnectionsPage() {
   }, [connections, followUpMap])
 
   const counts = useMemo(() => {
-    const c: Record<TabKey, number> = { all: connections.length, overdue: 0, today: 0, upcoming: 0, none: 0 }
-    for (const conn of connections) c[followUpStateById[conn.id]] += 1
+    const c: Record<TabKey, number> = { all: connections.length, overdue: 0, upcoming: 0 }
+    for (const conn of connections) {
+      const state = followUpStateById[conn.id]
+      if (state === 'overdue') c.overdue += 1
+      else if (state === 'upcoming' || state === 'today') c.upcoming += 1
+    }
     return c
   }, [connections, followUpStateById])
 
@@ -230,11 +250,13 @@ export default function ConnectionsPage() {
       (conn.company || '').toLowerCase().includes(search.toLowerCase()) ||
       (conn.job_title || '').toLowerCase().includes(search.toLowerCase())
     const matchesType = filterType === 'all' || conn.relationship_type === filterType
-    const matchesTab = tab === 'all' || followUpStateById[conn.id] === tab
+    const state = followUpStateById[conn.id]
+    const matchesTab =
+      tab === 'all' || (tab === 'overdue' ? state === 'overdue' : state === 'upcoming' || state === 'today')
     return matchesSearch && matchesType && matchesTab
   })
 
-  if (loading) return <LoadingState message="Loading your network…" />
+  if (loading) return <NetworkSkeleton />
   if (error) return <ErrorState message={error} onRetry={loadConnections} />
 
   return (
@@ -406,46 +428,55 @@ export default function ConnectionsPage() {
               {filtered.map((conn) => {
                 const nextFollowUp = followUpMap[conn.id]?.[0]
                 const state = followUpStateById[conn.id]
+                const identity = [conn.job_title, conn.company].filter(Boolean).join(' | ')
                 return (
                   <Link
                     key={conn.id}
                     to={`/connections/${conn.id}`}
                     className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-gray-50"
                   >
-                    <Avatar name={conn.full_name} src={conn.photo_url} size="md" />
+                    <Avatar name={conn.full_name} src={conn.photo_url} size="md" className="h-11 w-11 shrink-0" />
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <p className="truncate text-sm font-semibold text-gray-900">{conn.full_name}</p>
-                        {state === 'overdue' && <AlertCircle className="h-3.5 w-3.5 shrink-0 text-error-500" />}
-                      </div>
-                      <p className="truncate text-xs text-gray-500">
-                        {conn.job_title}
-                        {conn.company ? (conn.job_title ? ` at ${conn.company}` : conn.company) : ''}
+                      <p className="truncate text-[15px] font-semibold leading-tight text-gray-900 sm:text-base">
+                        {conn.full_name}
                       </p>
-                      <p className="mt-0.5 truncate text-xs text-gray-400">
-                        {conn.event_name
-                          ? `Met at ${conn.event_name}`
-                          : `Connected ${formatDate(conn.created_at)}`}
-                        {conn.relationship_type !== 'Other' && ` · ${conn.relationship_type}`}
-                      </p>
-                      {/* Mobile: follow-up status stays visible under the identity */}
-                      <p className={cn('mt-0.5 truncate text-xs sm:hidden', FOLLOW_UP_STYLES[state])}>
-                        {nextFollowUp
-                          ? `Follow up: ${followUpLabel(state, nextFollowUp.due_date)}`
-                          : 'No follow-up scheduled'}
+                      {identity && (
+                        <p className="mt-0.5 truncate text-[13px] leading-tight text-gray-500 sm:text-sm">
+                          {identity}
+                        </p>
+                      )}
+                      <p
+                        className={cn(
+                          'mt-0.5 flex items-center gap-1 truncate text-[13px] leading-tight',
+                          FOLLOW_UP_STYLES[state]
+                        )}
+                      >
+                        {state === 'overdue' ? (
+                          <>
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            <span className="font-medium">Overdue</span>
+                            {nextFollowUp?.title && <> · {nextFollowUp.title}</>}
+                          </>
+                        ) : state === 'none' ? (
+                          'No follow-up scheduled'
+                        ) : (
+                          <>
+                            <Clock className="h-3 w-3 shrink-0" />
+                            <span>Follow up · {nextFollowUp?.title || followUpLabel(state, nextFollowUp!.due_date)}</span>
+                          </>
+                        )}
                       </p>
                     </div>
-                    <div className="hidden shrink-0 text-right sm:block">
-                      {nextFollowUp ? (
-                        <>
-                          <p className={cn('flex items-center justify-end gap-1 text-xs', FOLLOW_UP_STYLES[state])}>
-                            <CalendarClock className="h-3 w-3" />
-                            {followUpLabel(state, nextFollowUp.due_date)}
-                          </p>
-                          <p className="mt-0.5 truncate text-xs text-gray-400">{nextFollowUp.title}</p>
-                        </>
-                      ) : (
-                        <p className={cn('text-xs', FOLLOW_UP_STYLES.none)}>No follow-up scheduled</p>
+                    <div className="shrink-0 text-right">
+                      {nextFollowUp && (
+                        <p
+                          className={cn(
+                            'text-[13px]',
+                            state === 'overdue' ? 'font-medium text-error-600' : 'text-gray-500'
+                          )}
+                        >
+                          {formatDayMonth(nextFollowUp.due_date)}
+                        </p>
                       )}
                     </div>
                     <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" />
