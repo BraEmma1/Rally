@@ -72,8 +72,8 @@ export default function EventHomePage() {
 
   return (
     <div>
-      {/* Event hero */}
-      <div className="relative">
+      {/* Event hero — full-bleed, edge to edge, no side margins */}
+      <div className="relative h-80 md:h-96">
         {event.image_url ? (
           <img
             src={event.image_url}
@@ -124,9 +124,10 @@ export default function EventHomePage() {
         </div>
       </div>
 
-      {/* White sheet overlapping the hero: greeting, feature grid, context card */}
-      <div className="relative -mt-7 rounded-t-2xl bg-gray-50 pb-8 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] md:mx-auto md:max-w-5xl md:px-8">
-        <div className="px-4 pt-5 md:px-0">
+      {/* Full-width white sheet overlapping the hero: greeting, feature grid,
+          context card. Internal padding only — no outer margins. */}
+      <div className="relative -mt-9 rounded-t-2xl bg-gray-50 pb-8 shadow-[0_-4px_16px_rgba(0,0,0,0.08)]">
+        <div className="mx-auto max-w-5xl px-4 pt-6 md:px-8">
           {/* Personal greeting card */}
           <div className="flex items-center gap-4">
             <Avatar name={displayName} src={profile?.photo_url} size="lg" />

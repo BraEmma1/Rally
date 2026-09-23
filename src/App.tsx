@@ -302,35 +302,6 @@ export default function App() {
         <Route path="/connections/:id" element={<ConnectionDetailPage />} />
         <Route path="/events" element={<EventsPage />} />
         <Route path="/events/:id" element={<EventDetailPage />} />
-
-        {/* Event Mode — a dedicated shell for one event, its own nav and its
-            own connect flow. Same attendee guards and profile gate as the main
-            attendee app; the event id comes from the route itself. */}
-        <Route
-          element={
-            <ProtectedRoute>
-              <RequireAccount allow={isActiveAttendee}>
-                <RequireCompleteProfile>
-                  <EventModeProvider>
-                    <EventModeLayout />
-                  </EventModeProvider>
-                </RequireCompleteProfile>
-              </RequireAccount>
-            </ProtectedRoute>
-          }
-        >
-          <Route path="/events/:eventId/home" element={<EventHomePage />} />
-          <Route path="/events/:eventId/network" element={<EventNetworkPage />} />
-          <Route path="/events/:eventId/info" element={<EventComingSoonPage />} />
-          <Route path="/events/:eventId/agenda" element={<EventComingSoonPage />} />
-          <Route path="/events/:eventId/speakers" element={<EventComingSoonPage />} />
-          <Route path="/events/:eventId/exhibitors" element={<EventComingSoonPage />} />
-          <Route path="/events/:eventId/schedule" element={<EventComingSoonPage />} />
-          <Route path="/events/:eventId/map" element={<EventComingSoonPage />} />
-          <Route path="/events/:eventId/deal-room" element={<EventComingSoonPage />} />
-          <Route path="/events/:eventId/coming-soon" element={<EventComingSoonPage />} />
-        </Route>
-
         <Route path="/follow-ups" element={<FollowUpsPage />} />
         <Route path="/opportunities" element={<OpportunitiesPage />} />
         <Route path="/opportunities/:id" element={<OpportunityDetailPage />} />
@@ -338,6 +309,35 @@ export default function App() {
         <Route path="/messages/:conversationId" element={<ConversationPage />} />
         <Route path="/notifications" element={<NotificationsPage />} />
         <Route path="/invitations/organizations" element={<OrganizationInvitationsPage />} />
+      </Route>
+
+      {/* Event Mode — a dedicated full-bleed shell for one event, its own nav
+          and its own connect flow. It is a sibling of the main app layout so
+          the global Rally header never wraps it; the event home hero is the
+          top of the screen. Same attendee guards and profile gate. */}
+      <Route
+        element={
+          <ProtectedRoute>
+            <RequireAccount allow={isActiveAttendee}>
+              <RequireCompleteProfile>
+                <EventModeProvider>
+                  <EventModeLayout />
+                </EventModeProvider>
+              </RequireCompleteProfile>
+            </RequireAccount>
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/events/:eventId/home" element={<EventHomePage />} />
+        <Route path="/events/:eventId/network" element={<EventNetworkPage />} />
+        <Route path="/events/:eventId/info" element={<EventComingSoonPage />} />
+        <Route path="/events/:eventId/agenda" element={<EventComingSoonPage />} />
+        <Route path="/events/:eventId/speakers" element={<EventComingSoonPage />} />
+        <Route path="/events/:eventId/exhibitors" element={<EventComingSoonPage />} />
+        <Route path="/events/:eventId/schedule" element={<EventComingSoonPage />} />
+        <Route path="/events/:eventId/map" element={<EventComingSoonPage />} />
+        <Route path="/events/:eventId/deal-room" element={<EventComingSoonPage />} />
+        <Route path="/events/:eventId/coming-soon" element={<EventComingSoonPage />} />
       </Route>
 
       <Route
