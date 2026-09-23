@@ -115,7 +115,21 @@ export type EventRow = {
   image_url: string
   capacity: number | null
   status: string
+  timezone: string | null
   created_at: string
+}
+
+export type EventSession = {
+  id: string
+  event_id: string
+  title: string
+  description: string
+  start_at: string
+  end_at: string | null
+  location: string
+  session_type: string
+  status: string
+  display_order: number
 }
 
 export type EventRegistration = {
