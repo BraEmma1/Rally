@@ -3,6 +3,7 @@ import type {
   IncomingInvitation,
   Organization,
   OrganizationInvitation,
+  OrganizationAccess,
   OrganizationMember,
   OrganizationMembership,
   OrgRole,
@@ -25,25 +26,58 @@ function readableError(error: { message?: string } | null, fallback: string): st
   return message
 }
 
+// One entry per organization the caller belongs to, with the caller's own role
+// and their own event assignments.
+//
+// This previously selected `organization_members` with no user filter and let
+// RLS narrow it. RLS narrows to the *organization*, not to the user —
+// `select_org_members` is `is_org_member(organization_id)`, which is what the
+// Team screen needs — so the query returned one row per co-member and the
+// sidebar drew the organization once per teammate. Ordered by created_at, the
+// first row was always the owner (the ownership trigger writes it first), so
+// every member who had not created the organization was shown the owner's role
+// as their own, and canManageTeam() then offered controls the database refused.
+//
+// The RPC selects by user_id, so each organization appears exactly once with
+// the role that actually belongs to the caller.
+export async function listMyOrganizationAccess(): Promise<{
+  data: OrganizationAccess[]
+  error: string | null
+}> {
+  const { data, error } = await supabase.rpc('get_my_organization_access')
+  if (error) return { data: [], error: readableError(error, 'Could not load your organizations.') }
+  return { data: (data ?? []) as OrganizationAccess[], error: null }
+}
+
+// Kept in the shape OrganizerContext already consumes, so the fix does not
+// ripple through the organizer area. The rows now come from the RPC above.
 export async function listMyOrganizations(): Promise<{
   data: OrganizationMembership[]
   error: string | null
 }> {
-  const { data, error } = await supabase
-    .from('organization_members')
-    .select('role, organizations(*)')
-    .order('created_at', { ascending: true })
+  const { data, error } = await listMyOrganizationAccess()
+  if (error) return { data: [], error }
 
-  if (error) return { data: [], error: readableError(error, 'Could not load your organizations.') }
-
-  const memberships = (data ?? [])
-    .map((row) => {
-      // PostgREST types an embedded to-one relation as a possible array.
-      const embedded = (row as { organizations: Organization | Organization[] | null }).organizations
-      const organization = Array.isArray(embedded) ? embedded[0] : embedded
-      return organization ? { role: (row as { role: OrgRole }).role, organization } : null
-    })
-    .filter((m): m is OrganizationMembership => m !== null)
+  // The full organization row, not a subset: the organizer settings form reads
+  // description and website straight off this and would otherwise show empty
+  // fields that blank the real values on save.
+  const memberships: OrganizationMembership[] = data.map((access) => ({
+    role: access.organization_role,
+    organization: {
+      id: access.organization_id,
+      name: access.organization_name,
+      slug: access.organization_slug,
+      description: access.organization_description,
+      logo_url: access.organization_logo_url,
+      website: access.organization_website,
+      org_type: access.organization_type,
+      approval_status: access.approval_status,
+      archived_at: access.archived_at,
+      created_by: access.organization_created_by,
+      created_at: access.organization_created_at,
+      updated_at: access.organization_updated_at,
+    } satisfies Organization,
+  }))
 
   return { data: memberships, error: null }
 }
