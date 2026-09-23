@@ -378,7 +378,7 @@ export default function ConnectionDetailPage() {
         <button onClick={() => navigate('/connections')} aria-label="Back to network" className="-ml-2 rounded-full p-2 text-gray-500 hover:text-gray-700">
           <ArrowLeft className="h-5 w-5" />
         </button>
-        <span className="max-w-[55%] truncate text-sm font-semibold text-gray-900">{connection.full_name}</span>
+        <span className="max-w-[55%] truncate text-base font-semibold text-gray-900 md:text-lg">{connection.full_name}</span>
         <div ref={menuRef} className="relative -mr-2">
           <button onClick={() => setMenuOpen(!menuOpen)} aria-label="Connection options" className="rounded-full p-2 text-gray-500 hover:text-gray-700">
             <MoreVertical className="h-5 w-5" />
@@ -415,7 +415,7 @@ export default function ConnectionDetailPage() {
             key={key}
             onClick={() => setTab(key)}
             className={cn(
-              'relative flex-1 px-2 py-2.5 text-xs font-medium transition-colors',
+              'relative flex-1 px-2 py-2.5 text-sm font-medium transition-colors md:text-[15px]',
               tab === key ? 'text-primary-600' : 'text-gray-500 hover:text-gray-700'
             )}
           >
@@ -431,12 +431,12 @@ export default function ConnectionDetailPage() {
           <div className="flex items-center gap-3">
             <Avatar name={connection.full_name} src={connection.photo_url} size="xl" className="h-20 w-20" />
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-xl font-bold text-gray-900">{connection.full_name}</h1>
-              {connection.job_title && <p className="truncate text-sm text-gray-600">{connection.job_title}</p>}
-              {connection.company && <p className="truncate text-sm text-gray-600">{connection.company}</p>}
+              <h1 className="truncate text-lg font-bold text-gray-900 md:text-[22px]">{connection.full_name}</h1>
+              {connection.job_title && <p className="truncate text-[15px] text-gray-600 md:text-base">{connection.job_title}</p>}
+              {connection.company && <p className="truncate text-[15px] text-gray-600 md:text-base">{connection.company}</p>}
               {connection.location && (
-                <p className="mt-1 flex items-center gap-1.5 truncate text-sm text-gray-500">
-                  <MapPin className="h-3.5 w-3.5 flex-shrink-0 text-gray-400" /> {connection.location}
+                <p className="mt-1 flex items-center gap-1.5 truncate text-sm text-gray-500 md:text-[15px]">
+                  <MapPin className="h-4 w-4 flex-shrink-0 text-gray-400" /> {connection.location}
                 </p>
               )}
             </div>
@@ -456,7 +456,7 @@ export default function ConnectionDetailPage() {
           {editingRelationship && (
             <form onSubmit={handleSaveRelationship} className="mt-3 space-y-2 rounded-md border border-gray-200 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-gray-700">Relationship type</span>
+                <span className="text-sm font-semibold text-gray-700">Relationship type</span>
                 <button type="button" onClick={() => setEditingRelationship(false)} aria-label="Close" className="text-gray-400 hover:text-gray-600">
                   <X className="h-4 w-4" />
                 </button>
@@ -468,7 +468,7 @@ export default function ConnectionDetailPage() {
               >
                 {RELATIONSHIP_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
-              <p className="text-[11px] text-gray-400">Your private label for how you know this person.</p>
+              <p className="text-xs text-gray-400 md:text-[13px]">Your private label for how you know this person.</p>
               <button
                 type="submit"
                 disabled={savingRelationship}
@@ -482,7 +482,7 @@ export default function ConnectionDetailPage() {
           {oppFormOpen && (
             <form onSubmit={handleAddOpportunity} className="mt-3 space-y-2 rounded-md border border-gray-200 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-gray-700">New opportunity</span>
+                <span className="text-sm font-semibold text-gray-700">New opportunity</span>
                 <button type="button" onClick={() => setOppFormOpen(false)} aria-label="Close" className="text-gray-400 hover:text-gray-600">
                   <X className="h-4 w-4" />
                 </button>
@@ -534,12 +534,12 @@ export default function ConnectionDetailPage() {
             {connection.email ? (
               <a href={`mailto:${connection.email}`} className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50">
                 <MessageCircle className="h-4 w-4 text-primary-600" />
-                <span className="text-[11px] font-medium">Message</span>
+                <span className="text-[13px] font-medium leading-tight md:text-sm">Message</span>
               </a>
             ) : (
               <div className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-300" title="No email on file">
                 <MessageCircle className="h-4 w-4" />
-                <span className="text-[11px] font-medium">Message</span>
+                <span className="text-[13px] font-medium leading-tight md:text-sm">Message</span>
               </div>
             )}
             <button
@@ -547,7 +547,7 @@ export default function ConnectionDetailPage() {
               className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
             >
               <CalendarPlus className="h-4 w-4 text-primary-600" />
-              <span className="text-[11px] font-medium">Schedule</span>
+              <span className="text-[13px] font-medium leading-tight md:text-sm">Schedule</span>
             </button>
             {actionButtons.map(({ label, icon: Icon, onClick }) => (
               <button
@@ -556,7 +556,7 @@ export default function ConnectionDetailPage() {
                 className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
               >
                 <Icon className="h-4 w-4 text-primary-600" />
-                <span className="text-[11px] font-medium">{label}</span>
+                <span className="text-[13px] font-medium leading-tight md:text-sm">{label}</span>
               </button>
             ))}
             <button
@@ -564,14 +564,14 @@ export default function ConnectionDetailPage() {
               className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
             >
               <MoreVertical className="h-4 w-4 text-primary-600" />
-              <span className="text-[11px] font-medium">More</span>
+              <span className="text-[13px] font-medium leading-tight md:text-sm">More</span>
             </button>
           </div>
 
           {followUpFormOpen && (
             <form onSubmit={handleAddFollowUp} className="mt-3 space-y-2 rounded-md border border-gray-200 p-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-gray-700">Schedule follow-up</span>
+                <span className="text-sm font-semibold text-gray-700">Schedule follow-up</span>
                 <button type="button" onClick={() => setFollowUpFormOpen(false)} aria-label="Close" className="text-gray-400 hover:text-gray-600">
                   <X className="h-4 w-4" />
                 </button>
@@ -603,10 +603,10 @@ export default function ConnectionDetailPage() {
           {/* 5. Your Notes */}
           <div className="mt-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-gray-900">Your Notes</h2>
+              <h2 className="text-base font-bold text-gray-900 md:text-[17px]">Your Notes</h2>
               <button
                 onClick={() => setNoteFormOpen(!noteFormOpen)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700"
+                className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 md:text-sm hover:text-primary-700"
               >
                 <Plus className="h-3.5 w-3.5" /> Add Note
               </button>
@@ -642,7 +642,7 @@ export default function ConnectionDetailPage() {
             )}
 
             {notes.length === 0 && !noteFormOpen ? (
-              <p className="mt-2 rounded-md border border-dashed border-gray-200 px-3 py-4 text-center text-xs text-gray-400">
+              <p className="mt-2 rounded-md border border-dashed border-gray-200 px-3 py-4 text-center text-xs text-gray-400 md:text-[13px]">
                 No notes yet. Use “Add Note” to record context from your conversations.
               </p>
             ) : (
@@ -671,8 +671,8 @@ export default function ConnectionDetailPage() {
                       <div className="flex gap-2.5">
                         <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-accent-600" />
                         <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-medium text-gray-400">{formatDate(note.created_at)}</p>
-                          <p className="mt-0.5 whitespace-pre-wrap text-xs leading-relaxed text-gray-700">{note.content}</p>
+                          <p className="text-xs font-medium text-gray-400 md:text-[13px]">{formatDate(note.created_at)}</p>
+                          <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-gray-700 md:text-[15px]">{note.content}</p>
                         </div>
                         <div className="flex flex-shrink-0 items-start gap-2">
                           <button onClick={() => { setEditingNoteId(note.id); setEditNoteContent(note.content) }} aria-label="Edit note" className="text-gray-300 hover:text-primary-600">
@@ -692,7 +692,7 @@ export default function ConnectionDetailPage() {
             {notes.length > 3 && (
               <button
                 onClick={() => setShowAllNotes(!showAllNotes)}
-                className="mt-1 inline-flex items-center gap-0.5 text-xs font-medium text-primary-600 hover:text-primary-700"
+                className="mt-1 inline-flex items-center gap-0.5 text-xs font-medium text-primary-600 md:text-sm hover:text-primary-700"
               >
                 {showAllNotes ? 'Show fewer notes' : `Show all notes (${notes.length})`}
                 <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', showAllNotes && 'rotate-90')} />
@@ -702,15 +702,15 @@ export default function ConnectionDetailPage() {
 
           {/* 6. Next Step */}
           <div className="mt-4">
-            <h2 className="text-sm font-bold text-gray-900">Next Step</h2>
+            <h2 className="text-base font-bold text-gray-900 md:text-[17px]">Next Step</h2>
             {nextStep ? (
               <div className={cn('relative mt-2 flex items-center gap-2.5 rounded-md border p-3', nextOverdue ? 'border-warning-300 bg-warning-50' : 'border-gray-200 bg-white')}>
                 <button onClick={() => toggleFollowUp(nextStep)} aria-label="Mark as completed" className="flex-shrink-0">
                   <Circle className="h-5 w-5 text-primary-600 hover:text-primary-700" />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-xs font-semibold text-gray-900">{nextStep.title}</p>
-                  <p className={cn('mt-0.5 text-[11px]', nextOverdue ? 'text-warning-700' : 'text-gray-500')}>
+                  <p className="truncate text-sm font-medium text-gray-900 md:text-[15px]">{nextStep.title}</p>
+                  <p className={cn('mt-0.5 text-xs md:text-[13px]', nextOverdue ? 'text-warning-700' : 'text-gray-500')}>
                     {formatDate(nextStep.due_date)}
                   </p>
                 </div>
@@ -721,13 +721,13 @@ export default function ConnectionDetailPage() {
                   <div className="absolute right-2 top-10 z-10 w-40 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg">
                     <button
                       onClick={() => { setFollowUpFormOpen(true); setStepMenuOpen(false) }}
-                      className="flex w-full items-center gap-2 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50"
+                      className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
                     >
                       <Plus className="h-3.5 w-3.5 text-gray-400" /> Add another step
                     </button>
                     <button
                       onClick={() => { deleteFollowUp(nextStep.id); setStepMenuOpen(false) }}
-                      className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2 text-xs text-error-600 hover:bg-error-50"
+                      className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2 text-sm text-error-600 hover:bg-error-50"
                     >
                       <Trash2 className="h-3.5 w-3.5" /> Delete step
                     </button>
@@ -736,10 +736,10 @@ export default function ConnectionDetailPage() {
               </div>
             ) : (
               <div className="mt-2 flex items-center justify-between rounded-md border border-dashed border-gray-200 px-3 py-3">
-                <p className="text-xs text-gray-500">No next step scheduled.</p>
+                <p className="text-xs text-gray-500 md:text-[13px]">No next step scheduled.</p>
                 <button
                   onClick={() => setFollowUpFormOpen(true)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700"
+                  className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 md:text-sm hover:text-primary-700"
                 >
                   <Plus className="h-3.5 w-3.5" /> Schedule
                 </button>
@@ -752,8 +752,8 @@ export default function ConnectionDetailPage() {
       {tab === 'notes' && (
         <div className="pt-3">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold text-gray-900">All Notes</h2>
-            <button onClick={() => setNoteFormOpen(true)} className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700">
+            <h2 className="text-base font-bold text-gray-900 md:text-[17px]">All Notes</h2>
+            <button onClick={() => setNoteFormOpen(true)} className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 md:text-sm hover:text-primary-700">
               <Plus className="h-3.5 w-3.5" /> Add Note
             </button>
           </div>
@@ -809,8 +809,8 @@ export default function ConnectionDetailPage() {
                     <div className="flex gap-2.5">
                       <Check className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-accent-600" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-[11px] font-medium text-gray-400">{formatDate(note.created_at)}</p>
-                        <p className="mt-0.5 whitespace-pre-wrap text-xs leading-relaxed text-gray-700">{note.content}</p>
+                        <p className="text-xs font-medium text-gray-400 md:text-[13px]">{formatDate(note.created_at)}</p>
+                        <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-gray-700 md:text-[15px]">{note.content}</p>
                       </div>
                       <div className="flex flex-shrink-0 items-start gap-2">
                         <button onClick={() => { setEditingNoteId(note.id); setEditNoteContent(note.content) }} aria-label="Edit note" className="text-gray-300 hover:text-primary-600">
@@ -878,8 +878,8 @@ export default function ConnectionDetailPage() {
                     {fu.completed ? <Check className="h-4 w-4 text-accent-600" /> : <Circle className="h-4 w-4 text-gray-300 hover:text-gray-400" />}
                   </button>
                   <div className="min-w-0 flex-1">
-                    <p className={cn('truncate text-xs font-medium', fu.completed ? 'text-gray-400 line-through' : 'text-gray-900')}>{fu.title}</p>
-                    <p className="text-[11px] text-gray-500">{formatDate(fu.due_date)}</p>
+                    <p className={cn('truncate text-sm font-medium md:text-[15px]', fu.completed ? 'text-gray-400 line-through' : 'text-gray-900')}>{fu.title}</p>
+                    <p className="text-xs text-gray-500 md:text-[13px]">{formatDate(fu.due_date)}</p>
                   </div>
                   <button onClick={() => deleteFollowUp(fu.id)} aria-label="Delete" className="flex-shrink-0 text-gray-300 hover:text-error-600">
                     <Trash2 className="h-3.5 w-3.5" />
@@ -893,7 +893,7 @@ export default function ConnectionDetailPage() {
 
       {tab === 'history' && (
         <div className="pt-3">
-          <h2 className="text-sm font-bold text-gray-900">History</h2>
+          <h2 className="text-base font-bold text-gray-900 md:text-[17px]">History</h2>
           {history.length === 0 ? (
             <EmptyState title="No history yet" description="Notes, follow-ups and opportunities will appear here." />
           ) : (
@@ -905,10 +905,10 @@ export default function ConnectionDetailPage() {
                     <span className={cn('absolute -left-[27px] flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white', TIMELINE_DOTS[item.tone])}>
                       <Icon className="h-2.5 w-2.5 text-white" />
                     </span>
-                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400">{item.type}</p>
-                    <p className="mt-0.5 text-xs font-medium text-gray-900">{item.title}</p>
-                    {item.detail && <p className="mt-0.5 text-[11px] text-gray-500">{item.detail}</p>}
-                    <p className="mt-0.5 text-[11px] text-gray-400">{formatDate(item.when)}</p>
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400 md:text-xs">{item.type}</p>
+                    <p className="mt-0.5 text-sm font-medium text-gray-900 md:text-[15px]">{item.title}</p>
+                    {item.detail && <p className="mt-0.5 text-xs text-gray-500 md:text-[13px]">{item.detail}</p>}
+                    <p className="mt-0.5 text-xs text-gray-400 md:text-[13px]">{formatDate(item.when)}</p>
                   </li>
                 )
               })}
