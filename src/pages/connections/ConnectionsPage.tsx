@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Plus, Users, X, QrCode, ChevronRight, CalendarClock, AlertCircle, Clock } from 'lucide-react'
+import { Search, Plus, Users, X, CalendarClock, AlertCircle, Clock } from 'lucide-react'
 import { supabase, type Connection, type FollowUp, RELATIONSHIP_TYPES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar } from '@/components/ui/Avatar'
@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { Card, CardContent } from '@/components/ui/Card'
 import { ErrorState, EmptyState } from '@/components/ui/States'
-import { formatDate, normalizeUrl } from '@/lib/utils'
+import { normalizeUrl } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
 type FollowUpState = 'overdue' | 'today' | 'upcoming' | 'none'
@@ -30,35 +30,18 @@ function classifyFollowUp(next: FollowUp | undefined): FollowUpState {
   return 'upcoming'
 }
 
-function followUpLabel(state: FollowUpState, dueDate: string): string {
-  switch (state) {
-    case 'overdue': {
-      const days = Math.max(
-        1,
-        Math.round((new Date(localDateString(new Date())).getTime() - new Date(dueDate).getTime()) / 86400000)
-      )
-      return days === 1 ? 'Follow up yesterday' : `Follow up ${days} days ago`
-    }
-    case 'today':
-      return 'Follow up today'
-    case 'upcoming': {
-      const days = Math.round(
-        (new Date(dueDate).getTime() - new Date(localDateString(new Date())).getTime()) / 86400000
-      )
-      if (days === 1) return 'Follow up tomorrow'
-      if (days <= 7) return `Follow up in ${days} days`
-      return `Follow up ${formatDate(dueDate)}`
-    }
-    default:
-      return 'No follow-up scheduled'
-  }
-}
-
 const FOLLOW_UP_STYLES: Record<FollowUpState, string> = {
   overdue: 'text-error-600',
-  today: 'text-primary-600 font-medium',
-  upcoming: 'text-gray-500',
+  today: 'text-gray-600',
+  upcoming: 'text-gray-600',
   none: 'text-gray-400',
+}
+
+const STATUS_ICON_STYLES: Record<FollowUpState, string> = {
+  overdue: 'text-error-500',
+  today: 'text-primary-500',
+  upcoming: 'text-primary-500',
+  none: 'text-gray-300',
 }
 
 function formatDayMonth(date: string): string {
@@ -69,21 +52,19 @@ function formatDayMonth(date: string): string {
 
 function NetworkSkeleton() {
   return (
-    <Card>
-      <CardContent className="divide-y divide-gray-100 py-0" aria-hidden="true">
-        {[0, 1, 2, 3, 4, 5].map((i) => (
-          <div key={i} className="flex items-center gap-3 px-4 py-4">
-            <div className="h-11 w-11 shrink-0 animate-pulse rounded-full bg-gray-200" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <div className="h-4 w-1/3 animate-pulse rounded bg-gray-200" />
-              <div className="h-3 w-1/2 animate-pulse rounded bg-gray-100" />
-              <div className="h-3 w-2/5 animate-pulse rounded bg-gray-100" />
-            </div>
-            <div className="h-3 w-10 shrink-0 animate-pulse rounded bg-gray-100" />
+    <div className="mt-2" aria-hidden="true">
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="flex items-center gap-4 px-1 py-4">
+          <div className="h-12 w-12 shrink-0 animate-pulse rounded-full bg-gray-200" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="h-4 w-1/3 animate-pulse rounded bg-gray-200" />
+            <div className="h-3 w-1/2 animate-pulse rounded bg-gray-100" />
+            <div className="h-3 w-2/5 animate-pulse rounded bg-gray-100" />
           </div>
-        ))}
-      </CardContent>
-    </Card>
+          <div className="h-3 w-10 shrink-0 animate-pulse rounded bg-gray-100" />
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -94,6 +75,12 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'overdue', label: 'Overdue' },
   { key: 'upcoming', label: 'Upcoming' },
 ]
+
+const TAB_TINTS: Record<TabKey, { base: string; selected: string }> = {
+  all: { base: 'bg-primary-50 text-primary-700', selected: 'ring-1 ring-primary-300' },
+  overdue: { base: 'bg-error-50 text-error-600', selected: 'ring-1 ring-error-300' },
+  upcoming: { base: 'bg-gray-100 text-gray-600', selected: 'ring-1 ring-gray-300' },
+}
 
 const EMPTY_PER_TAB: Record<Exclude<TabKey, 'all'>, { title: string; description: string }> = {
   overdue: {
@@ -113,7 +100,6 @@ export default function ConnectionsPage() {
   const [connections, setConnections] = useState<Connection[]>([])
   const [followUpMap, setFollowUpMap] = useState<Record<string, FollowUp[]>>({})
   const [search, setSearch] = useState('')
-  const [filterType, setFilterType] = useState('all')
   const [tab, setTab] = useState<TabKey>('all')
   const [showAddForm, setShowAddForm] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -249,40 +235,31 @@ export default function ConnectionsPage() {
       conn.full_name.toLowerCase().includes(search.toLowerCase()) ||
       (conn.company || '').toLowerCase().includes(search.toLowerCase()) ||
       (conn.job_title || '').toLowerCase().includes(search.toLowerCase())
-    const matchesType = filterType === 'all' || conn.relationship_type === filterType
     const state = followUpStateById[conn.id]
     const matchesTab =
       tab === 'all' || (tab === 'overdue' ? state === 'overdue' : state === 'upcoming' || state === 'today')
-    return matchesSearch && matchesType && matchesTab
+    return matchesSearch && matchesTab
   })
 
   if (loading) return <NetworkSkeleton />
   if (error) return <ErrorState message={error} onRetry={loadConnections} />
 
   return (
-    <div>
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Network</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            Manage your professional relationships and follow-ups.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link to="/scan">
-            <Button variant="outline">
-              <QrCode className="h-4 w-4" /> Scan QR
-            </Button>
-          </Link>
-          <Button onClick={() => setShowAddForm(!showAddForm)}>
-            {showAddForm ? <><X className="h-4 w-4" /> Cancel</> : <><Plus className="h-4 w-4" /> Add connection</>}
-          </Button>
-        </div>
+    <div className="mx-auto max-w-xl">
+      {/* Compact header */}
+      <div className="flex items-center justify-between py-1">
+        <h1 className="text-2xl font-bold tracking-tight text-gray-900">Network</h1>
+        <button
+          onClick={() => setShowAddForm(!showAddForm)}
+          aria-label={showAddForm ? 'Cancel adding connection' : 'Add connection'}
+          className="flex h-10 w-10 items-center justify-center rounded-full text-primary-600 transition-colors hover:bg-primary-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+        >
+          {showAddForm ? <X className="h-6 w-6" /> : <Plus className="h-6 w-6" />}
+        </button>
       </div>
 
       {showAddForm && (
-        <Card className="mt-4">
+        <Card className="mt-3">
           <CardContent>
             <form onSubmit={handleAdd} className="space-y-4">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -342,149 +319,131 @@ export default function ConnectionsPage() {
         </Card>
       )}
 
-      {/* Search + relationship type filter */}
-      <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          <Input
-            placeholder="Search by name, company, or title…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <Select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="sm:w-44">
-          <option value="all">All types</option>
-          {RELATIONSHIP_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-        </Select>
-      </div>
-
-      {/* Follow-up tabs */}
-      <div className="mt-4 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
-        <div className="flex w-max gap-2 sm:w-full sm:flex-wrap">
-          {TABS.map(({ key, label }) => (
+      {/* Filter pills */}
+      <div className="mt-3 flex gap-2">
+        {TABS.map(({ key, label }) => {
+          const tint = TAB_TINTS[key]
+          return (
             <button
               key={key}
               onClick={() => setTab(key)}
               className={cn(
-                'flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors',
-                tab === key
-                  ? 'border-primary-600 bg-primary-600 text-white'
-                  : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900'
+                'shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-all',
+                tint.base,
+                tab === key ? cn(tint.selected, 'font-semibold') : 'opacity-80 hover:opacity-100'
               )}
             >
-              {label}
-              <span
-                className={cn(
-                  'rounded-full px-1.5 text-xs',
-                  tab === key
-                    ? 'bg-white/20 text-white'
-                    : key === 'overdue' && counts.overdue > 0
-                      ? 'bg-error-50 text-error-600'
-                      : 'bg-gray-100 text-gray-500'
-                )}
-              >
-                {counts[key]}
-              </span>
+              {label} ({counts[key]})
             </button>
-          ))}
-        </div>
+          )
+        })}
       </div>
 
-      {/* List */}
-      <div className="mt-4">
+      {/* Search */}
+      <div className="relative mt-3">
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input
+          type="text"
+          placeholder="Search connections..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full rounded-xl border border-transparent bg-gray-100 py-2.5 pl-10 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-300 focus:bg-white focus:outline-none focus:ring-1 focus:ring-primary-300"
+        />
+      </div>
+
+      {/* List — sits directly on the page background, no outer card */}
+      <div className="mt-2">
         {filtered.length === 0 ? (
-          <Card>
-            <CardContent>
-              {connections.length === 0 ? (
-                <EmptyState
-                  icon={<Users className="h-10 w-10" />}
-                  title="No connections yet"
-                  description="Add people you meet at events to keep track of your network."
-                  action={
-                    <Button size="sm" onClick={() => setShowAddForm(true)}>
-                      <Plus className="h-4 w-4" /> Add connection
-                    </Button>
-                  }
-                />
-              ) : tab !== 'all' && !search && filterType === 'all' ? (
-                <EmptyState
-                  icon={<CalendarClock className="h-10 w-10" />}
-                  title={EMPTY_PER_TAB[tab].title}
-                  description={EMPTY_PER_TAB[tab].description}
-                />
-              ) : (
-                <EmptyState
-                  icon={<Search className="h-10 w-10" />}
-                  title="No matching connections"
-                  description="Try a different search term, type, or tab."
-                />
-              )}
-            </CardContent>
-          </Card>
+          <div className="py-10">
+            {connections.length === 0 ? (
+              <EmptyState
+                icon={<Users className="h-10 w-10" />}
+                title="Your network is empty"
+                description="Connect with people at events to start building your professional network."
+              />
+            ) : tab !== 'all' && !search ? (
+              <EmptyState
+                icon={<CalendarClock className="h-10 w-10" />}
+                title={EMPTY_PER_TAB[tab].title}
+                description={EMPTY_PER_TAB[tab].description}
+              />
+            ) : (
+              <EmptyState
+                icon={<Search className="h-10 w-10" />}
+                title="No connections found"
+                description="Try a different search term or filter."
+              />
+            )}
+          </div>
         ) : (
-          <Card>
-            <CardContent className="divide-y divide-gray-100 py-0">
-              {filtered.map((conn) => {
-                const nextFollowUp = followUpMap[conn.id]?.[0]
-                const state = followUpStateById[conn.id]
-                const identity = [conn.job_title, conn.company].filter(Boolean).join(' | ')
-                return (
+          <ul>
+            {filtered.map((conn, index) => {
+              const nextFollowUp = followUpMap[conn.id]?.[0]
+              const state = followUpStateById[conn.id]
+              const identity = [conn.job_title, conn.company].filter(Boolean).join(' | ')
+              return (
+                <li key={conn.id} className={cn(index > 0 && 'border-t border-gray-100 sm:ml-16')}>
                   <Link
-                    key={conn.id}
                     to={`/connections/${conn.id}`}
-                    className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-gray-50"
+                    className="flex items-start gap-4 px-1 py-4 transition-colors hover:bg-gray-50"
                   >
-                    <Avatar name={conn.full_name} src={conn.photo_url} size="md" className="h-11 w-11 shrink-0" />
+                    <Avatar
+                      name={conn.full_name}
+                      src={conn.photo_url}
+                      size="md"
+                      className="h-12 w-12 shrink-0 text-base sm:h-14 sm:w-14 sm:text-lg"
+                    />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-[15px] font-semibold leading-tight text-gray-900 sm:text-base">
-                        {conn.full_name}
-                      </p>
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="min-w-0 truncate text-[15px] font-semibold leading-snug text-gray-900 sm:text-[17px]">
+                          {conn.full_name}
+                        </p>
+                        {nextFollowUp && (
+                          <p
+                            className={cn(
+                              'shrink-0 pt-0.5 text-[13px]',
+                              state === 'overdue' ? 'font-medium text-error-600' : 'text-gray-500'
+                            )}
+                          >
+                            {formatDayMonth(nextFollowUp.due_date)}
+                          </p>
+                        )}
+                      </div>
                       {identity && (
-                        <p className="mt-0.5 truncate text-[13px] leading-tight text-gray-500 sm:text-sm">
+                        <p className="mt-0.5 truncate text-[13px] leading-snug text-gray-500 sm:text-sm">
                           {identity}
                         </p>
                       )}
                       <p
                         className={cn(
-                          'mt-0.5 flex items-center gap-1 truncate text-[13px] leading-tight',
+                          'mt-1 flex items-center gap-1.5 truncate text-[13px] leading-snug',
                           FOLLOW_UP_STYLES[state]
                         )}
                       >
                         {state === 'overdue' ? (
                           <>
-                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            <AlertCircle className={cn('h-3.5 w-3.5 shrink-0 fill-error-500 text-white', STATUS_ICON_STYLES.overdue)} />
                             <span className="font-medium">Overdue</span>
-                            {nextFollowUp?.title && <> · {nextFollowUp.title}</>}
+                            {nextFollowUp?.title && <><span className="text-gray-300">·</span> {nextFollowUp.title}</>}
                           </>
                         ) : state === 'none' ? (
-                          'No follow-up scheduled'
+                          <>
+                            <Clock className={cn('h-3.5 w-3.5 shrink-0', STATUS_ICON_STYLES.none)} />
+                            Follow-up not scheduled
+                          </>
                         ) : (
                           <>
-                            <Clock className="h-3 w-3 shrink-0" />
-                            <span>Follow up · {nextFollowUp?.title || followUpLabel(state, nextFollowUp!.due_date)}</span>
+                            <Clock className={cn('h-3.5 w-3.5 shrink-0', STATUS_ICON_STYLES[state])} />
+                            <span>Follow up{nextFollowUp?.title ? ` · ${nextFollowUp.title}` : ''}</span>
                           </>
                         )}
                       </p>
                     </div>
-                    <div className="shrink-0 text-right">
-                      {nextFollowUp && (
-                        <p
-                          className={cn(
-                            'text-[13px]',
-                            state === 'overdue' ? 'font-medium text-error-600' : 'text-gray-500'
-                          )}
-                        >
-                          {formatDayMonth(nextFollowUp.due_date)}
-                        </p>
-                      )}
-                    </div>
-                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" />
                   </Link>
-                )
-              })}
-            </CardContent>
-          </Card>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </div>
     </div>
