@@ -1,16 +1,94 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Search, Plus, Users, X, QrCode, CalendarClock } from 'lucide-react'
+import { Search, Plus, Users, X, QrCode, ChevronRight, CalendarClock, AlertCircle } from 'lucide-react'
 import { supabase, type Connection, type FollowUp, RELATIONSHIP_TYPES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar } from '@/components/ui/Avatar'
-import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { Card, CardContent } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
-import { formatDate, formatRelativeDate, normalizeUrl } from '@/lib/utils'
+import { formatDate, normalizeUrl } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 
+type FollowUpState = 'overdue' | 'today' | 'upcoming' | 'none'
+
+function localDateString(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+// Follow-up state comes only from real follow_ups rows — the soonest open one
+// decides. Nothing is invented for people without a follow-up.
+function classifyFollowUp(next: FollowUp | undefined): FollowUpState {
+  if (!next) return 'none'
+  const today = localDateString(new Date())
+  if (next.due_date < today) return 'overdue'
+  if (next.due_date === today) return 'today'
+  return 'upcoming'
+}
+
+function followUpLabel(state: FollowUpState, dueDate: string): string {
+  switch (state) {
+    case 'overdue': {
+      const days = Math.max(
+        1,
+        Math.round((new Date(localDateString(new Date())).getTime() - new Date(dueDate).getTime()) / 86400000)
+      )
+      return days === 1 ? 'Follow up yesterday' : `Follow up ${days} days ago`
+    }
+    case 'today':
+      return 'Follow up today'
+    case 'upcoming': {
+      const days = Math.round(
+        (new Date(dueDate).getTime() - new Date(localDateString(new Date())).getTime()) / 86400000
+      )
+      if (days === 1) return 'Follow up tomorrow'
+      if (days <= 7) return `Follow up in ${days} days`
+      return `Follow up ${formatDate(dueDate)}`
+    }
+    default:
+      return 'No follow-up scheduled'
+  }
+}
+
+const FOLLOW_UP_STYLES: Record<FollowUpState, string> = {
+  overdue: 'text-error-600',
+  today: 'text-primary-600 font-medium',
+  upcoming: 'text-gray-500',
+  none: 'text-gray-400',
+}
+
+type TabKey = 'all' | 'overdue' | 'today' | 'upcoming' | 'none'
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'overdue', label: 'Overdue' },
+  { key: 'today', label: 'Today' },
+  { key: 'upcoming', label: 'Upcoming' },
+  { key: 'none', label: 'No Follow-up' },
+]
+
+const EMPTY_PER_TAB: Record<Exclude<TabKey, 'all'>, { title: string; description: string }> = {
+  overdue: {
+    title: 'Nothing overdue',
+    description: 'You are all caught up — no follow-ups are past their date.',
+  },
+  today: {
+    title: 'Nothing due today',
+    description: 'No follow-ups are due today. Overdue and upcoming items appear on the other tabs.',
+  },
+  upcoming: {
+    title: 'No upcoming follow-ups',
+    description: 'Schedule a follow-up from a connection to see it here.',
+  },
+  none: {
+    title: 'Everyone has a follow-up',
+    description: 'Every connection here has a follow-up scheduled or completed.',
+  },
+}
 
 export default function ConnectionsPage() {
   const { user } = useAuth()
@@ -20,6 +98,7 @@ export default function ConnectionsPage() {
   const [followUpMap, setFollowUpMap] = useState<Record<string, FollowUp[]>>({})
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
+  const [tab, setTab] = useState<TabKey>('all')
   const [showAddForm, setShowAddForm] = useState(false)
   const [saving, setSaving] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
@@ -129,34 +208,55 @@ export default function ConnectionsPage() {
     loadConnections()
   }
 
-  const filtered = connections.filter((c) => {
+  // Follow-up state per connection, computed once for tabs and rows.
+  const followUpStateById = useMemo(() => {
+    const map: Record<string, FollowUpState> = {}
+    for (const conn of connections) {
+      map[conn.id] = classifyFollowUp(followUpMap[conn.id]?.[0])
+    }
+    return map
+  }, [connections, followUpMap])
+
+  const counts = useMemo(() => {
+    const c: Record<TabKey, number> = { all: connections.length, overdue: 0, today: 0, upcoming: 0, none: 0 }
+    for (const conn of connections) c[followUpStateById[conn.id]] += 1
+    return c
+  }, [connections, followUpStateById])
+
+  const filtered = connections.filter((conn) => {
     const matchesSearch =
       !search ||
-      c.full_name.toLowerCase().includes(search.toLowerCase()) ||
-      (c.company || '').toLowerCase().includes(search.toLowerCase()) ||
-      (c.job_title || '').toLowerCase().includes(search.toLowerCase())
-    const matchesType = filterType === 'all' || c.relationship_type === filterType
-    return matchesSearch && matchesType
+      conn.full_name.toLowerCase().includes(search.toLowerCase()) ||
+      (conn.company || '').toLowerCase().includes(search.toLowerCase()) ||
+      (conn.job_title || '').toLowerCase().includes(search.toLowerCase())
+    const matchesType = filterType === 'all' || conn.relationship_type === filterType
+    const matchesTab = tab === 'all' || followUpStateById[conn.id] === tab
+    return matchesSearch && matchesType && matchesTab
   })
 
-  if (loading) return <LoadingState message="Loading connections…" />
+  if (loading) return <LoadingState message="Loading your network…" />
   if (error) return <ErrorState message={error} onRetry={loadConnections} />
 
   return (
     <div>
+      {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-xl font-bold text-gray-900">Connections</h1>
-          <p className="mt-1 text-sm text-gray-500">{connections.length} {connections.length === 1 ? 'person' : 'people'} in your network</p>
+          <h1 className="text-xl font-bold text-gray-900">Network</h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Manage your professional relationships and follow-ups.
+          </p>
         </div>
-        <Button onClick={() => setShowAddForm(!showAddForm)}>
-          {showAddForm ? <><X className="h-4 w-4" /> Cancel</> : <><Plus className="h-4 w-4" /> Add connection</>}
-        </Button>
-        <Link to="/scan">
-          <Button variant="outline">
-            <QrCode className="h-4 w-4" /> Scan QR
+        <div className="flex flex-wrap gap-2">
+          <Link to="/scan">
+            <Button variant="outline">
+              <QrCode className="h-4 w-4" /> Scan QR
+            </Button>
+          </Link>
+          <Button onClick={() => setShowAddForm(!showAddForm)}>
+            {showAddForm ? <><X className="h-4 w-4" /> Cancel</> : <><Plus className="h-4 w-4" /> Add connection</>}
           </Button>
-        </Link>
+        </div>
       </div>
 
       {showAddForm && (
@@ -220,7 +320,7 @@ export default function ConnectionsPage() {
         </Card>
       )}
 
-      {/* Search + filter */}
+      {/* Search + relationship type filter */}
       <div className="mt-4 flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
@@ -237,66 +337,123 @@ export default function ConnectionsPage() {
         </Select>
       </div>
 
-      {/* Connections list */}
+      {/* Follow-up tabs */}
+      <div className="mt-4 -mx-4 overflow-x-auto px-4 sm:mx-0 sm:px-0">
+        <div className="flex w-max gap-2 sm:w-full sm:flex-wrap">
+          {TABS.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={cn(
+                'flex shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm font-medium transition-colors',
+                tab === key
+                  ? 'border-primary-600 bg-primary-600 text-white'
+                  : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900'
+              )}
+            >
+              {label}
+              <span
+                className={cn(
+                  'rounded-full px-1.5 text-xs',
+                  tab === key
+                    ? 'bg-white/20 text-white'
+                    : key === 'overdue' && counts.overdue > 0
+                      ? 'bg-error-50 text-error-600'
+                      : 'bg-gray-100 text-gray-500'
+                )}
+              >
+                {counts[key]}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* List */}
       <div className="mt-4">
         {filtered.length === 0 ? (
-          connections.length === 0 ? (
-            <Card>
-              <CardContent>
+          <Card>
+            <CardContent>
+              {connections.length === 0 ? (
                 <EmptyState
                   icon={<Users className="h-10 w-10" />}
                   title="No connections yet"
                   description="Add people you meet at events to keep track of your network."
-                  action={<Button size="sm" onClick={() => setShowAddForm(true)}><Plus className="h-4 w-4" /> Add connection</Button>}
+                  action={
+                    <Button size="sm" onClick={() => setShowAddForm(true)}>
+                      <Plus className="h-4 w-4" /> Add connection
+                    </Button>
+                  }
                 />
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent>
+              ) : tab !== 'all' && !search && filterType === 'all' ? (
+                <EmptyState
+                  icon={<CalendarClock className="h-10 w-10" />}
+                  title={EMPTY_PER_TAB[tab].title}
+                  description={EMPTY_PER_TAB[tab].description}
+                />
+              ) : (
                 <EmptyState
                   icon={<Search className="h-10 w-10" />}
                   title="No matching connections"
-                  description="Try a different search term or filter."
+                  description="Try a different search term, type, or tab."
                 />
-              </CardContent>
-            </Card>
-          )
+              )}
+            </CardContent>
+          </Card>
         ) : (
-          <div>
-            {filtered.map((conn) => {
-              const upcomingFollowUps = followUpMap[conn.id] || []
-              const nextFollowUp = upcomingFollowUps[0]
-              const isOverdue = nextFollowUp && new Date(nextFollowUp.due_date) < new Date(new Date().toDateString())
-              return (
-                <Link key={conn.id} to={`/connections/${conn.id}`}>
-                  <Card className="mb-3 transition-colors hover:border-primary-300 hover:bg-primary-50/30">
-                    <CardContent className="flex items-center gap-3 py-3">
-                      <Avatar name={conn.full_name} src={conn.photo_url} size="md" />
-                      <div className="min-w-0 flex-1">
+          <Card>
+            <CardContent className="divide-y divide-gray-100 py-0">
+              {filtered.map((conn) => {
+                const nextFollowUp = followUpMap[conn.id]?.[0]
+                const state = followUpStateById[conn.id]
+                return (
+                  <Link
+                    key={conn.id}
+                    to={`/connections/${conn.id}`}
+                    className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-gray-50"
+                  >
+                    <Avatar name={conn.full_name} src={conn.photo_url} size="md" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
                         <p className="truncate text-sm font-semibold text-gray-900">{conn.full_name}</p>
-                        <p className="truncate text-xs text-gray-500">
-                          {conn.job_title}{conn.company ? ` at ${conn.company}` : ''}
-                        </p>
-                        <p className="mt-0.5 text-xs text-gray-400">Connected {formatDate(conn.created_at)}</p>
+                        {state === 'overdue' && <AlertCircle className="h-3.5 w-3.5 shrink-0 text-error-500" />}
                       </div>
-                      <div className="hidden flex-col items-end gap-1 sm:flex">
-                        <Badge variant="primary">{conn.relationship_type}</Badge>
-                        {nextFollowUp && (
-                          <span className={`flex items-center gap-1 text-xs ${isOverdue ? 'text-error-600' : 'text-gray-500'}`}>
+                      <p className="truncate text-xs text-gray-500">
+                        {conn.job_title}
+                        {conn.company ? (conn.job_title ? ` at ${conn.company}` : conn.company) : ''}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-gray-400">
+                        {conn.event_name
+                          ? `Met at ${conn.event_name}`
+                          : `Connected ${formatDate(conn.created_at)}`}
+                        {conn.relationship_type !== 'Other' && ` · ${conn.relationship_type}`}
+                      </p>
+                      {/* Mobile: follow-up status stays visible under the identity */}
+                      <p className={cn('mt-0.5 truncate text-xs sm:hidden', FOLLOW_UP_STYLES[state])}>
+                        {nextFollowUp
+                          ? `Follow up: ${followUpLabel(state, nextFollowUp.due_date)}`
+                          : 'No follow-up scheduled'}
+                      </p>
+                    </div>
+                    <div className="hidden shrink-0 text-right sm:block">
+                      {nextFollowUp ? (
+                        <>
+                          <p className={cn('flex items-center justify-end gap-1 text-xs', FOLLOW_UP_STYLES[state])}>
                             <CalendarClock className="h-3 w-3" />
-                            {isOverdue ? 'Overdue' : formatRelativeDate(nextFollowUp.due_date)}
-                          </span>
-                        )}
-                        {conn.event_name && <span className="text-xs text-gray-400">{conn.event_name}</span>}
-                      </div>
-                      <Badge variant="gray" className="sm:hidden">{conn.relationship_type}</Badge>
-                    </CardContent>
-                  </Card>
-                </Link>
-              )
-            })}
-          </div>
+                            {followUpLabel(state, nextFollowUp.due_date)}
+                          </p>
+                          <p className="mt-0.5 truncate text-xs text-gray-400">{nextFollowUp.title}</p>
+                        </>
+                      ) : (
+                        <p className={cn('text-xs', FOLLOW_UP_STYLES.none)}>No follow-up scheduled</p>
+                      )}
+                    </div>
+                    <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" />
+                  </Link>
+                )
+              })}
+            </CardContent>
+          </Card>
         )}
       </div>
     </div>

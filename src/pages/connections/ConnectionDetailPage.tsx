@@ -15,6 +15,11 @@ import {
   Save,
   X,
   Target,
+  CalendarClock,
+  StickyNote,
+  Link2,
+  CalendarCheck,
+  Briefcase,
 } from 'lucide-react'
 import { supabase, type Connection, type Note, type FollowUp, type Opportunity, RELATIONSHIP_TYPES, OPPORTUNITY_TYPES, OPPORTUNITY_STAGES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
@@ -24,7 +29,94 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
-import { formatDate, formatRelativeDate, normalizeUrl, displayUrl } from '@/lib/utils'
+import { formatDate, formatRelativeDate, normalizeUrl, displayUrl, cn } from '@/lib/utils'
+
+// Relationship history timeline, built only from rows that already exist:
+// the connection itself, its notes, its follow-ups and its opportunities.
+// Activity that Rally does not track is simply absent.
+type HistoryItem = {
+  key: string
+  type: 'Connected' | 'Note' | 'Follow-up' | 'Opportunity'
+  title: string
+  detail?: string
+  when: string
+  tone: 'primary' | 'accent' | 'gray' | 'warning'
+}
+
+function localDateString(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function buildHistory(
+  connection: Connection,
+  notes: Note[],
+  followUps: FollowUp[],
+  opportunities: Opportunity[]
+): HistoryItem[] {
+  const items: HistoryItem[] = []
+
+  items.push({
+    key: 'connected',
+    type: 'Connected',
+    title: connection.event_name ? `Met at ${connection.event_name}` : 'Connection created',
+    detail: connection.event_name ? undefined : 'You added this person to your network.',
+    when: connection.created_at,
+    tone: 'primary',
+  })
+
+  for (const note of notes) {
+    items.push({
+      key: `note-${note.id}`,
+      type: 'Note',
+      title: note.content.length > 120 ? `${note.content.slice(0, 117)}…` : note.content,
+      when: note.created_at,
+      tone: 'gray',
+    })
+  }
+
+  for (const fu of followUps) {
+    items.push({
+      key: `followup-${fu.id}`,
+      type: 'Follow-up',
+      title: fu.title,
+      detail: fu.completed
+        ? `Completed ${fu.completed_at ? formatDate(fu.completed_at) : ''}`.trim()
+        : `Due ${formatRelativeDate(fu.due_date)}`,
+      when: fu.completed_at ?? fu.created_at,
+      tone: fu.completed ? 'accent' : fu.due_date < localDateString(new Date()) ? 'warning' : 'gray',
+    })
+  }
+
+  for (const opp of opportunities) {
+    items.push({
+      key: `opportunity-${opp.id}`,
+      type: 'Opportunity',
+      title: opp.title,
+      detail: [opp.stage, opp.value > 0 ? opp.value.toLocaleString() : null].filter(Boolean).join(' · '),
+      when: opp.updated_at,
+      tone: 'accent',
+    })
+  }
+
+  return items.sort((a, b) => new Date(b.when).getTime() - new Date(a.when).getTime())
+}
+
+const TIMELINE_ICONS = {
+  Connected: Link2,
+  Note: StickyNote,
+  'Follow-up': CalendarClock,
+  Opportunity: Target,
+} as const
+
+const TIMELINE_DOT_STYLES = {
+  primary: 'bg-primary-600',
+  accent: 'bg-accent-600',
+  gray: 'bg-gray-300',
+  warning: 'bg-warning-500',
+} as const
 
 export default function ConnectionDetailPage() {
   const { id } = useParams<{ id: string }>()
@@ -247,51 +339,56 @@ export default function ConnectionDetailPage() {
 
   const linkedinUrl = normalizeUrl(connection.linkedin)
   const websiteUrl = normalizeUrl(connection.website)
-  const hasContact = connection.email || connection.phone || linkedinUrl || websiteUrl
+  const history = buildHistory(connection, notes, followUps, opportunities)
+  const openFollowUps = followUps.filter((f) => !f.completed)
+  const nextFollowUp = openFollowUps[0]
+  const nextIsOverdue = nextFollowUp && nextFollowUp.due_date < localDateString(new Date())
 
   return (
     <div>
       <Link to="/connections" className="mb-4 flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
-        <ArrowLeft className="h-4 w-4" /> Back to connections
+        <ArrowLeft className="h-4 w-4" /> Back to network
       </Link>
 
-      {/* Connection header */}
-      <Card className="mb-6">
-        <CardContent className="pt-6">
-          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-              <Avatar name={connection.full_name} src={connection.photo_url} size="xl" />
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">{connection.full_name}</h1>
-                <p className="mt-0.5 text-sm text-gray-600">
-                  {connection.job_title}{connection.company ? ` at ${connection.company}` : ''}
-                </p>
-                {connection.location && (
-                  <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
-                    <MapPin className="h-3.5 w-3.5" /> {connection.location}
-                  </p>
-                )}
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <Badge variant="primary">{connection.relationship_type}</Badge>
-                  {connection.event_name && <Badge variant="gray">{connection.event_name}</Badge>}
-                  <Badge variant="gray">Connected {formatDate(connection.created_at)}</Badge>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setEditingRelationship(!editingRelationship)}>
-                {editingRelationship ? <><X className="h-4 w-4" /> Cancel</> : <><Pencil className="h-4 w-4" /> Edit relationship</>}
-              </Button>
-              <Button variant="danger" size="sm" onClick={handleDeleteConnection}>
-                <Trash2 className="h-4 w-4" /> Remove connection
-              </Button>
+      {/* Person — profile header */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-4">
+          <Avatar name={connection.full_name} src={connection.photo_url} size="xl" />
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-gray-900">{connection.full_name}</h1>
+            <p className="mt-0.5 text-sm text-gray-600">
+              {connection.job_title}
+              {connection.company ? (connection.job_title ? ` at ${connection.company}` : connection.company) : ''}
+            </p>
+            <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+              {connection.event_name && (
+                <span>Connected at {connection.event_name}</span>
+              )}
+              <span>Connected on {formatDate(connection.created_at)}</span>
+              {connection.location && (
+                <span className="inline-flex items-center gap-1">
+                  <MapPin className="h-3.5 w-3.5" /> {connection.location}
+                </span>
+              )}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Badge variant="primary">{connection.relationship_type}</Badge>
+              {connection.industry && <Badge variant="gray">{connection.industry}</Badge>}
             </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" onClick={() => setEditingRelationship(!editingRelationship)}>
+            {editingRelationship ? <><X className="h-4 w-4" /> Cancel</> : <><Pencil className="h-4 w-4" /> Edit relationship</>}
+          </Button>
+          <Button variant="danger" size="sm" onClick={handleDeleteConnection}>
+            <Trash2 className="h-4 w-4" /> Remove connection
+          </Button>
+        </div>
+      </div>
 
       {editingRelationship && (
-        <Card className="mb-6">
+        <Card className="mt-4">
           <CardHeader><CardTitle>Edit Relationship Type</CardTitle></CardHeader>
           <CardContent>
             <form onSubmit={handleSaveRelationship} className="space-y-4">
@@ -312,52 +409,65 @@ export default function ConnectionDetailPage() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Contact info */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader><CardTitle>Contact Information</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {hasContact ? (
-                <>
-                  {connection.email && (
-                    <a href={`mailto:${connection.email}`} className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                      <Mail className="h-4 w-4 text-gray-400" /> {connection.email}
-                    </a>
-                  )}
-                  {connection.phone && (
-                    <a href={`tel:${connection.phone}`} className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                      <Phone className="h-4 w-4 text-gray-400" /> {connection.phone}
-                    </a>
-                  )}
-                  {linkedinUrl && (
-                    <a href={linkedinUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                      <Linkedin className="h-4 w-4 text-gray-400" /> {displayUrl(linkedinUrl)}
-                    </a>
-                  )}
-                  {websiteUrl && (
-                    <a href={websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                      <Globe className="h-4 w-4 text-gray-400" /> {displayUrl(websiteUrl)}
-                    </a>
-                  )}
-                </>
-              ) : (
-                <EmptyState title="No contact info" description="This person hasn't added contact details to their profile yet." />
-              )}
-            </CardContent>
-          </Card>
+      {/* Contact actions — only channels that exist */}
+      {(connection.email || connection.phone || linkedinUrl || websiteUrl) && (
+        <div className="mt-5 flex flex-wrap gap-2">
+          {connection.email && (
+            <a href={`mailto:${connection.email}`}>
+              <Button variant="outline" size="sm"><Mail className="h-4 w-4" /> Message</Button>
+            </a>
+          )}
+          {connection.phone && (
+            <a href={`tel:${connection.phone}`}>
+              <Button variant="outline" size="sm"><Phone className="h-4 w-4" /> Call</Button>
+            </a>
+          )}
+          {linkedinUrl && (
+            <a href={linkedinUrl} target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm"><Linkedin className="h-4 w-4" /> LinkedIn</Button>
+            </a>
+          )}
+          {websiteUrl && (
+            <a href={websiteUrl} target="_blank" rel="noopener noreferrer">
+              <Button variant="outline" size="sm"><Globe className="h-4 w-4" /> Website</Button>
+            </a>
+          )}
+        </div>
+      )}
 
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-5">
+        {/* Relationship column */}
+        <div className="space-y-6 lg:col-span-3">
           {/* Follow-ups */}
           <Card>
-            <CardHeader><CardTitle>Follow-ups</CardTitle></CardHeader>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Follow-up</CardTitle>
+                <CalendarClock className="h-4 w-4 text-gray-400" />
+              </div>
+            </CardHeader>
             <CardContent className="space-y-4">
+              {nextFollowUp && (
+                <div
+                  className={cn(
+                    'rounded-md px-3 py-2.5',
+                    nextIsOverdue ? 'bg-error-50' : 'bg-primary-50'
+                  )}
+                >
+                  <p className="text-sm font-medium text-gray-900">{nextFollowUp.title}</p>
+                  <p className={cn('mt-0.5 text-xs', nextIsOverdue ? 'text-error-600' : 'text-primary-700')}>
+                    {nextIsOverdue ? 'Overdue — due ' : 'Due '}
+                    {formatRelativeDate(nextFollowUp.due_date)}
+                  </p>
+                </div>
+              )}
               {followUps.length > 0 && (
                 <div className="space-y-2">
                   {followUps.map((fu) => {
-                    const isOverdue = !fu.completed && new Date(fu.due_date) < new Date(new Date().toDateString())
+                    const isOverdue = !fu.completed && fu.due_date < localDateString(new Date())
                     return (
                       <div key={fu.id} className="flex items-center gap-3 rounded-md border border-gray-200 p-3">
-                        <button onClick={() => toggleFollowUp(fu)} className="flex-shrink-0">
+                        <button onClick={() => toggleFollowUp(fu)} className="flex-shrink-0" aria-label={fu.completed ? 'Mark as open' : 'Mark as completed'}>
                           {fu.completed ? (
                             <CheckCircle2 className="h-5 w-5 text-accent-600" />
                           ) : (
@@ -366,11 +476,11 @@ export default function ConnectionDetailPage() {
                         </button>
                         <div className="min-w-0 flex-1">
                           <p className={`text-sm font-medium ${fu.completed ? 'text-gray-400 line-through' : 'text-gray-900'}`}>{fu.title}</p>
-                          <p className={`text-xs ${isOverdue ? 'text-error-600' : 'text-gray-500'}`}>
+                          <p className={cn('text-xs', isOverdue ? 'text-error-600' : 'text-gray-500')}>
                             {formatRelativeDate(fu.due_date)}
                           </p>
                         </div>
-                        <button onClick={() => deleteFollowUp(fu.id)} className="text-gray-400 hover:text-error-600">
+                        <button onClick={() => deleteFollowUp(fu.id)} className="text-gray-400 hover:text-error-600" aria-label="Delete follow-up">
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
@@ -400,13 +510,139 @@ export default function ConnectionDetailPage() {
               </form>
             </CardContent>
           </Card>
+
+          {/* Relationship history */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Relationship History</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {history.length === 0 ? (
+                <EmptyState title="No history yet" description="Notes, follow-ups and opportunities will appear here as they happen." />
+              ) : (
+                <ol className="relative space-y-5 border-l border-gray-200 pl-5">
+                  {history.map((item) => {
+                    const Icon = TIMELINE_ICONS[item.type]
+                    return (
+                      <li key={item.key} className="relative">
+                        <span
+                          className={cn(
+                            'absolute -left-[27px] flex h-4 w-4 items-center justify-center rounded-full ring-4 ring-white',
+                            TIMELINE_DOT_STYLES[item.tone]
+                          )}
+                        >
+                          <Icon className="h-2.5 w-2.5 text-white" />
+                        </span>
+                        <p className="text-xs font-medium uppercase tracking-wide text-gray-400">{item.type}</p>
+                        <p className="mt-0.5 text-sm font-medium text-gray-900">{item.title}</p>
+                        {item.detail && <p className="mt-0.5 text-xs text-gray-500">{item.detail}</p>}
+                        <p className="mt-0.5 text-xs text-gray-400">{formatDate(item.when)}</p>
+                      </li>
+                    )
+                  })}
+                </ol>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Opportunities */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Opportunities</CardTitle>
+                <Button size="sm" variant="secondary" onClick={() => setShowOppForm(!showOppForm)}>
+                  {showOppForm ? <><X className="h-3.5 w-3.5" /> Cancel</> : <><Plus className="h-3.5 w-3.5" /> Create opportunity</>}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {showOppForm && (
+                <form onSubmit={handleAddOpportunity} className="space-y-3 rounded-md border border-gray-200 p-4">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div>
+                      <Label>Title *</Label>
+                      <Input required value={oppForm.title} onChange={(e) => setOppForm({ ...oppForm, title: e.target.value })} placeholder="Enterprise deal" />
+                    </div>
+                    <div>
+                      <Label>Type</Label>
+                      <Select value={oppForm.type} onChange={(e) => setOppForm({ ...oppForm, type: e.target.value })}>
+                        {OPPORTUNITY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Value ($)</Label>
+                      <Input type="number" min="0" step="1000" value={oppForm.value} onChange={(e) => setOppForm({ ...oppForm, value: e.target.value })} placeholder="50000" />
+                    </div>
+                    <div>
+                      <Label>Stage</Label>
+                      <Select value={oppForm.stage} onChange={(e) => setOppForm({ ...oppForm, stage: e.target.value })}>
+                        {OPPORTUNITY_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Expected close date</Label>
+                      <Input type="date" value={oppForm.expected_close_date} onChange={(e) => setOppForm({ ...oppForm, expected_close_date: e.target.value })} />
+                    </div>
+                  </div>
+                  <div>
+                    <Label>Description</Label>
+                    <Textarea rows={2} value={oppForm.description} onChange={(e) => setOppForm({ ...oppForm, description: e.target.value })} placeholder="Describe this opportunity…" />
+                  </div>
+                  <Button type="submit" size="sm" disabled={savingOpp}>
+                    {savingOpp ? 'Creating…' : 'Create opportunity'}
+                  </Button>
+                </form>
+              )}
+
+              {opportunities.length > 0 ? (
+                <div className="space-y-2">
+                  {opportunities.map((opp) => (
+                    <Link
+                      key={opp.id}
+                      to={`/opportunities/${opp.id}`}
+                      className="flex items-center gap-3 rounded-md border border-gray-200 p-3 transition-colors hover:border-primary-300 hover:bg-primary-50/30"
+                    >
+                      <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-50">
+                        <Target className="h-4 w-4 text-primary-600" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900">{opp.title}</p>
+                        <p className="text-xs text-gray-500">
+                          {[opp.type, opp.value > 0 ? opp.value.toLocaleString() : null].filter(Boolean).join(' · ')}
+                        </p>
+                      </div>
+                      <Badge variant={opp.stage === 'Won' ? 'success' : opp.stage === 'Lost' ? 'error' : 'primary'}>
+                        {opp.stage}
+                      </Badge>
+                    </Link>
+                  ))}
+                </div>
+              ) : !showOppForm ? (
+                <EmptyState
+                  icon={<Target className="h-8 w-8" />}
+                  title="No opportunities yet"
+                  description="Track deals, investments, or partnerships from this connection."
+                  action={<Button size="sm" variant="secondary" onClick={() => setShowOppForm(true)}><Plus className="h-4 w-4" /> Create opportunity</Button>}
+                />
+              ) : null}
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Notes */}
-        <Card>
-          <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
-          <CardContent className="space-y-4">
-            {notes.length > 0 && (
+        {/* Person column */}
+        <div className="space-y-6 lg:col-span-2">
+          {/* Notes */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle>Notes</CardTitle>
+                <StickyNote className="h-4 w-4 text-gray-400" />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {notes.length === 0 && (
+                <EmptyState title="No notes yet" description="Record context about this person and your interactions." />
+              )}
               <div className="space-y-3">
                 {notes.map((note) => (
                   <div key={note.id} className="group rounded-md border border-gray-200 p-3">
@@ -432,16 +668,18 @@ export default function ConnectionDetailPage() {
                         <p className="text-sm text-gray-700 whitespace-pre-wrap">{note.content}</p>
                         <div className="mt-2 flex items-center justify-between">
                           <span className="text-xs text-gray-400">{formatDate(note.created_at)}</span>
-                          <div className="flex items-center gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                          <div className="flex items-center gap-2 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100">
                             <button
                               onClick={() => startEditNote(note)}
                               className="text-gray-300 hover:text-primary-600"
+                              aria-label="Edit note"
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
                             <button
                               onClick={() => handleDeleteNote(note.id)}
                               className="text-gray-300 hover:text-error-600"
+                              aria-label="Delete note"
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -452,107 +690,91 @@ export default function ConnectionDetailPage() {
                   </div>
                 ))}
               </div>
-            )}
 
-            {notes.length === 0 && (
-              <EmptyState title="No notes yet" description="Record context about this person and your interactions." />
-            )}
+              <form onSubmit={handleAddNote} className="space-y-3 border-t border-gray-100 pt-3">
+                <Textarea
+                  placeholder="Add a note about this person…"
+                  rows={3}
+                  value={newNote}
+                  onChange={(e) => setNewNote(e.target.value)}
+                />
+                <Button type="submit" size="sm" disabled={savingNote || !newNote.trim()} className="w-full">
+                  {savingNote ? 'Saving…' : 'Add note'}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
 
-            <form onSubmit={handleAddNote} className="space-y-3 border-t border-gray-100 pt-3">
-              <Textarea
-                placeholder="Add a note about this person…"
-                rows={3}
-                value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
-              />
-              <Button type="submit" size="sm" disabled={savingNote || !newNote.trim()} className="w-full">
-                {savingNote ? 'Saving…' : 'Add note'}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-      </div>
+          {/* Contact information */}
+          <Card>
+            <CardHeader><CardTitle>Contact Information</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {connection.email || connection.phone || linkedinUrl || websiteUrl ? (
+                <>
+                  {connection.email && (
+                    <a href={`mailto:${connection.email}`} className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
+                      <Mail className="h-4 w-4 text-gray-400" /> {connection.email}
+                    </a>
+                  )}
+                  {connection.phone && (
+                    <a href={`tel:${connection.phone}`} className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
+                      <Phone className="h-4 w-4 text-gray-400" /> {connection.phone}
+                    </a>
+                  )}
+                  {linkedinUrl && (
+                    <a href={linkedinUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
+                      <Linkedin className="h-4 w-4 text-gray-400" /> {displayUrl(linkedinUrl)}
+                    </a>
+                  )}
+                  {websiteUrl && (
+                    <a href={websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
+                      <Globe className="h-4 w-4 text-gray-400" /> {displayUrl(websiteUrl)}
+                    </a>
+                  )}
+                </>
+              ) : (
+                <EmptyState title="No contact info" description="This person hasn't added contact details to their profile yet." />
+              )}
+            </CardContent>
+          </Card>
 
-      {/* Opportunities */}
-      <Card className="mt-6">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>Opportunities</CardTitle>
-            <Button size="sm" variant="secondary" onClick={() => setShowOppForm(!showOppForm)}>
-              {showOppForm ? <><X className="h-3.5 w-3.5" /> Cancel</> : <><Plus className="h-3.5 w-3.5" /> Create opportunity</>}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {showOppForm && (
-            <form onSubmit={handleAddOpportunity} className="space-y-3 rounded-md border border-gray-200 p-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <Label>Title *</Label>
-                  <Input required value={oppForm.title} onChange={(e) => setOppForm({ ...oppForm, title: e.target.value })} placeholder="Enterprise deal" />
+          {/* Where you met */}
+          {connection.event_name && (
+            <Card>
+              <CardHeader><CardTitle>Where you met</CardTitle></CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary-50">
+                    <Briefcase className="h-5 w-5 text-primary-600" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{connection.event_name}</p>
+                    <p className="text-xs text-gray-500">{formatDate(connection.created_at)}</p>
+                  </div>
                 </div>
-                <div>
-                  <Label>Type</Label>
-                  <Select value={oppForm.type} onChange={(e) => setOppForm({ ...oppForm, type: e.target.value })}>
-                    {OPPORTUNITY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                  </Select>
-                </div>
-                <div>
-                  <Label>Value ($)</Label>
-                  <Input type="number" min="0" step="1000" value={oppForm.value} onChange={(e) => setOppForm({ ...oppForm, value: e.target.value })} placeholder="50000" />
-                </div>
-                <div>
-                  <Label>Stage</Label>
-                  <Select value={oppForm.stage} onChange={(e) => setOppForm({ ...oppForm, stage: e.target.value })}>
-                    {OPPORTUNITY_STAGES.map((s) => <option key={s} value={s}>{s}</option>)}
-                  </Select>
-                </div>
-                <div>
-                  <Label>Expected close date</Label>
-                  <Input type="date" value={oppForm.expected_close_date} onChange={(e) => setOppForm({ ...oppForm, expected_close_date: e.target.value })} />
-                </div>
-              </div>
-              <div>
-                <Label>Description</Label>
-                <Textarea rows={2} value={oppForm.description} onChange={(e) => setOppForm({ ...oppForm, description: e.target.value })} placeholder="Describe this opportunity…" />
-              </div>
-              <Button type="submit" size="sm" disabled={savingOpp}>
-                {savingOpp ? 'Creating…' : 'Create opportunity'}
-              </Button>
-            </form>
+              </CardContent>
+            </Card>
           )}
 
-          {opportunities.length > 0 ? (
-            <div className="space-y-2">
-              {opportunities.map((opp) => (
-                <Link
-                  key={opp.id}
-                  to={`/opportunities/${opp.id}`}
-                  className="flex items-center gap-3 rounded-md border border-gray-200 p-3 transition-colors hover:border-primary-300 hover:bg-primary-50/30"
-                >
-                  <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-50">
-                    <Target className="h-4 w-4 text-primary-600" />
+          {/* Follow-up date stored on the connection itself */}
+          {connection.follow_up_date && (
+            <Card>
+              <CardHeader><CardTitle>Next check-in</CardTitle></CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-md bg-primary-50">
+                    <CalendarCheck className="h-5 w-5 text-primary-600" />
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-gray-900">{opp.title}</p>
-                    <p className="text-xs text-gray-500">{opp.type}{opp.value > 0 ? ` · ${opp.value.toLocaleString()}` : ''}</p>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900">{formatDate(connection.follow_up_date)}</p>
+                    <p className="text-xs text-gray-500">Set when you connected</p>
                   </div>
-                  <Badge variant={opp.stage === 'Won' ? 'success' : opp.stage === 'Lost' ? 'error' : 'primary'}>
-                    {opp.stage}
-                  </Badge>
-                </Link>
-              ))}
-            </div>
-          ) : !showOppForm ? (
-            <EmptyState
-              icon={<Target className="h-8 w-8" />}
-              title="No opportunities yet"
-              description="Track deals, investments, or partnerships from this connection."
-              action={<Button size="sm" variant="secondary" onClick={() => setShowOppForm(true)}><Plus className="h-4 w-4" /> Create opportunity</Button>}
-            />
-          ) : null}
-        </CardContent>
-      </Card>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
