@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Home, Users, ScanLine, Target, Menu } from 'lucide-react'
+import { Home, Users, ScanLine, MessagesSquare, Menu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Fixed attendee bottom navigation. "More" is a button that opens the side
@@ -68,11 +68,11 @@ export default function BottomNav({
         </span>
       </div>
 
-      <NavLink to="/opportunities" className={itemClass} aria-label="Pipeline">
+      <NavLink to="/messages" className={itemClass} aria-label="Messages">
         {({ isActive }) => (
           <>
-            <Target className="h-5 w-5" aria-hidden="true" />
-            <span className={isActive ? 'font-semibold' : undefined}>Pipeline</span>
+            <MessagesSquare className="h-5 w-5" aria-hidden="true" />
+            <span className={isActive ? 'font-semibold' : undefined}>Messages</span>
           </>
         )}
       </NavLink>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, useNavigate, Outlet } from 'react-router-dom'
+import { NavLink, useNavigate, Outlet, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   Users,
@@ -52,6 +52,11 @@ export default function AppLayout() {
   const { unreadCount } = useNotifications()
   const { memberships, loading: orgLoading, selectOrganization } = useOrganizer()
   const navigate = useNavigate()
+  const location = useLocation()
+  // Inside a chat the conversation owns the whole screen: its own header,
+  // composer and safe-area handling replace the shell chrome until the user
+  // backs out to the inbox.
+  const inConversation = /^\/messages\/[^/]+$/.test(location.pathname)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [connectOpen, setConnectOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -189,6 +194,7 @@ export default function AppLayout() {
       </header>
 
       {/* Mobile top header */}
+      {!inConversation && (
       <div className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white px-3 md:hidden">
         <div className="flex items-center gap-2 pl-1">
           <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-600 text-white">
@@ -214,6 +220,7 @@ export default function AppLayout() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Main content */}
       <main className="pb-20 md:pb-0 md:pl-60">
@@ -222,11 +229,13 @@ export default function AppLayout() {
         </div>
       </main>
 
+      {!inConversation && (
       <BottomNav
         onMore={() => setMobileOpen(true)}
         connectActive={connectOpen}
         onConnect={() => setConnectOpen(true)}
       />
+      )}
       <ConnectSheet open={connectOpen} onClose={() => setConnectOpen(false)} />
       <GlobalSearchDialog open={searchOpen} onClose={() => setSearchOpen(false)} />
       <MobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />

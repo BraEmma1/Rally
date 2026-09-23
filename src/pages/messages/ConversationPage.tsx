@@ -194,7 +194,7 @@ export default function ConversationPage() {
   const headerName = summary?.other_full_name || 'Conversation'
 
   return (
-    <div className="mx-auto flex h-[calc(100dvh-3.5rem-5rem)] max-w-md flex-col md:mx-auto md:h-[calc(100dvh-4rem)] md:max-w-2xl md:px-2">
+    <div className="mx-auto flex h-[calc(100dvh-3rem)] max-w-md flex-col md:h-[calc(100dvh-4rem)] md:max-w-2xl md:px-2">
       {/* Header */}
       <div className="relative flex items-center justify-between border-b border-gray-100 py-2">
         <button
