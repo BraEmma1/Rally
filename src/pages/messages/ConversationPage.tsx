@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, MoreVertical, Send } from 'lucide-react'
+import { ArrowLeft, Check, CheckCheck, MoreVertical, Send } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import {
   fetchConversations,
   fetchMessages,
+  fetchConversationReadState,
   sendMessage,
   markConversationRead,
   subscribeToMessages,
@@ -84,6 +85,9 @@ export default function ConversationPage() {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  // The other person's read marker. When a message of mine is older than this
+  // timestamp, they have opened the conversation since it was sent: two ticks.
+  const [otherReadAt, setOtherReadAt] = useState<string | null>(null)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomAnchorRef = useRef<HTMLDivElement>(null)
@@ -113,6 +117,13 @@ export default function ConversationPage() {
     pinnedToBottomRef.current = true
   }, [conversationId])
 
+  const loadReadState = useCallback(async () => {
+    if (!conversationId || !user?.id) return
+    const { data } = await fetchConversationReadState(conversationId)
+    const other = data.find((row) => row.user_id !== user.id)
+    setOtherReadAt(other?.last_read_at ?? null)
+  }, [conversationId, user?.id])
+
   useEffect(() => {
     if (!conversationId) return
     let cancelled = false
@@ -123,7 +134,7 @@ export default function ConversationPage() {
       setLoading(true)
       setPageError(null)
       try {
-        const [found] = await Promise.all([loadSummary(), loadInitialMessages()])
+        const [found] = await Promise.all([loadSummary(), loadInitialMessages(), loadReadState()])
         if (cancelled) return
         setSummary(found)
         // Clear unread flags for this conversation as soon as it is open.
@@ -145,7 +156,7 @@ export default function ConversationPage() {
       cancelled = true
       realtimeAliveRef.current = false
     }
-  }, [conversationId, loadSummary, loadInitialMessages])
+  }, [conversationId, loadSummary, loadInitialMessages, loadReadState])
 
   // Realtime subscription. Own inserts are appended optimistically by the
   // composer and reconciled here; the guard set keeps every message unique.
@@ -166,10 +177,17 @@ export default function ConversationPage() {
         if (status === 'SUBSCRIBED') {
           setPageError((prev) => (prev?.startsWith('Live updates') ? null : prev))
         }
+      },
+      (readUserId, lastReadAt) => {
+        if (readUserId !== user?.id) return
+        setOtherReadAt((prev) => {
+          if (!prev || new Date(lastReadAt) > new Date(prev)) return lastReadAt
+          return prev
+        })
       }
     )
     return () => unsubscribe()
-  }, [conversationId])
+  }, [conversationId, user?.id])
 
   // Keep the view pinned to the newest message unless the reader has scrolled
   // up into history.
@@ -329,11 +347,17 @@ export default function ConversationPage() {
                         <p className="whitespace-pre-wrap break-words text-[15px] leading-snug">{m.body}</p>
                         <p
                           className={cn(
-                            'mt-0.5 text-right text-[10.5px]',
+                            'mt-0.5 flex items-center justify-end gap-1 text-[10.5px]',
                             m.is_mine ? 'text-primary-100' : 'text-gray-400'
                           )}
                         >
                           {formatMessageTime(m.created_at)}
+                          {m.is_mine &&
+                            (otherReadAt && new Date(m.created_at) <= new Date(otherReadAt) ? (
+                              <CheckCheck className="h-3.5 w-3.5" aria-label="Read" />
+                            ) : (
+                              <Check className="h-3.5 w-3.5" aria-label="Sent" />
+                            ))}
                         </p>
                       </div>
                     </div>

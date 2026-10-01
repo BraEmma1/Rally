@@ -23,6 +23,7 @@ export type ChatMessage = {
   created_at: string
   is_mine: boolean
   pending?: boolean
+  read_by_other?: boolean
 }
 
 export const MESSAGE_PAGE_SIZE = 30
@@ -81,12 +82,25 @@ export async function markConversationRead(conversationId: string) {
   return { error }
 }
 
+// Each member's read marker, used to decide whether my messages show one tick
+// (delivered) or two (read). Members of a conversation may read this table.
+export async function fetchConversationReadState(conversationId: string) {
+  const { data, error } = await supabase
+    .from('conversation_members')
+    .select('user_id, last_read_at')
+    .eq('conversation_id', conversationId)
+  return { data: (data ?? []) as Array<{ user_id: string; last_read_at: string | null }>, error }
+}
+
 // Live updates for the active conversation only. The backend publication and
 // RLS decide what is delivered; this only listens and cleans up after itself.
+// Message INSERTs carry new bubbles; conversation_members UPDATEs carry the
+// other person's read marker, which is what turns a single tick into two.
 export function subscribeToMessages(
   conversationId: string,
   onInsert: (message: Omit<ChatMessage, 'is_mine'>) => void,
-  onStatus?: (status: string) => void
+  onStatus?: (status: string) => void,
+  onMemberRead?: (readUserId: string, lastReadAt: string) => void
 ) {
   const channel = supabase
     .channel(`messages:${conversationId}`)
@@ -101,6 +115,19 @@ export function subscribeToMessages(
       (payload) => {
         const row = payload.new as { id: string; sender_id: string; body: string; created_at: string }
         if (row && row.id) onInsert(row)
+      }
+    )
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'conversation_members',
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      (payload) => {
+        const row = payload.new as { user_id: string; last_read_at: string | null }
+        if (row && row.user_id && row.last_read_at) onMemberRead?.(row.user_id, row.last_read_at)
       }
     )
     .subscribe((status) => onStatus?.(status))
