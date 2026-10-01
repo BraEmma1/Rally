@@ -94,6 +94,51 @@ export default function ConversationPage() {
   const pinnedToBottomRef = useRef(true)
   const seenMessageIdsRef = useRef<Set<string>>(new Set())
   const realtimeAliveRef = useRef(true)
+  // Coalesces a burst of arrivals into one write, and remembers a read that
+  // could not be taken because the tab was in the background.
+  const markReadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const readDeferredRef = useRef(false)
+
+  // The read marker only ever moves forward. Saying so here makes every race
+  // between the initial fetch, a resync and a live event harmless: whichever
+  // arrives last, the newest timestamp wins.
+  const applyOtherReadAt = useCallback((next: string | null) => {
+    if (!next) return
+    setOtherReadAt((prev) => (!prev || new Date(next) > new Date(prev) ? next : prev))
+  }, [])
+
+  const flushMarkRead = useCallback(() => {
+    if (!conversationId) return
+    readDeferredRef.current = false
+    void markConversationRead(conversationId).then(({ error }) => {
+      if (error) console.warn('Could not mark conversation as read:', error.message)
+    })
+  }, [conversationId])
+
+  // Advancing my own read marker is what produces the other person's second
+  // tick, so it has to happen whenever this thread is actually being looked
+  // at, not only when it is first opened. A hidden tab defers instead: the
+  // route being mounted behind another tab is not reading.
+  const requestMarkRead = useCallback(() => {
+    if (!conversationId) return
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      readDeferredRef.current = true
+      return
+    }
+    if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
+    markReadTimerRef.current = setTimeout(flushMarkRead, 250)
+  }, [conversationId, flushMarkRead])
+
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible' && readDeferredRef.current) requestMarkRead()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      if (markReadTimerRef.current) clearTimeout(markReadTimerRef.current)
+    }
+  }, [requestMarkRead])
 
   const blocks = useMemo(() => buildBlocks(messages), [messages])
 
@@ -123,14 +168,18 @@ export default function ConversationPage() {
     if (!conversationId || !user?.id) return
     const { data } = await fetchConversationReadState(conversationId)
     const other = data.find((row) => row.user_id !== user.id)
-    setOtherReadAt(other?.last_read_at ?? null)
-  }, [conversationId, user?.id])
+    applyOtherReadAt(other?.last_read_at ?? null)
+  }, [conversationId, user?.id, applyOtherReadAt])
 
   useEffect(() => {
     if (!conversationId) return
     let cancelled = false
     seenMessageIdsRef.current = new Set()
     realtimeAliveRef.current = true
+    readDeferredRef.current = false
+    // applyOtherReadAt only moves forward, so the previous thread's marker has
+    // to be cleared explicitly when switching conversations.
+    setOtherReadAt(null)
 
     async function load() {
       setLoading(true)
@@ -139,11 +188,9 @@ export default function ConversationPage() {
         const [found] = await Promise.all([loadSummary(), loadInitialMessages(), loadReadState()])
         if (cancelled) return
         setSummary(found)
-        // Clear unread flags for this conversation as soon as it is open.
-        const { error: readError } = await markConversationRead(conversationId!)
-        if (!cancelled && readError) {
-          console.warn('Could not mark conversation as read:', readError.message)
-        }
+        // Opening the thread is the first read; every read after it goes
+        // through the same debounced path.
+        if (!cancelled) requestMarkRead()
       } catch (err) {
         if (!cancelled) {
           setPageError(toFriendlyMessageError(err, 'Could not open this conversation. Please try again.'))
@@ -158,7 +205,7 @@ export default function ConversationPage() {
       cancelled = true
       realtimeAliveRef.current = false
     }
-  }, [conversationId, loadSummary, loadInitialMessages, loadReadState])
+  }, [conversationId, loadSummary, loadInitialMessages, loadReadState, requestMarkRead])
 
   // Realtime subscription. Own inserts are appended optimistically by the
   // composer and reconciled here; the guard set keeps every message unique.
@@ -169,7 +216,12 @@ export default function ConversationPage() {
       (row) => {
         if (seenMessageIdsRef.current.has(row.id)) return
         seenMessageIdsRef.current.add(row.id)
-        setMessages((prev) => [...prev, { ...row, is_mine: row.sender_id === user?.id, pending: false }])
+        const mine = row.sender_id === user?.id
+        setMessages((prev) => [...prev, { ...row, is_mine: mine, pending: false }])
+        // Someone else's message landing in a thread I am looking at is a read.
+        // Without this the marker stays frozen at whatever it was when the
+        // conversation was opened, and the sender's ticks never move.
+        if (!mine) requestMarkRead()
       },
       (status) => {
         if (!realtimeAliveRef.current) return
@@ -178,18 +230,20 @@ export default function ConversationPage() {
         }
         if (status === 'SUBSCRIBED') {
           setPageError((prev) => (prev?.startsWith('Live updates') ? null : prev))
+          // Realtime does not replay. Anything that happened between the
+          // initial fetch and the binding going live, or during a reconnect,
+          // is gone, so the marker is re-read once per subscribe. This is
+          // reconciliation at a known gap, not polling.
+          void loadReadState()
         }
       },
       (readUserId, lastReadAt) => {
         if (readUserId === user?.id) return
-        setOtherReadAt((prev) => {
-          if (!prev || new Date(lastReadAt) > new Date(prev)) return lastReadAt
-          return prev
-        })
+        applyOtherReadAt(lastReadAt)
       }
     )
     return () => unsubscribe()
-  }, [conversationId, user?.id])
+  }, [conversationId, user?.id, applyOtherReadAt, loadReadState, requestMarkRead])
 
   // Keep the view pinned to the newest message unless the reader has scrolled
   // up into history.
@@ -246,6 +300,9 @@ export default function ConversationPage() {
     if (sendErr) {
       setDraft(body) // restore so the user can retry without retyping
       setSendError(toFriendlyMessageError(sendErr, 'Your message could not be sent. Please try again.'))
+    } else {
+      // Replying is unambiguous proof of having read what came before.
+      requestMarkRead()
     }
     setSending(false)
   }
