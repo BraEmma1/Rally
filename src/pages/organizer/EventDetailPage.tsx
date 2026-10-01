@@ -42,6 +42,7 @@ import { AttendeesPanel } from '@/components/organizer/AttendeesPanel'
 import { EventNetworkingPanel } from '@/components/organizer/EventNetworkingPanel'
 import { EventNetworkingAnalytics } from '@/components/organizer/EventNetworkingAnalytics'
 import { EventActivityPanel } from '@/components/organizer/EventActivityPanel'
+import { EventAgendaPanel } from '@/components/organizer/EventAgendaPanel'
 
 type Tab =
   | 'overview'
@@ -49,6 +50,7 @@ type Tab =
   | 'checkin'
   | 'attendees'
   | 'networking'
+  | 'agenda'
   | 'invitations'
 
 const TABS: { key: Tab; label: string }[] = [
@@ -57,6 +59,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'checkin', label: 'Check-in' },
   { key: 'attendees', label: 'Attendees' },
   { key: 'networking', label: 'Networking' },
+  { key: 'agenda', label: 'Agenda' },
   { key: 'invitations', label: 'Invitations' },
 ]
 
@@ -388,6 +391,8 @@ export default function EventDetailPage() {
           <EventNetworkingPanel eventId={event.id} eventName={event.name} />
         </div>
       )}
+
+      {tab === 'agenda' && <EventAgendaPanel event={event} manages={manages} />}
 
       {tab === 'invitations' && (
         <div className="space-y-4">

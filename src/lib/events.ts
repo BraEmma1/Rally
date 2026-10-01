@@ -7,6 +7,11 @@ import type {
   OrganizerEvent,
 } from '@/lib/supabase'
 
+export const EVENT_TIMEZONES: string[] =
+  typeof Intl !== 'undefined' && 'supportedValuesOf' in Intl
+    ? (Intl as unknown as { supportedValuesOf: (key: string) => string[] }).supportedValuesOf('timeZone')
+    : ['Africa/Accra', 'Europe/London', 'America/New_York', 'Asia/Dubai', 'UTC']
+
 // The five lifecycle states the organizer works in. They are derived, not
 // stored: `visibility` says whether it is published, `status` where it sits in
 // time, and `archived_at` whether it is put away. Deriving keeps one source of
@@ -100,6 +105,7 @@ export type EventInput = {
   end_time: string | null
   capacity: number | null
   image_url: string
+  timezone: string | null
   visibility: EventVisibility
 }
 
@@ -193,6 +199,118 @@ export async function inviteEventAttendee(
     invitee_email: email,
   })
   if (error) return { error: readableError(error, 'Could not send that invitation.') }
+  return { error: null }
+}
+
+// ---------------------------------------------------------------------------
+// Organizer agenda management
+// ---------------------------------------------------------------------------
+
+export type OrganizerSession = {
+  id: string
+  event_id: string
+  title: string
+  description: string
+  start_at: string
+  end_at: string | null
+  location: string
+  session_type: string
+  status: string
+  display_order: number
+  event_timezone: string | null
+}
+
+export const SESSION_TYPE_LABELS: Record<string, string> = {
+  session: 'Session',
+  keynote: 'Keynote',
+  panel: 'Panel',
+  workshop: 'Workshop',
+  break: 'Break',
+  networking: 'Networking',
+}
+
+export const SESSION_STATUS_LABELS: Record<string, string> = {
+  scheduled: 'Scheduled',
+  live: 'Live',
+  ended: 'Ended',
+  cancelled: 'Cancelled',
+}
+
+export const SESSION_STATUS_BADGE: Record<string, 'default' | 'primary' | 'success' | 'warning' | 'error' | 'gray'> = {
+  scheduled: 'primary',
+  live: 'success',
+  ended: 'gray',
+  cancelled: 'error',
+}
+
+// A database error surfaces as a Postgres code in message/code depending on how
+// the constraint or trigger raises it; match on both.
+function mapSessionError(error: { message?: string; code?: string } | null, fallback: string): string {
+  const code = error?.code ?? ''
+  const message = error?.message?.trim() ?? ''
+  if (code === '42501' || /manage this event/i.test(message)) return "You don't manage this event."
+  if (/event_sessions_time_order|time_order/i.test(message) || code === '23514') {
+    if (/time_order|end time/i.test(message)) return 'End time must be after start time.'
+  }
+  if (/title_not_blank/i.test(message)) return 'Give the session a title.'
+  if (/title_length/i.test(message)) return 'Title is too long (200 characters max).'
+  if (/archived/i.test(message)) return 'This event is archived. Restore it before changing its agenda.'
+  const readable = readableError(error, fallback)
+  return readable
+}
+
+export async function getEventAgenda(
+  eventId: string
+): Promise<{ data: OrganizerSession[]; error: string | null }> {
+  const { data, error } = await supabase.rpc('get_event_agenda', { target_event_id: eventId })
+  if (error) return { data: [], error: mapSessionError(error, 'Could not load the agenda.') }
+  return { data: (data ?? []) as OrganizerSession[], error: null }
+}
+
+export type SessionInput = {
+  title: string
+  description: string | null
+  start_at: string
+  end_at: string | null
+  location: string | null
+  session_type: string
+}
+
+export async function createSession(
+  eventId: string,
+  input: SessionInput
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('event_sessions')
+    .insert({ event_id: eventId, ...input })
+  if (error) return { error: mapSessionError(error, 'Could not create that session. Please try again.') }
+  return { error: null }
+}
+
+export async function updateSession(
+  sessionId: string,
+  patch: Partial<SessionInput> & { status?: string }
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.from('event_sessions').update(patch).eq('id', sessionId)
+  if (error) return { error: mapSessionError(error, 'Could not save that session. Please try again.') }
+  return { error: null }
+}
+
+export async function deleteSession(sessionId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.from('event_sessions').delete().eq('id', sessionId)
+  if (error) return { error: mapSessionError(error, 'Could not delete that session. Please try again.') }
+  return { error: null }
+}
+
+export async function reorderSessions(
+  eventId: string,
+  sessionIds: string[]
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('reorder_event_sessions', {
+    target_event_id: eventId,
+    session_ids: sessionIds,
+  })
+  if (error) return { error: mapSessionError(error, 'Could not save the new order. Please try again.') }
   return { error: null }
 }
 

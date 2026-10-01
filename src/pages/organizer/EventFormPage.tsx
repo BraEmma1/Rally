@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { LoadingState } from '@/components/ui/States'
 import { canManageTeam } from '@/lib/organizer'
-import { VISIBILITY_LABELS, createEvent, getEvent, updateEvent, type EventInput } from '@/lib/events'
+import { EVENT_TIMEZONES, VISIBILITY_LABELS, createEvent, getEvent, updateEvent, type EventInput } from '@/lib/events'
 import type { EventVisibility } from '@/lib/supabase'
 
 const EMPTY: EventInput = {
@@ -22,6 +22,7 @@ const EMPTY: EventInput = {
   end_time: null,
   capacity: null,
   image_url: '',
+  timezone: null,
   visibility: 'draft',
 }
 
@@ -61,6 +62,7 @@ export default function EventFormPage() {
         end_time: data.end_time,
         capacity: data.capacity,
         image_url: data.image_url ?? '',
+        timezone: data.timezone,
         visibility: data.visibility,
       })
       setLoading(false)
@@ -105,6 +107,7 @@ export default function EventFormPage() {
       end_date: form.end_date || null,
       start_time: form.start_time || null,
       end_time: form.end_time || null,
+      timezone: form.timezone || null,
     }
 
     if (isEdit && id) {
@@ -262,6 +265,28 @@ export default function EventFormPage() {
                 maxLength={200}
                 disabled={archived}
               />
+            </div>
+
+            <div>
+              <Label htmlFor="timezone">Event timezone</Label>
+              <Input
+                id="timezone"
+                list="event-timezones"
+                value={form.timezone ?? ''}
+                onChange={(e) => set('timezone', e.target.value || null)}
+                placeholder="Choose a timezone, e.g. Africa/Accra"
+                disabled={archived}
+              />
+              <datalist id="event-timezones">
+                {EVENT_TIMEZONES.map((tz) => (
+                  <option key={tz} value={tz} />
+                ))}
+              </datalist>
+              <p className="mt-1 text-xs text-gray-500">
+                {form.timezone
+                  ? `Session and schedule times will be shown in ${form.timezone}.`
+                  : "Start typing to choose — suggestions appear as you type. Agenda times cannot be managed until this is set."}
+              </p>
             </div>
           </CardContent>
         </Card>

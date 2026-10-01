@@ -341,6 +341,7 @@ export type OrganizerEvent = {
   end_time: string | null
   image_url: string
   capacity: number | null
+  timezone: string | null
   visibility: EventVisibility
   status: EventTimeStatus
   archived_at: string | null
