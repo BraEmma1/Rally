@@ -181,7 +181,7 @@ export default function ConversationPage() {
         }
       },
       (readUserId, lastReadAt) => {
-        if (readUserId !== user?.id) return
+        if (readUserId === user?.id) return
         setOtherReadAt((prev) => {
           if (!prev || new Date(lastReadAt) > new Date(prev)) return lastReadAt
           return prev
