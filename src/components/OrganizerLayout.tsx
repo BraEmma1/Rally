@@ -6,6 +6,8 @@ import {
   Building2,
   CalendarRange,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   LayoutDashboard,
   LogOut,
   Mail,
@@ -117,6 +119,16 @@ export default function OrganizerLayout() {
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => localStorage.getItem('rally.sidebarCollapsed') === '1'
+  )
+
+  function toggleSidebar() {
+    setSidebarCollapsed((prev) => {
+      localStorage.setItem('rally.sidebarCollapsed', prev ? '0' : '1')
+      return !prev
+    })
+  }
 
   // An attendee on the team gets a way back to their own Rally; a full
   // organizer account has no attendee home to return to.
@@ -145,9 +157,11 @@ export default function OrganizerLayout() {
           to={item.to}
           end={item.end}
           onClick={onNavigate}
+          title={sidebarCollapsed ? item.label : undefined}
           className={({ isActive }) =>
             cn(
               'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+              sidebarCollapsed && 'justify-center px-0',
               isActive
                 ? 'bg-primary-50 text-primary-700'
                 : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
@@ -155,7 +169,7 @@ export default function OrganizerLayout() {
           }
         >
           <item.icon className="h-4 w-4" />
-          <span className="flex-1">{item.label}</span>
+          {!sidebarCollapsed && <span className="flex-1">{item.label}</span>}
         </NavLink>
       ))}
     </nav>
@@ -163,25 +177,53 @@ export default function OrganizerLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-gray-200 bg-white md:flex md:flex-col">
-        <div className="flex h-16 items-center gap-2 border-b border-gray-200 px-5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary-600 text-white">
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-30 hidden border-r border-gray-200 bg-white transition-[width] duration-200 md:flex md:flex-col',
+          sidebarCollapsed ? 'w-16' : 'w-60'
+        )}
+      >
+        <div
+          className={cn(
+            'flex h-16 shrink-0 items-center border-b border-gray-200',
+            sidebarCollapsed ? 'flex-col justify-center gap-1' : 'gap-2 px-5'
+          )}
+        >
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-600 text-white">
             <Users className="h-5 w-5" />
           </div>
-          <span className="text-lg font-bold text-gray-900">Rally</span>
-          <Badge variant="primary">Organizer</Badge>
-        </div>
-
-        <div className="border-b border-gray-200 px-3 py-3">
-          <OrganizationSwitcher />
-          {organization && role && (
-            <p className="px-2 pt-1 text-xs text-gray-500">
-              You are {role === 'admin' ? 'an' : 'a'} {role === 'manager' ? 'event manager' : role}
-            </p>
+          {!sidebarCollapsed && (
+            <>
+              <span className="text-lg font-bold text-gray-900">Rally</span>
+              <Badge variant="primary">Organizer</Badge>
+            </>
           )}
+          <button
+            onClick={toggleSidebar}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className="rounded-md p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+          >
+            {sidebarCollapsed ? (
+              <ChevronsRight className="h-4 w-4" />
+            ) : (
+              <ChevronsLeft className="h-4 w-4" />
+            )}
+          </button>
         </div>
 
-        <div className="flex-1 px-3 py-4">{nav()}</div>
+        {!sidebarCollapsed && (
+          <div className="border-b border-gray-200 px-3 py-3">
+            <OrganizationSwitcher />
+            {organization && role && (
+              <p className="px-2 pt-1 text-xs text-gray-500">
+                You are {role === 'admin' ? 'an' : 'a'} {role === 'manager' ? 'event manager' : role}
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className={cn('flex-1 py-4', sidebarCollapsed ? 'px-2' : 'px-3')}>{nav()}</div>
 
         <div className="border-t border-gray-200 p-3">
           {/* Context switch back to the attendee experience — not an account
@@ -189,25 +231,38 @@ export default function OrganizerLayout() {
           {isAttendeeAccount && (
             <button
               onClick={() => navigate('/dashboard')}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+              title={sidebarCollapsed ? 'Back to My Rally' : undefined}
+              className={cn(
+                'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900',
+                sidebarCollapsed && 'justify-center px-0'
+              )}
             >
               <ArrowLeft className="h-4 w-4" />
-              Back to My Rally
+              {!sidebarCollapsed && 'Back to My Rally'}
             </button>
           )}
           <button
             onClick={handleSignOut}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            title={sidebarCollapsed ? 'Sign out' : undefined}
+            className={cn(
+              'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900',
+              sidebarCollapsed && 'justify-center px-0'
+            )}
           >
             <LogOut className="h-4 w-4" />
-            Sign out
+            {!sidebarCollapsed && 'Sign out'}
           </button>
         </div>
       </aside>
 
       {/* Desktop top header: workspace context on the left, centered search,
           notifications on the right. No avatar — profile lives in the sidebar. */}
-      <header className="sticky top-0 z-20 hidden h-16 items-center gap-4 border-b border-gray-200 bg-white pl-4 pr-6 md:flex md:pl-[17rem]">
+      <header
+        className={cn(
+          'sticky top-0 z-20 hidden h-16 items-center gap-4 border-b border-gray-200 bg-white pr-6 md:flex',
+          sidebarCollapsed ? 'md:pl-[5rem]' : 'md:pl-[17rem]'
+        )}
+      >
         <div className="flex min-w-0 items-center gap-2">
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
             <Building2 className="h-4 w-4" />
@@ -309,7 +364,7 @@ export default function OrganizerLayout() {
         </div>
       )}
 
-      <main className="pb-20 md:pb-0 md:pl-60">
+      <main className={cn('pb-20 md:pb-0', sidebarCollapsed ? 'md:pl-16' : 'md:pl-60')}>
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
           <Outlet />
         </div>
