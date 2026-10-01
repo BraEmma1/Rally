@@ -9,6 +9,7 @@ import {
   CalendarClock,
   Target,
   Bell,
+  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
   LogOut,
@@ -62,6 +63,7 @@ export default function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('rally.sidebarCollapsed') === '1'
   )
+  const [orgsOpen, setOrgsOpen] = useState(false)
 
   function toggleSidebar() {
     setSidebarCollapsed((prev) => {
@@ -105,30 +107,41 @@ export default function AppLayout() {
     }
     return (
       <div className="mt-4 border-t border-gray-200 pt-3">
-        <p className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+        <button
+          onClick={() => setOrgsOpen((prev) => !prev)}
+          aria-expanded={orgsOpen}
+          className="flex w-full items-center justify-between rounded-md px-3 pb-1 pt-1 text-xs font-semibold uppercase tracking-wide text-gray-400 transition-colors hover:text-gray-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+        >
           My Organizations
-        </p>
-        {memberships.map((m) => (
-          <NavLink
-            key={m.organization.id}
-            to="/organizer"
-            onClick={() => selectOrganization(m.organization.id)}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-              )
-            }
-          >
-            <Building2 className="h-4 w-4" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate">{m.organization.name}</span>
-              <span className="block truncate text-xs font-normal text-gray-500">
-                {ORG_ROLE_LABELS[m.role]}
-              </span>
-            </span>
-          </NavLink>
-        ))}
+          <ChevronDown
+            className={cn('h-4 w-4 transition-transform duration-200', orgsOpen && 'rotate-180')}
+          />
+        </button>
+        {orgsOpen && (
+          <div className="mt-1 space-y-1">
+            {memberships.map((m) => (
+              <NavLink
+                key={m.organization.id}
+                to="/organizer"
+                onClick={() => selectOrganization(m.organization.id)}
+                className={({ isActive }) =>
+                  cn(
+                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                    isActive ? 'bg-primary-50 text-primary-700' : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  )
+                }
+              >
+                <Building2 className="h-4 w-4" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{m.organization.name}</span>
+                  <span className="block truncate text-xs font-normal text-gray-500">
+                    {ORG_ROLE_LABELS[m.role]}
+                  </span>
+                </span>
+              </NavLink>
+            ))}
+          </div>
+        )}
       </div>
     )
   }
