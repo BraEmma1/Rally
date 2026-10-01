@@ -111,7 +111,9 @@ export default function ConversationPage() {
     if (!conversationId) return
     const { data, error: msgError } = await fetchMessages(conversationId)
     if (msgError) throw msgError
-    setMessages(data)
+    // The feed returns the newest page first; the thread reads oldest at the
+    // top, so flip it into chronological order before displaying.
+    setMessages([...data].reverse())
     data.forEach((m) => seenMessageIdsRef.current.add(m.id))
     setHasOlder(data.length === MESSAGE_PAGE_SIZE)
     pinnedToBottomRef.current = true
@@ -221,7 +223,7 @@ export default function ConversationPage() {
     if (olderErr) {
       setOlderError(toFriendlyMessageError(olderErr, 'Could not load earlier messages.'))
     } else {
-      const fresh = data.filter((m) => !seenMessageIdsRef.current.has(m.id))
+      const fresh = data.filter((m) => !seenMessageIdsRef.current.has(m.id)).reverse()
       fresh.forEach((m) => seenMessageIdsRef.current.add(m.id))
       setMessages((prev) => [...fresh, ...prev])
       setHasOlder(data.length === MESSAGE_PAGE_SIZE)
