@@ -1,14 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { BookmarkX } from 'lucide-react'
-import {
-  listMyEventSchedule,
-  removeEventSession,
-  scheduleEntryToSession,
-  type ScheduleEntry,
-} from '@/lib/schedule'
-import { useEventModeOutlet } from '@/components/eventmode/EventModeLayout'
 import { SessionRow, SessionDetailDialog } from '@/components/eventmode/SessionRow'
+import { listMyEventSchedule, removeEventSession, scheduleEntryToSession, type ScheduleEntry } from '@/lib/schedule'
+import { listSessionSpeakers, type SessionSpeaker } from '@/lib/speakers'
+import { useEventModeOutlet } from '@/components/eventmode/EventModeLayout'
 import { Card, CardContent } from '@/components/ui/Card'
 import { Button } from '@/components/ui/Button'
 import { EmptyState, ErrorState } from '@/components/ui/States'
@@ -19,13 +15,14 @@ import { dayKey, formatDayHeading } from '@/lib/sessionTime'
 // user server-side, so no other attendee's bookmarks can ever appear here.
 
 export default function EventMySchedulePage() {
-  const { event } = useEventModeOutlet()
+  const { event, eventBasePath } = useEventModeOutlet()
   const [entries, setEntries] = useState<ScheduleEntry[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [removingId, setRemovingId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [detailSession, setDetailSession] = useState<ScheduleEntry | null>(null)
+  const [speakersBySession, setSpeakersBySession] = useState<Record<string, SessionSpeaker[]>>({})
   const [now, setNow] = useState(() => Date.now())
 
   const timeZone = event.timezone || undefined
@@ -33,13 +30,22 @@ export default function EventMySchedulePage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
-    const { data, error: err } = await listMyEventSchedule(event.id)
+    const [{ data, error: err }, speakerResult] = await Promise.all([
+      listMyEventSchedule(event.id),
+      listSessionSpeakers(event.id),
+    ])
     if (err) {
       setError(err)
       setEntries(null)
     } else {
       setEntries(data)
     }
+    setSpeakersBySession(
+      (speakerResult.data ?? []).reduce<Record<string, SessionSpeaker[]>>((acc, s) => {
+        ;(acc[s.session_id] ??= []).push(s)
+        return acc
+      }, {})
+    )
     setLoading(false)
   }, [event.id])
 
@@ -199,6 +205,8 @@ export default function EventMySchedulePage() {
           session={scheduleEntryToSession(detailSession)}
           timeZone={timeZone}
           eventName={event.name}
+          speakers={speakersBySession[detailSession.session_id] ?? []}
+          speakerLink={(speakerId) => `${eventBasePath}/speakers/${speakerId}`}
           onClose={() => setDetailSession(null)}
           footer={
             <Button

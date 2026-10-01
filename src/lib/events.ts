@@ -48,7 +48,7 @@ export const VISIBILITY_LABELS: Record<EventVisibility, string> = {
   unlisted: 'Unlisted — only people you invite can find it',
 }
 
-function readableError(error: { message?: string } | null, fallback: string): string {
+export function readableError(error: { message?: string } | null, fallback: string): string {
   const message = error?.message?.trim()
   if (!message) return fallback
   // Database messages here are written for a person; Postgres internals are not.

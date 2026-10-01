@@ -2,6 +2,8 @@ import { useEffect } from 'react'
 import { MapPin, X } from 'lucide-react'
 import type { EventSession } from '@/lib/supabase'
 import { formatRange, formatTime, formatDayHeading, isSessionLive } from '@/lib/sessionTime'
+import { SessionSpeakersSection } from './SessionSpeakersSection'
+import type { SessionSpeaker } from '@/lib/speakers'
 import { cn } from '@/lib/utils'
 
 // Session row + detail dialog shared by Agenda and My Schedule so both pages
@@ -103,12 +105,16 @@ export function SessionDetailDialog({
   session,
   timeZone,
   eventName,
+  speakers,
+  speakerLink,
   footer,
   onClose,
 }: {
   session: EventSession
   timeZone: string | undefined
   eventName: string
+  speakers?: SessionSpeaker[]
+  speakerLink?: (speakerId: string) => string
   footer?: React.ReactNode
   onClose: () => void
 }) {
@@ -177,6 +183,10 @@ export function SessionDetailDialog({
           <p className="mt-4 whitespace-pre-wrap border-t border-gray-200 pt-4 text-sm leading-relaxed text-gray-600">
             {session.description}
           </p>
+        )}
+
+        {speakers && speakerLink && speakers.length > 0 && (
+          <SessionSpeakersSection speakers={speakers} speakerLink={speakerLink} />
         )}
 
         {footer && <div className="mt-5 border-t border-gray-200 pt-4">{footer}</div>}

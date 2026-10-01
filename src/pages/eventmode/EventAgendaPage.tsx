@@ -5,6 +5,7 @@ import { supabase, type EventSession } from '@/lib/supabase'
 import { useEventModeOutlet } from '@/components/eventmode/EventModeLayout'
 import { SessionRow, SessionDetailDialog } from '@/components/eventmode/SessionRow'
 import { listMySavedSessionIds, saveEventSession, removeEventSession } from '@/lib/schedule'
+import { listSessionSpeakers, type SessionSpeaker } from '@/lib/speakers'
 import {
   dayKey,
   formatDayChip,
@@ -42,6 +43,7 @@ export default function EventAgendaPage() {
   // null until the backend has answered: action buttons stay hidden so an
   // already-saved session is never shown as "Add to My Schedule" first.
   const [savedIds, setSavedIds] = useState<Set<string> | null>(null)
+  const [speakersBySession, setSpeakersBySession] = useState<Record<string, SessionSpeaker[]>>({})
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
@@ -68,7 +70,8 @@ export default function EventAgendaPage() {
         .order('start_at', { ascending: true })
         .order('display_order', { ascending: true }),
       listMySavedSessionIds(event.id),
-    ]).then(([sessionsRes, savedRes]) => {
+      listSessionSpeakers(event.id),
+    ]).then(([sessionsRes, savedRes, speakerRes]) => {
       if (cancelled) return
       if (sessionsRes.error) {
         setError('Could not load the agenda. Please try again.')
@@ -81,6 +84,12 @@ export default function EventAgendaPage() {
       } else {
         setSessions((sessionsRes.data ?? []) as EventSession[])
         setSavedIds(savedRes.data)
+        setSpeakersBySession(
+          speakerRes.data.reduce<Record<string, typeof speakerRes.data>>((acc, s) => {
+            ;(acc[s.session_id] ??= []).push(s)
+            return acc
+          }, {})
+        )
       }
       setLoading(false)
     })
@@ -328,6 +337,8 @@ export default function EventAgendaPage() {
           timeZone={timeZone}
           eventName={event.name}
           onClose={() => setDetailSession(null)}
+          speakers={speakersBySession[detailSession.id] ?? []}
+          speakerLink={(speakerId) => `${eventBasePath}/speakers/${speakerId}`}
           footer={
             savedIds ? (
               <div className="space-y-2">
