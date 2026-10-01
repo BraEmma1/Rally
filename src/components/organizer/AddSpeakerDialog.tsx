@@ -3,8 +3,7 @@ import { Search } from 'lucide-react'
 import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Textarea } from '@/components/ui/Input'
-import { PhotoUpload } from '@/components/ui/PhotoUpload'
-import { useAuth } from '@/context/AuthContext'
+import { EventPhotoUpload } from '@/components/ui/EventPhotoUpload'
 import {
   createSpeaker,
   getPublicProfileForPrefill,
@@ -249,7 +248,6 @@ export function SpeakerFields({
   onCancel: () => void
   onSaved: () => void
 }) {
-  const { user } = useAuth()
   const [values, setValues] = useState<SpeakerFormValues>(initial)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -294,8 +292,10 @@ export function SpeakerFields({
           own speaker record, which does not follow their profile changes.
         </p>
       )}
-      <PhotoUpload
-        userId={user?.id ?? 'anonymous'}
+      {/* Event content, not the organizer's avatar: this writes a fresh
+          object under the uploader's own folder in event-assets. */}
+      <EventPhotoUpload
+        folder="speakers"
         fullName={values.full_name || 'Speaker'}
         currentPhotoUrl={values.photo_url || null}
         onUploaded={(url) => set('photo_url', url)}

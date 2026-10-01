@@ -1,8 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
-import { PhotoUpload } from '@/components/ui/PhotoUpload'
-import { useAuth } from '@/context/AuthContext'
+import { EventPhotoUpload } from '@/components/ui/EventPhotoUpload'
 import {
   SPEAKER_ROLES,
   SPEAKER_ROLE_LABELS,
@@ -14,6 +13,7 @@ import {
 } from '@/lib/speakers'
 import { getEventAgenda } from '@/lib/events'
 import { formatDayHeading, formatRange } from '@/lib/sessionTime'
+import { deleteOwnEventAsset } from '@/lib/uploads'
 import { SheetDialog } from './SheetDialog'
 import type { SpeakerFormValues } from './AddSpeakerDialog'
 import { EMPTY_SPEAKER_VALUES } from './AddSpeakerDialog'
@@ -51,7 +51,6 @@ export function EditSpeakerDialog({
   onClose: () => void
   onSaved: () => void
 }) {
-  const { user } = useAuth()
   const [tab, setTab] = useState<'details' | 'sessions'>('details')
   const [values, setValues] = useState<SpeakerFormValues>({
     ...EMPTY_SPEAKER_VALUES,
@@ -96,6 +95,11 @@ export function EditSpeakerDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [event.id, speaker.id])
 
+  // What this speaker's photo was when the dialog opened. The old object is
+  // only ever removed after the row has been saved pointing somewhere else,
+  // so an abandoned edit can never leave a saved record with a dead image.
+  const savedPhotoUrlRef = useRef(speaker.photo_url)
+
   function set<K extends keyof SpeakerFormValues>(key: K, value: string) {
     setValues((v) => ({ ...v, [key]: value }))
   }
@@ -109,12 +113,13 @@ export function EditSpeakerDialog({
       return
     }
     setSaving(true)
+    const nextPhotoUrl = values.photo_url.trim()
     const { error: err } = await updateSpeaker(speaker.id, {
       full_name: values.full_name.trim(),
       job_title: values.job_title.trim(),
       company: values.company.trim(),
       bio: values.bio.trim(),
-      photo_url: values.photo_url.trim(),
+      photo_url: nextPhotoUrl,
       linkedin: values.linkedin.trim(),
       website: values.website.trim(),
       industry: values.industry.trim(),
@@ -123,6 +128,14 @@ export function EditSpeakerDialog({
       setError(err)
       setSaving(false)
       return
+    }
+    // The row now points elsewhere, so the object it used to reference can go.
+    // deleteOwnEventAsset ignores anything this user does not own, which is
+    // what keeps it away from legacy avatars/<uid>/avatar.jpg values.
+    const previous = savedPhotoUrlRef.current
+    savedPhotoUrlRef.current = nextPhotoUrl
+    if (previous && previous !== nextPhotoUrl) {
+      void deleteOwnEventAsset(previous)
     }
     onSaved()
   }
@@ -161,8 +174,8 @@ export function EditSpeakerDialog({
 
       {tab === 'details' && (
         <form onSubmit={handleSubmit} className="space-y-4">
-          <PhotoUpload
-            userId={user?.id ?? 'anonymous'}
+          <EventPhotoUpload
+            folder="speakers"
             fullName={values.full_name || speaker.full_name}
             currentPhotoUrl={values.photo_url || null}
             onUploaded={(url) => set('photo_url', url)}
