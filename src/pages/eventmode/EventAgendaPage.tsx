@@ -1,59 +1,24 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarRange, MapPin, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { CalendarRange, Check, ChevronRight } from 'lucide-react'
 import { supabase, type EventSession } from '@/lib/supabase'
 import { useEventModeOutlet } from '@/components/eventmode/EventModeLayout'
+import { SessionRow, SessionDetailDialog } from '@/components/eventmode/SessionRow'
+import { listMySavedSessionIds, saveEventSession, removeEventSession } from '@/lib/schedule'
+import {
+  dayKey,
+  formatDayChip,
+  formatDayHeading,
+} from '@/lib/sessionTime'
 import { Card, CardContent } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
 import { EmptyState, ErrorState } from '@/components/ui/States'
 import { cn } from '@/lib/utils'
 
-// Event Mode Agenda: read-only chronological schedule from event_sessions.
-// Times render in the event's timezone when set; when it is not, times are
-// shown without any timezone label and the page says so rather than guessing.
-
-const DAY_KEY_TZ_FALLBACK = undefined
-
-function dayKey(date: Date, timeZone: string | undefined): string {
-  // en-CA gives a stable YYYY-MM-DD wall-clock date for grouping.
-  return date.toLocaleDateString('en-CA', { timeZone })
-}
-
-function formatTime(date: Date, timeZone: string | undefined): string {
-  return date.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone,
-  })
-}
-
-function formatRange(start: Date, end: Date | null, timeZone: string | undefined): string {
-  if (!end || end.getTime() === start.getTime()) return formatTime(start, timeZone)
-  return `${formatTime(start, timeZone)} – ${formatTime(end, timeZone)}`
-}
-
-function formatDayChip(date: Date, timeZone: string | undefined): { weekday: string; day: string } {
-  return {
-    weekday: date.toLocaleDateString('en-US', { weekday: 'short', timeZone }),
-    day: date.toLocaleDateString('en-US', { day: 'numeric', timeZone }),
-  }
-}
-
-function formatDayHeading(date: Date, timeZone: string | undefined): string {
-  return date.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone,
-  })
-}
-
-function isSessionLive(session: EventSession, now: number): boolean {
-  if (session.status === 'cancelled') return false
-  if (!session.end_at) return false
-  const start = new Date(session.start_at).getTime()
-  const end = new Date(session.end_at).getTime()
-  return now >= start && now < end
-}
+// Event Mode Agenda: chronological schedule from event_sessions, with the
+// attendee's personal "My Schedule" save action on each session. Saved state
+// comes from the backend (get_my_saved_session_ids) and is loaded together
+// with the sessions themselves, so a saved session never flashes as unsaved.
 
 function AgendaSkeleton() {
   return (
@@ -71,120 +36,54 @@ function AgendaSkeleton() {
   )
 }
 
-function SessionDetail({
-  session,
-  timeZone,
-  eventName,
-  onClose,
-}: {
-  session: EventSession
-  timeZone: string | undefined
-  eventName: string
-  onClose: () => void
-}) {
-  useEffect(() => {
-    document.body.style.overflow = 'hidden'
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.body.style.overflow = ''
-      document.removeEventListener('keydown', onKeyDown)
-    }
-  }, [onClose])
-
-  const start = new Date(session.start_at)
-  const end = session.end_at ? new Date(session.end_at) : null
-
-  return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label={session.title}>
-      <button className="absolute inset-0 bg-gray-900/50" aria-hidden="true" onClick={onClose} />
-      <div className="absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-2xl bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl md:bottom-auto md:left-1/2 md:top-1/2 md:max-h-[80vh] md:w-[32rem] md:-translate-x-1/2 md:-translate-y-1/2 md:rounded-2xl">
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-gray-200 md:hidden" aria-hidden="true" />
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="text-lg font-bold leading-snug text-gray-900">{session.title}</h2>
-          <button
-            onClick={onClose}
-            aria-label="Close session details"
-            className="rounded-full p-2 text-gray-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <p className="mt-1 text-xs font-medium uppercase tracking-wide text-gray-400">{eventName}</p>
-
-        <dl className="mt-4 space-y-2.5 border-t border-gray-200 pt-4 text-sm">
-          <div className="flex gap-3">
-            <dt className="w-20 shrink-0 text-gray-500">Time</dt>
-            <dd className="font-medium text-gray-900">
-              {formatRange(start, end, timeZone)}
-              {end ? '' : ' (start time)'}
-            </dd>
-          </div>
-          {session.location && (
-            <div className="flex gap-3">
-              <dt className="w-20 shrink-0 text-gray-500">Venue</dt>
-              <dd className="text-gray-900">{session.location}</dd>
-            </div>
-          )}
-          <div className="flex gap-3">
-            <dt className="w-20 shrink-0 text-gray-500">Day</dt>
-            <dd className="text-gray-900">{formatDayHeading(start, timeZone)}</dd>
-          </div>
-          {session.session_type && (
-            <div className="flex gap-3">
-              <dt className="w-20 shrink-0 text-gray-500">Type</dt>
-              <dd className="capitalize text-gray-900">{session.session_type}</dd>
-            </div>
-          )}
-        </dl>
-
-        {session.description && (
-          <p className="mt-4 whitespace-pre-wrap border-t border-gray-200 pt-4 text-sm leading-relaxed text-gray-600">
-            {session.description}
-          </p>
-        )}
-      </div>
-    </div>
-  )
-}
-
 export default function EventAgendaPage() {
   const { event, eventBasePath } = useEventModeOutlet()
   const [sessions, setSessions] = useState<EventSession[] | null>(null)
+  // null until the backend has answered: action buttons stay hidden so an
+  // already-saved session is never shown as "Add to My Schedule" first.
+  const [savedIds, setSavedIds] = useState<Set<string> | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [detailSession, setDetailSession] = useState<EventSession | null>(null)
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set())
+  const [actionError, setActionError] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
 
   // The timezone the agenda is presented in. Undefined means the browser's
   // default zone — used only when the event has no timezone set, which the
   // page then discloses instead of inventing an abbreviation.
-  const timeZone = event.timezone || DAY_KEY_TZ_FALLBACK
+  const timeZone = event.timezone || undefined
 
   useEffect(() => {
     let cancelled = false
     setLoading(true)
     setError(null)
-    supabase
-      .from('event_sessions')
-      .select('*')
-      .eq('event_id', event.id)
-      .order('start_at', { ascending: true })
-      .order('display_order', { ascending: true })
-      .then(({ data, error: err }) => {
-        if (cancelled) return
-        if (err) {
-          setError('Could not load the agenda. Please try again.')
-          setSessions(null)
-        } else {
-          setSessions((data ?? []) as EventSession[])
-        }
-        setLoading(false)
-      })
+    setActionError(null)
+    Promise.all([
+      supabase
+        .from('event_sessions')
+        .select('*')
+        .eq('event_id', event.id)
+        .order('start_at', { ascending: true })
+        .order('display_order', { ascending: true }),
+      listMySavedSessionIds(event.id),
+    ]).then(([sessionsRes, savedRes]) => {
+      if (cancelled) return
+      if (sessionsRes.error) {
+        setError('Could not load the agenda. Please try again.')
+        setSessions(null)
+        setSavedIds(null)
+      } else if (savedRes.error) {
+        setError(savedRes.error)
+        setSessions(null)
+        setSavedIds(null)
+      } else {
+        setSessions((sessionsRes.data ?? []) as EventSession[])
+        setSavedIds(savedRes.data)
+      }
+      setLoading(false)
+    })
     return () => {
       cancelled = true
     }
@@ -230,13 +129,92 @@ export default function EventAgendaPage() {
 
   const dayDate = days.find((d) => d.key === selectedDay)?.date ?? null
 
+  // Optimistic toggle with server authority: the state changes immediately,
+  // and a failed call reverts it so a session is never falsely marked Saved.
+  // The pending set also swallows rapid double taps.
+  async function toggleSaved(session: EventSession) {
+    if (!savedIds || pendingIds.has(session.id)) return
+    const wasSaved = savedIds.has(session.id)
+    setPendingIds((prev) => new Set(prev).add(session.id))
+    setActionError(null)
+    setSavedIds((prev) => {
+      const next = new Set(prev ?? [])
+      if (wasSaved) next.delete(session.id)
+      else next.add(session.id)
+      return next
+    })
+    const { error: err } = wasSaved
+      ? await removeEventSession(session.id)
+      : await saveEventSession(session.id)
+    setPendingIds((prev) => {
+      const next = new Set(prev)
+      next.delete(session.id)
+      return next
+    })
+    if (err) {
+      setSavedIds((prev) => {
+        const next = new Set(prev ?? [])
+        if (wasSaved) next.add(session.id)
+        else next.delete(session.id)
+        return next
+      })
+      setActionError(
+        wasSaved
+          ? 'Could not remove that session. Please try again.'
+          : 'Could not save that session. Please try again.'
+      )
+    }
+  }
+
+  function saveAction(session: EventSession) {
+    if (!savedIds) return null
+    const isSaved = savedIds.has(session.id)
+    const pending = pendingIds.has(session.id)
+    return (
+      <Button
+        size="sm"
+        variant={isSaved ? 'outline' : 'secondary'}
+        disabled={pending}
+        onClick={(e) => {
+          e.stopPropagation()
+          void toggleSaved(session)
+        }}
+        aria-label={
+          isSaved
+            ? `Remove "${session.title}" from My Schedule`
+            : `Add "${session.title}" to My Schedule`
+        }
+        className={cn('whitespace-nowrap', isSaved && 'text-primary-700')}
+      >
+        {pending ? 'Saving…' : isSaved ? '✓ Saved' : '+ My Schedule'}
+      </Button>
+    )
+  }
+
   return (
     <div className="mx-auto w-full max-w-3xl px-4 py-4 md:px-6 md:py-6">
-      <h1 className="text-xl font-bold text-gray-900 md:text-2xl">Agenda</h1>
-      <p className="mt-0.5 text-sm text-gray-500">{event.name}</p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-gray-900 md:text-2xl">Agenda</h1>
+          <p className="mt-0.5 text-sm text-gray-500">{event.name}</p>
+        </div>
+        <Link
+          to={`${eventBasePath}/schedule`}
+          className="mt-1 flex shrink-0 items-center gap-0.5 text-sm font-medium text-primary-600 hover:text-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
+        >
+          My Schedule
+          <ChevronRight className="h-4 w-4" aria-hidden="true" />
+        </Link>
+      </div>
       {!event.timezone && (
         <p className="mt-1 text-xs text-gray-400">
           Event timezone not set — times shown in your device's timezone.
+        </p>
+      )}
+
+      {actionError && (
+        <p className="mt-3 rounded-md bg-error-50 px-3 py-2 text-sm text-error-700" role="alert">
+          {actionError}
         </p>
       )}
 
@@ -329,77 +307,55 @@ export default function EventAgendaPage() {
             </div>
           ) : (
             <ol className="mt-3 space-y-2">
-              {daySessions.map((session) => {
-                const live = isSessionLive(session, now)
-                const cancelled = session.status === 'cancelled'
-                const start = new Date(session.start_at)
-                const end = session.end_at ? new Date(session.end_at) : null
-                return (
-                  <li key={session.id}>
-                    <button
-                      onClick={() => setDetailSession(session)}
-                      aria-label={`Session details: ${session.title}`}
-                      className={cn(
-                        'flex w-full items-stretch gap-4 rounded-lg border bg-white p-4 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600',
-                        live ? 'border-primary-600' : 'border-gray-200 hover:border-primary-300'
-                      )}
-                    >
-                      <div className="w-24 shrink-0">
-                        <p className={cn('text-sm font-semibold', live ? 'text-primary-600' : 'text-gray-900')}>
-                          {formatTime(start, timeZone)}
-                        </p>
-                        {end && end.getTime() !== start.getTime() && (
-                          <p className="text-xs text-gray-400">{formatTime(end, timeZone)}</p>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1 border-l border-gray-100 pl-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3
-                            className={cn(
-                              'text-sm font-semibold leading-snug text-gray-900',
-                              cancelled && 'text-gray-400 line-through'
-                            )}
-                          >
-                            {session.title}
-                          </h3>
-                          {live && (
-                            <span className="rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-primary-700">
-                              Now
-                            </span>
-                          )}
-                          {cancelled && (
-                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                              Cancelled
-                            </span>
-                          )}
-                          {!live && !cancelled && session.session_type && session.session_type !== 'session' && (
-                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium capitalize text-gray-600">
-                              {session.session_type}
-                            </span>
-                          )}
-                        </div>
-                        {session.location && (
-                          <p className="mt-1 flex items-center gap-1 text-xs text-gray-500">
-                            <MapPin className="h-3 w-3 shrink-0" aria-hidden="true" />
-                            <span className="truncate">{session.location}</span>
-                          </p>
-                        )}
-                      </div>
-                    </button>
-                  </li>
-                )
-              })}
+              {daySessions.map((session) => (
+                <SessionRow
+                  key={session.id}
+                  session={session}
+                  timeZone={timeZone}
+                  now={now}
+                  onOpen={() => setDetailSession(session)}
+                  action={saveAction(session)}
+                />
+              ))}
             </ol>
           )}
         </>
       )}
 
       {detailSession && (
-        <SessionDetail
+        <SessionDetailDialog
           session={detailSession}
           timeZone={timeZone}
           eventName={event.name}
           onClose={() => setDetailSession(null)}
+          footer={
+            savedIds ? (
+              <div className="space-y-2">
+                {savedIds.has(detailSession.id) && (
+                  <p className="flex items-center gap-1.5 text-sm font-medium text-primary-700">
+                    <Check className="h-4 w-4" aria-hidden="true" /> Saved to My Schedule
+                  </p>
+                )}
+                <Button
+                  variant={savedIds.has(detailSession.id) ? 'secondary' : 'primary'}
+                  className="w-full"
+                  disabled={pendingIds.has(detailSession.id)}
+                  onClick={() => void toggleSaved(detailSession)}
+                  aria-label={
+                    savedIds.has(detailSession.id)
+                      ? `Remove "${detailSession.title}" from My Schedule`
+                      : `Add "${detailSession.title}" to My Schedule`
+                  }
+                >
+                  {pendingIds.has(detailSession.id)
+                    ? 'Saving…'
+                    : savedIds.has(detailSession.id)
+                      ? 'Remove from My Schedule'
+                      : 'Add to My Schedule'}
+                </Button>
+              </div>
+            ) : null
+          }
         />
       )}
     </div>

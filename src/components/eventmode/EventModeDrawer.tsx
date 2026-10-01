@@ -5,6 +5,7 @@ import {
   User as UserIcon,
   Info,
   Bell,
+  CalendarCheck,
   Settings,
   LogOut,
   ExternalLink,
@@ -48,6 +49,7 @@ export default function EventModeDrawer({
 
   const items: { label: string; icon: typeof Info; onClick: () => void }[] = [
     { label: 'My Profile', icon: UserIcon, onClick: () => navigate('/profile') },
+    { label: 'My Schedule', icon: CalendarCheck, onClick: () => navigate(`${eventBasePath}/schedule`) },
     { label: `${eventName} info`, icon: Info, onClick: () => navigate(`${eventBasePath}/info`) },
     { label: 'Notifications', icon: Bell, onClick: () => navigate('/notifications') },
     { label: 'Exit to main Rally', icon: ExternalLink, onClick: () => navigate('/dashboard') },

@@ -9,6 +9,8 @@ import {
   Store,
   Briefcase,
   CheckCircle2,
+  BookmarkCheck,
+  ChevronRight,
   Sparkles,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -151,6 +153,18 @@ export default function EventHomePage() {
             <Tile icon={Store} label="Exhibitors" to={`${eventBasePath}/exhibitors`} />
             <Tile icon={Briefcase} label="Deal Room" to={`${eventBasePath}/deal-room`} />
           </div>
+
+          {/* Compact secondary My Schedule entry, next to the agenda tile */}
+          <Link
+            to={`${eventBasePath}/schedule`}
+            className="mt-2.5 flex items-center justify-between rounded-xl border border-gray-200 bg-white px-4 py-3 transition-colors hover:border-primary-300 hover:bg-primary-50/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+          >
+            <span className="flex items-center gap-2.5">
+              <BookmarkCheck className="h-4 w-4 text-primary-600" aria-hidden="true" />
+              <span className="text-sm font-medium text-gray-900">My Schedule</span>
+            </span>
+            <ChevronRight className="h-4 w-4 text-gray-400" aria-hidden="true" />
+          </Link>
 
           {/* Event context card */}
           <div className="mt-5 flex items-center gap-3 rounded-xl bg-primary-50 p-4">
