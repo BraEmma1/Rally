@@ -8,12 +8,13 @@ import { Card, CardContent } from '@/components/ui/Card'
 import { ErrorState, LoadingState } from '@/components/ui/States'
 import { ExhibitorLogo } from '@/components/organizer/EventExhibitorsPanel'
 
-// Event Mode exhibitor detail. Direct lookup by id; RLS decides whether this
-// exhibitor is visible for this attendee's event. Public company card only —
-// no contacts, representatives, or organization internals.
+// Event Mode exhibitor detail. Looked up by id AND the event in the URL, so
+// /events/<A>/exhibitors/<an-exhibitor-of-B> is a not-found rather than B's
+// exhibitor rendered inside A’s shell. Public company card only — no
+// contacts, representatives, or organization internals.
 export default function ExhibitorDetailPage() {
   const { exhibitorId } = useParams<{ exhibitorId: string }>()
-  const { eventBasePath } = useEventModeOutlet()
+  const { event, eventBasePath } = useEventModeOutlet()
 
   const [exhibitor, setExhibitor] = useState<Awaited<ReturnType<typeof getEventExhibitor>>['data']>(null)
   const [loading, setLoading] = useState(true)
@@ -24,7 +25,7 @@ export default function ExhibitorDetailPage() {
     let cancelled = false
     setLoading(true)
     setError(null)
-    getEventExhibitor(exhibitorId).then(({ data, error: err }) => {
+    getEventExhibitor(event.id, exhibitorId).then(({ data, error: err }) => {
       if (cancelled) return
       if (err) {
         setError(err)
@@ -36,7 +37,7 @@ export default function ExhibitorDetailPage() {
     return () => {
       cancelled = true
     }
-  }, [exhibitorId])
+  }, [event.id, exhibitorId])
 
   if (loading) return <LoadingState message="Loading exhibitor…" />
 
@@ -65,7 +66,7 @@ export default function ExhibitorDetailPage() {
         <CardContent className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
           <ExhibitorLogo name={exhibitor.name} logoUrl={exhibitor.logo_url} size="lg" />
           <div className="min-w-0">
-            <h1 className="break-words text-lg font-bold text-gray-900">{exhibitor.name}</h1>
+            <h1 className="break-words text-lg font-bold text-gray-900 md:text-2xl">{exhibitor.name}</h1>
             {exhibitor.industry && (
               <div className="mt-1">
                 <Badge variant="gray">{exhibitor.industry}</Badge>

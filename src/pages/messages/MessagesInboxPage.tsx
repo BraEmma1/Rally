@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { Search, MessageSquare } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import {
@@ -32,6 +32,10 @@ function formatConversationTime(iso: string | null): string {
 
 export default function MessagesInboxPage() {
   const navigate = useNavigate()
+  // This page is mounted at both /messages and /events/:eventId/messages.
+  // Opening a thread has to stay on whichever branch the user is already on,
+  // or tapping a conversation inside Event Mode drops them into the main app.
+  const { eventId } = useParams<{ eventId?: string }>()
   const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -119,7 +123,11 @@ export default function MessagesInboxPage() {
   }, [conversations, search])
 
   async function openConversation(c: ConversationSummary) {
-    navigate(`/messages/${c.conversation_id}`)
+    navigate(
+      eventId
+        ? `/events/${eventId}/messages/${c.conversation_id}`
+        : `/messages/${c.conversation_id}`
+    )
   }
 
   return (

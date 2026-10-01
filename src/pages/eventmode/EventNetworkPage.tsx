@@ -76,7 +76,7 @@ export default function EventNetworkPage() {
       listEventDirectory(eventId),
     ])
 
-    if (connRes.error) setError(connRes.error.message)
+    if (connRes.error) setError('Could not load your connections for this event. Pull to refresh or try again.')
     else setMyConnections((connRes.data as Connection[]) || [])
     // The directory is attendees-only; someone unregistered just gets an
     // empty list rather than an error.
@@ -126,7 +126,7 @@ export default function EventNetworkPage() {
         userId={user?.id ?? ''}
       />
 
-      <h1 className="text-xl font-bold text-gray-900">Network</h1>
+      <h1 className="text-xl font-bold text-gray-900 md:text-2xl">Network</h1>
       <p className="mt-0.5 text-sm text-gray-500">People you're connecting with at {event.name}</p>
 
       {/* Quick filters */}

@@ -93,7 +93,7 @@ export default function SpeakerDetailPage() {
           />
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-lg font-bold text-gray-900">{speaker?.full_name}</h1>
+              <h1 className="text-lg font-bold text-gray-900 md:text-2xl">{speaker?.full_name}</h1>
               {speaker?.user_id && <Badge variant="gray">On Rally</Badge>}
             </div>
             <p className="mt-0.5 text-sm text-gray-500">
