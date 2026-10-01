@@ -1,7 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, MessageSquare } from 'lucide-react'
-import { fetchConversations, toFriendlyMessageError, type ConversationSummary } from '@/lib/messages'
+import { useAuth } from '@/context/AuthContext'
+import {
+  fetchConversations,
+  subscribeToInbox,
+  toFriendlyMessageError,
+  type ConversationSummary,
+} from '@/lib/messages'
 import { Avatar } from '@/components/ui/Avatar'
 import { LoadingState, EmptyState, ErrorState } from '@/components/ui/States'
 import { cn } from '@/lib/utils'
@@ -26,30 +32,81 @@ function formatConversationTime(iso: string | null): string {
 
 export default function MessagesInboxPage() {
   const navigate = useNavigate()
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [conversations, setConversations] = useState<ConversationSummary[]>([])
   const [search, setSearch] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
+  const mountedRef = useRef(true)
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Stamps each fetch so a slow earlier one cannot land after a newer one and
+  // put stale rows back on screen.
+  const requestSeqRef = useRef(0)
+
+  // The list is always re-read whole from get_my_conversations rather than
+  // patched row by row. That RPC is the only thing that knows what a row should
+  // say -- preview, unread count, deleted-message tombstone, ordering -- and
+  // reproducing those rules on the client would be a second implementation of
+  // them, free to drift from the database and impossible to reconcile after a
+  // missed event. One small RPC per burst buys exact agreement instead.
+  const load = useCallback(async (initial = false) => {
+    const seq = ++requestSeqRef.current
+    if (initial) {
       setLoading(true)
       setError(null)
-      const { data, error: loadError } = await fetchConversations()
-      if (cancelled) return
-      if (loadError) {
+    }
+    const { data, error: loadError } = await fetchConversations()
+    if (seq !== requestSeqRef.current || !mountedRef.current) return
+    if (loadError) {
+      // Only the first load may replace the list with an error screen. A
+      // background refresh that fails leaves the last good rows up; the next
+      // event, reconnect or tab focus reconciles.
+      if (initial) {
         setError(toFriendlyMessageError(loadError, 'Could not load your conversations. Please try again.'))
-      } else {
-        setConversations(data)
       }
-      setLoading(false)
+    } else {
+      setConversations(data)
+      setError(null)
     }
-    void load()
-    return () => {
-      cancelled = true
-    }
+    if (initial) setLoading(false)
   }, [])
+
+  // Three messages arriving together are one refresh, not three.
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+    refreshTimerRef.current = setTimeout(() => void load(), 250)
+  }, [load])
+
+  useEffect(() => {
+    mountedRef.current = true
+    void load(true)
+    return () => {
+      mountedRef.current = false
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current)
+    }
+  }, [load])
+
+  useEffect(() => {
+    if (!user?.id) return
+    const unsubscribe = subscribeToInbox(user.id, scheduleRefresh, (status) => {
+      // Realtime does not replay. Re-reading once the binding goes live closes
+      // both the gap after the initial fetch and whatever was missed while a
+      // dropped connection was being re-established.
+      if (status === 'SUBSCRIBED') void load()
+    })
+    return () => unsubscribe()
+  }, [user?.id, scheduleRefresh, load])
+
+  // A tab suspended in the background can miss events without the socket ever
+  // reporting a clean reconnect.
+  useEffect(() => {
+    function onVisibilityChange() {
+      if (document.visibilityState === 'visible') scheduleRefresh()
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [scheduleRefresh])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()

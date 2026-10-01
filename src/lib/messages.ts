@@ -92,6 +92,44 @@ export async function fetchConversationReadState(conversationId: string) {
   return { data: (data ?? []) as Array<{ user_id: string; last_read_at: string | null }>, error }
 }
 
+// Live updates for the whole inbox: anything that can change a row in the
+// conversation list. There is deliberately no filter — `messages` has no
+// column naming the recipient, so there is nothing to filter on, and RLS
+// already confines delivery to conversations the subscriber belongs to. One
+// channel per user, not one per conversation.
+//
+// The callback is a plain "something changed" signal rather than a patch: the
+// authoritative shape of a row (preview, unread count, ordering, deleted-message
+// tombstone) is what get_my_conversations computes, and re-deriving that on the
+// client would be a second implementation of it that can drift.
+export function subscribeToInbox(
+  userId: string,
+  onChange: () => void,
+  onStatus?: (status: string) => void
+) {
+  const channel = supabase.channel(`inbox:${userId}`)
+
+  // A new message changes the preview, the timestamp, the unread count and the
+  // ordering. handle_new_message bumps conversations.updated_at in the same
+  // transaction, so by the time this fires the new order is already readable.
+  channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, onChange)
+  // An edit or a soft delete rewrites the preview of whatever is newest.
+  channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages' }, onChange)
+  // The read marker moving — including on another tab or device — is what
+  // clears the unread badge here.
+  channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'conversation_members' }, onChange)
+  // Being added to a brand new conversation. conversations itself is not in the
+  // realtime publication; the membership row is, and it arrives in the same
+  // transaction.
+  channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversation_members' }, onChange)
+
+  channel.subscribe((status) => onStatus?.(status))
+
+  return () => {
+    void supabase.removeChannel(channel)
+  }
+}
+
 // Live updates for the active conversation only. The backend publication and
 // RLS decide what is delivered; this only listens and cleans up after itself.
 // Message INSERTs carry new bubbles; conversation_members UPDATEs carry the
