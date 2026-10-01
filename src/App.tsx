@@ -42,6 +42,8 @@ import EventAgendaPage from '@/pages/eventmode/EventAgendaPage'
 import EventMySchedulePage from '@/pages/eventmode/EventMySchedulePage'
 import EventSpeakersPage from '@/pages/eventmode/EventSpeakersPage'
 import SpeakerDetailPage from '@/pages/eventmode/SpeakerDetailPage'
+import EventExhibitorsPage from '@/pages/eventmode/EventExhibitorsPage'
+import ExhibitorDetailPage from '@/pages/eventmode/ExhibitorDetailPage'
 import EventComingSoonPage from '@/pages/eventmode/EventComingSoonPage'
 import OrganizationInvitationsPage from '@/pages/organizer/OrganizationInvitationsPage'
 import AccountStatusPage from '@/pages/account/AccountStatusPage'
@@ -339,7 +341,8 @@ export default function App() {
         <Route path="/events/:eventId/schedule" element={<EventMySchedulePage />} />
         <Route path="/events/:eventId/speakers" element={<EventSpeakersPage />} />
         <Route path="/events/:eventId/speakers/:speakerId" element={<SpeakerDetailPage />} />
-        <Route path="/events/:eventId/exhibitors" element={<EventComingSoonPage />} />
+        <Route path="/events/:eventId/exhibitors" element={<EventExhibitorsPage />} />
+        <Route path="/events/:eventId/exhibitors/:exhibitorId" element={<ExhibitorDetailPage />} />
         <Route path="/events/:eventId/map" element={<EventComingSoonPage />} />
         <Route path="/events/:eventId/deal-room" element={<EventComingSoonPage />} />
         <Route path="/events/:eventId/coming-soon" element={<EventComingSoonPage />} />
