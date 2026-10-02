@@ -501,18 +501,28 @@ export default function EventsListPage() {
             </div>
           ) : (
             <>
-              {/* Desktop — table */}
+              {/* Desktop — table. Fixed layout with explicit proportional
+                  widths so the metrics and actions never clip the right edge. */}
               <div className="hidden overflow-hidden rounded-lg border border-gray-200 bg-white md:block">
-                <table className="w-full text-sm">
+                <table className="w-full table-fixed text-sm">
+                  <colgroup>
+                    <col className="w-[34%]" />
+                    <col className="w-[15%]" />
+                    <col className="w-[11%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[11%]" />
+                    <col className="w-[9%]" />
+                  </colgroup>
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-50/60 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
                       <th scope="col" className="px-4 py-2.5 font-semibold">Event</th>
-                      <th scope="col" className="px-4 py-2.5 font-semibold">Date</th>
-                      <th scope="col" className="px-4 py-2.5 font-semibold">Status</th>
-                      <th scope="col" className="px-4 py-2.5 text-right font-semibold">Registrations</th>
-                      <th scope="col" className="px-4 py-2.5 text-right font-semibold">Checked in</th>
-                      <th scope="col" className="px-4 py-2.5 text-right font-semibold">Connections</th>
-                      <th scope="col" className="px-4 py-2.5 text-right font-semibold">Actions</th>
+                      <th scope="col" className="px-3 py-2.5 font-semibold">Date</th>
+                      <th scope="col" className="px-3 py-2.5 font-semibold">Status</th>
+                      <th scope="col" className="px-3 py-2.5 text-right font-semibold">Registrations</th>
+                      <th scope="col" className="px-3 py-2.5 text-right font-semibold">Checked in</th>
+                      <th scope="col" className="px-3 py-2.5 text-right font-semibold">Connections</th>
+                      <th scope="col" className="px-3 py-2.5 text-right font-semibold">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -526,7 +536,7 @@ export default function EventsListPage() {
                             <Link to={'/organizer/events/' + event.id} className="flex items-center gap-3">
                               <EventThumb event={event} className="h-12 w-20" />
                               <span className="min-w-0">
-                                <span className="block truncate font-semibold text-gray-900 hover:text-primary-700">
+                                <span className="block font-semibold text-gray-900 hover:text-primary-700">
                                   {event.name}
                                 </span>
                                 {event.location && (
@@ -538,26 +548,26 @@ export default function EventsListPage() {
                               </span>
                             </Link>
                           </td>
-                          <td className="whitespace-nowrap px-4 py-2.5 text-gray-600">
+                          <td className="whitespace-nowrap px-3 py-2.5 text-gray-600">
                             {formatEventDate(event)}
                           </td>
-                          <td className="px-4 py-2.5">
+                          <td className="px-3 py-2.5">
                             <Badge variant={LIFECYCLE_BADGE[lifecycle]}>{LIFECYCLE_LABELS[lifecycle]}</Badge>
                             {event.visibility === 'unlisted' && lifecycle !== 'draft' && (
                               <span className="ml-1.5 inline-block align-middle text-xs text-gray-400">Unlisted</span>
                             )}
                           </td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-gray-900">
+                          <td className="px-3 py-2.5 text-right tabular-nums text-gray-900">
                             {count ? count.registrations.toLocaleString() : '—'}
                           </td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-gray-900">
+                          <td className="px-3 py-2.5 text-right tabular-nums text-gray-900">
                             {show && count ? count.checked_in.toLocaleString() : '—'}
                           </td>
-                          <td className="px-4 py-2.5 text-right tabular-nums text-gray-900">
+                          <td className="px-3 py-2.5 text-right tabular-nums text-gray-900">
                             {show && count ? count.connections_made.toLocaleString() : '—'}
                           </td>
-                          <td className="px-4 py-2.5 text-right">
-                            <Link to={'/organizer/events/' + event.id}>
+                          <td className="px-3 py-2.5 text-right">
+                            <Link to={'/organizer/events/' + event.id} className="inline-block">
                               <Button variant="secondary" size="sm">
                                 Manage
                               </Button>
