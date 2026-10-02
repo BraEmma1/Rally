@@ -18,9 +18,22 @@ export const EVENT_TIMEZONES: string[] =
 // truth per fact instead of a state column that can disagree with the dates.
 export type EventLifecycle = 'draft' | 'published' | 'live' | 'completed' | 'archived'
 
+// "Past" is derived from the dates themselves, not the stored `status`
+// column: an event whose day has ended is over whether or not the organizer
+// remembered to click "Mark as finished". The manual controls still work for
+// marking an event live or finished early; they just cannot leave an ended
+// event sitting in Upcoming.
+function eventEndDate(event: { start_date: string | null; end_date: string | null }): Date | null {
+  const raw = event.end_date ?? event.start_date
+  if (!raw) return null
+  return new Date(`${raw}T23:59:59.999`)
+}
+
 export function eventLifecycle(event: OrganizerEvent): EventLifecycle {
   if (event.archived_at) return 'archived'
   if (event.visibility === 'draft') return 'draft'
+  const end = eventEndDate(event)
+  if (end && end.getTime() < Date.now()) return 'completed'
   if (event.status === 'live') return 'live'
   if (event.status === 'past') return 'completed'
   return 'published'
