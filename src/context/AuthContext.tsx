@@ -262,7 +262,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(newSession)
       setUser(newSession?.user ?? null)
       if (newSession?.user) {
-        (async () => {
+        // Mark identity as loading for this transition: without this, the
+        // guard on the destination page sees account === null (not "loading")
+        // and bounces a fresh sign-in to /account, which flashes "Your account
+        // is not set up" until the record lands and redirects back.
+        setLoading(true)
+        ;(async () => {
           await loadIdentity(newSession.user.id)
           setLoading(false)
         })()
