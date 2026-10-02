@@ -6,14 +6,21 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label } from '@/components/ui/Input'
 import { GoogleButton } from '@/components/ui/GoogleButton'
 import { LinkedInButton } from '@/components/ui/LinkedInButton'
+import {
+  invitationAuthSearch,
+  invitationDestination,
+  readInvitationTarget,
+  rememberInvitationTarget,
+} from '@/lib/invitationRouting'
 
 export default function SignUpPage() {
   const { signUp, signInWithGoogle, signInWithLinkedIn } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  // Invitation id from an organization-invitation email link, carried through
-  // sign-up so the new account lands on the invitation they came for.
-  const invitationId = new URLSearchParams(location.search).get('invitation')
+  // Invitation target from an invitation email link, carried through sign-up
+  // AND through the confirmation email, so the new account lands on the
+  // invitation they came for rather than on onboarding.
+  const invitationTarget = readInvitationTarget(location.search)
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -38,7 +45,7 @@ export default function SignUpPage() {
       email,
       password,
       fullName,
-      invitationId ?? undefined
+      invitationTarget ? invitationAuthSearch(invitationTarget) : undefined
     )
     if (signUpError) {
       setError(signUpError)
@@ -50,8 +57,8 @@ export default function SignUpPage() {
       setConfirmationSent(true)
       return
     }
-    if (invitationId) {
-      navigate(`/organizer/invitations?invitation=${encodeURIComponent(invitationId)}`, { replace: true })
+    if (invitationTarget) {
+      navigate(invitationDestination(invitationTarget), { replace: true })
       return
     }
     navigate('/onboarding')
@@ -60,6 +67,8 @@ export default function SignUpPage() {
   async function handleGoogle() {
     setGoogleError(null)
     setGoogleLoading(true)
+    // OAuth returns to a fixed redirect URL, so park the target for the hop.
+    rememberInvitationTarget(invitationTarget)
     const { error: googleError } = await signInWithGoogle()
     if (googleError) {
       setGoogleError(googleError)
@@ -70,6 +79,7 @@ export default function SignUpPage() {
   async function handleLinkedIn() {
     setLinkedinError(null)
     setLinkedinLoading(true)
+    rememberInvitationTarget(invitationTarget)
     const { error: linkedinError } = await signInWithLinkedIn()
     if (linkedinError) {
       setLinkedinError(linkedinError)
@@ -209,7 +219,7 @@ export default function SignUpPage() {
         <p className="mt-4 text-center text-sm text-gray-500">
           Already have an account?{' '}
           <Link
-            to={invitationId ? `/login?invitation=${encodeURIComponent(invitationId)}` : '/login'}
+            to={invitationTarget ? '/login' + invitationAuthSearch(invitationTarget) : '/login'}
             className="font-medium text-primary-600 hover:text-primary-700"
           >
             Sign in

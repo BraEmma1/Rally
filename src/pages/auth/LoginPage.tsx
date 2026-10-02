@@ -6,16 +6,26 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label } from '@/components/ui/Input'
 import { GoogleButton } from '@/components/ui/GoogleButton'
 import { LinkedInButton } from '@/components/ui/LinkedInButton'
+import {
+  invitationAuthSearch,
+  invitationDestination,
+  readInvitationTarget,
+  rememberInvitationTarget,
+} from '@/lib/invitationRouting'
 
 export default function LoginPage() {
   const { signIn, signInWithGoogle, signInWithLinkedIn, oauthError, clearOauthError } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  // An organization-invitation email links straight to the invitation
-  // experience; when the recipient had to sign in first, the id survives here
-  // and is honored after sign-in instead of dropping them on the dashboard.
-  const invitationId = new URLSearchParams(location.search).get('invitation')
-  const signupLink = invitationId ? `/signup?invitation=${encodeURIComponent(invitationId)}` : '/signup'
+  // An invitation email links straight to the invitation experience; when the
+  // recipient had to sign in first, the target survives here and is honored
+  // after sign-in instead of dropping them on the dashboard. The kind of
+  // invitation -- organization or partnership -- travels with the id, and the
+  // destination comes from a closed table rather than from the URL.
+  const invitationTarget = readInvitationTarget(location.search)
+  const signupLink = invitationTarget
+    ? '/signup' + invitationAuthSearch(invitationTarget)
+    : '/signup'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -43,8 +53,8 @@ export default function LoginPage() {
       setLoading(false)
       return
     }
-    if (invitationId) {
-      navigate(`/organizer/invitations?invitation=${encodeURIComponent(invitationId)}`, { replace: true })
+    if (invitationTarget) {
+      navigate(invitationDestination(invitationTarget), { replace: true })
       return
     }
     navigate('/dashboard')
@@ -54,6 +64,9 @@ export default function LoginPage() {
     setGoogleError(null)
     setLinkedinError(null)
     setGoogleLoading(true)
+    // OAuth leaves Rally and returns to a fixed redirect URL, so the query
+    // string cannot carry the invitation across. Park it for the one hop.
+    rememberInvitationTarget(invitationTarget)
     const { error: googleError } = await signInWithGoogle()
     if (googleError) {
       setGoogleError(googleError)
@@ -65,6 +78,7 @@ export default function LoginPage() {
     setLinkedinError(null)
     setGoogleError(null)
     setLinkedinLoading(true)
+    rememberInvitationTarget(invitationTarget)
     const { error: linkedinError } = await signInWithLinkedIn()
     if (linkedinError) {
       setLinkedinError(linkedinError)

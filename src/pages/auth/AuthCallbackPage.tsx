@@ -5,6 +5,11 @@ import { useAuth } from '@/context/AuthContext'
 import { accountHomePath } from '@/lib/routing'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/States'
+import {
+  consumeInvitationTarget,
+  invitationDestination,
+  readInvitationTarget,
+} from '@/lib/invitationRouting'
 
 // Supabase reports a failed verification by appending error params to the
 // redirect, in the hash for the implicit flow and the query string for PKCE.
@@ -29,8 +34,8 @@ export default function AuthCallbackPage() {
   // callback URL at sign-up time. Once the confirmation lands with a session,
   // finish the round trip by returning to the exact invitation instead of the
   // account home. Absent the parameter, routing is unchanged.
-  const [invitationId] = useState(
-    () => new URLSearchParams(window.location.search).get('invitation')
+  const [invitationTarget] = useState(
+    () => readInvitationTarget(window.location.search) ?? consumeInvitationTarget()
   )
   // The client still has to exchange the grant in the URL for a session, which
   // happens after loading first flips false. Give it a moment before calling it
@@ -49,8 +54,8 @@ export default function AuthCallbackPage() {
   // having an organization for an organizer. An invitation link overrides the
   // destination: the invitation experience is reachable for any signed-in user
   // and accepting is still an explicit action there.
-  if (session && invitationId) {
-    return <Navigate to={`/organizer/invitations?invitation=${encodeURIComponent(invitationId)}`} replace />
+  if (session && invitationTarget) {
+    return <Navigate to={invitationDestination(invitationTarget)} replace />
   }
   if (session) return <Navigate to={accountHomePath(account)} replace />
 

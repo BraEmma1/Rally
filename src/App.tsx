@@ -58,6 +58,7 @@ import EventFormPage from '@/pages/organizer/EventFormPage'
 import OrganizerEventDetailPage from '@/pages/organizer/EventDetailPage'
 import PartnerDetailPage from '@/pages/organizer/PartnerDetailPage'
 import PeoplePage from '@/pages/organizer/PeoplePage'
+import PartnerInvitationPage from '@/pages/partner/PartnerInvitationPage'
 
 function FullPageSpinner() {
   return (
@@ -202,6 +203,19 @@ export default function App() {
           verification signs the user in, and the page routes them onward. */}
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route path="/p/:id" element={<PublicProfilePage />} />
+
+      {/* Partnership invitation entry. Standalone and outside every account
+          gate: the recipient is normally an attendee, and may be a brand-new
+          Rally user. The page itself decides what it may show, from a backend
+          contract keyed on the caller confirmed email. */}
+      <Route
+        path="/partner/invitations"
+        element={
+          <ProtectedRoute>
+            <PartnerInvitationPage />
+          </ProtectedRoute>
+        }
+      />
 
       {/* Pending approval, suspended, vendor, sponsor, or a missing account
           record. Any signed-in user may reach it; it redirects them onward if
