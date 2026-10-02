@@ -70,6 +70,99 @@ export const STATUS_BADGE: Record<
   cancelled: 'default',
 }
 
+// ---------------------------------------------------------------------------
+// Invitations
+//
+// A partnership status and an invitation status are related but are not the
+// same field, and the UI must not collapse them: a partnership is `invited`
+// while its invitation is `pending`. Expiry is a fifth DISPLAY status with no
+// stored value behind it -- phase 3A derives it per row in
+// list_partnership_invitations, so nothing is mutated merely to show it.
+// ---------------------------------------------------------------------------
+
+/** What the column actually stores. */
+export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked'
+
+/** What an organizer sees. `expired` is derived, never stored. */
+export type InvitationDisplayStatus = InvitationStatus | 'expired'
+
+export const INVITATION_STATUS_LABELS: Record<InvitationDisplayStatus, string> = {
+  pending: 'Pending',
+  accepted: 'Accepted',
+  declined: 'Declined',
+  revoked: 'Revoked',
+  expired: 'Expired',
+}
+
+export const INVITATION_STATUS_BADGE: Record<
+  InvitationDisplayStatus,
+  'gray' | 'warning' | 'success' | 'error' | 'default'
+> = {
+  pending: 'warning',
+  accepted: 'success',
+  declined: 'default',
+  revoked: 'gray',
+  expired: 'error',
+}
+
+export type DeliveryStatus = 'queued' | 'sent' | 'failed'
+
+/**
+ * Delivery wording is deliberately cautious. The queue row says what Rally has
+ * done, not what the recipient's mail server did, so `sent` means the provider
+ * accepted it -- never "delivered", and never "read".
+ */
+export const DELIVERY_LABELS: Record<DeliveryStatus, string> = {
+  queued: 'Queued',
+  sent: 'Sent',
+  failed: 'Failed',
+}
+
+export const DELIVERY_BADGE: Record<DeliveryStatus, 'gray' | 'success' | 'error'> = {
+  queued: 'gray',
+  sent: 'success',
+  failed: 'error',
+}
+
+/** One row of list_partnership_invitations. */
+export type PartnershipInvitation = {
+  id: string
+  invited_email: string
+  status: InvitationStatus
+  invited_user_id: string | null
+  created_at: string
+  expires_at: string
+  responded_at: string | null
+  /** Derived server-side: status = 'pending' AND expires_at <= now(). */
+  is_expired: boolean
+  delivery_status: DeliveryStatus | null
+  delivery_attempts: number | null
+  delivery_last_error: string | null
+  delivery_queued_at: string | null
+  delivery_sent_at: string | null
+}
+
+export function invitationDisplayStatus(
+  invitation: Pick<PartnershipInvitation, 'status' | 'is_expired'>
+): InvitationDisplayStatus {
+  return invitation.is_expired ? 'expired' : invitation.status
+}
+
+/**
+ * Which invitation a partnership is "on" right now.
+ *
+ * `list_partnership_invitations` orders by created_at DESC, so the newest is
+ * normally the current one -- but a partial unique index guarantees at most ONE
+ * pending invitation per partnership, and a live invitation is the current one
+ * by definition however the timestamps sort. Asking for it directly means two
+ * rows written in the same instant cannot make the screen pick the wrong one.
+ */
+export function currentInvitation(
+  invitations: PartnershipInvitation[]
+): PartnershipInvitation | null {
+  return invitations.find((i) => i.status === 'pending') ?? invitations[0] ?? null
+}
+
 export type ObligationDirection = 'organizer_to_partner' | 'partner_to_organizer'
 export type ObligationStatus = 'pending' | 'in_progress' | 'completed'
 
@@ -509,6 +602,102 @@ export async function setPartnershipRoles(
     new_roles: roles,
   })
   if (error) return { error: mapPartnershipError(error, 'Unable to save the partner roles.') }
+  return { error: null }
+}
+
+// ---------------------------------------------------------------------------
+// Invitations
+//
+// Every one of these is a phase 3A SECURITY DEFINER function. The client has
+// no INSERT/UPDATE/DELETE grant on event_partnership_invitations and no grant
+// at all on partnership_invitation_emails, so there is no second way to do any
+// of this -- which is why none of the rules below are re-implemented here:
+//
+//   * who may invite              can_manage_event, inside the function
+//   * the archived-event freeze   inside the function
+//   * which statuses may be invited  draft or invited, inside the function
+//   * one pending invitation per partnership   a partial unique index
+//   * the 3-in-5-minutes resend limit          inside the function
+//
+// The UI's job is to not offer actions that will be refused, and to report it
+// honestly when one is refused anyway.
+// ---------------------------------------------------------------------------
+
+function mapInvitationError(
+  error: { message?: string; code?: string; details?: string } | null,
+  fallback: string
+): string {
+  const message = error?.message ?? ''
+  // The row was answered, revoked or deleted between the render and the click.
+  if (/No such invitation|No such partnership/i.test(message)) {
+    return 'This invitation is no longer available. Refresh to see its current state.'
+  }
+  return mapPartnershipError(error, fallback)
+}
+
+/**
+ * The organizer's view of a partnership's invitations, newest first.
+ *
+ * This is also the only safe route to delivery state: the outbox itself has no
+ * grants and no policy, because it is a list of other people's email
+ * addresses. The function returns the latest queue row per invitation and
+ * nothing else about it.
+ */
+export async function listPartnershipInvitations(
+  partnershipId: string
+): Promise<{ data: PartnershipInvitation[]; error: string | null }> {
+  const { data, error } = await supabase.rpc('list_partnership_invitations', {
+    target_partnership_id: partnershipId,
+  })
+  if (error) {
+    return { data: [], error: mapInvitationError(error, 'Unable to load the invitation.') }
+  }
+  return { data: (data ?? []) as PartnershipInvitation[], error: null }
+}
+
+/**
+ * Send the invitation, or re-issue the existing one to the same address.
+ *
+ * One RPC covers both because phase 3A made them the same operation: an
+ * existing pending invitation to this address is re-issued in place -- its
+ * expiry is reset and the email is queued again -- rather than duplicated.
+ * That is what makes this the right action for an EXPIRED invitation too;
+ * `resend` deliberately refuses those and says so.
+ *
+ * It also records the representative and moves the partnership out of draft,
+ * so nothing here writes `status` or `representative_email` itself.
+ */
+export async function invitePartnershipRepresentative(
+  partnershipId: string,
+  email: string
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('invite_partnership_representative', {
+    target_partnership_id: partnershipId,
+    invitee_email: email,
+  })
+  if (error) return { error: mapInvitationError(error, 'Unable to send this invitation.') }
+  return { error: null }
+}
+
+/** Queue the same invitation's email again, without re-issuing the invitation. */
+export async function resendPartnershipInvitation(
+  invitationId: string
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('resend_partnership_invitation', {
+    invitation_id: invitationId,
+  })
+  if (error) return { error: mapInvitationError(error, 'Unable to resend this invitation.') }
+  return { error: null }
+}
+
+/** Withdraw a pending invitation. The partnership returns to draft intact. */
+export async function revokePartnershipInvitation(
+  invitationId: string
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('revoke_partnership_invitation', {
+    invitation_id: invitationId,
+  })
+  if (error) return { error: mapInvitationError(error, 'Unable to revoke this invitation.') }
   return { error: null }
 }
 
