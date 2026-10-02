@@ -125,6 +125,36 @@ export async function listMembers(
   return { data: (data ?? []) as OrganizationMember[], error: null }
 }
 
+// One aggregate row per event the caller can manage: registrations, check-ins
+// and connections. The single org-wide activity contract — no per-event fan-out.
+export type OrgEventCounts = {
+  registrations: number
+  checked_in: number
+  connections_made: number
+}
+
+export async function fetchOrganizationEventCounts(orgId: string): Promise<{
+  data: Record<string, OrgEventCounts>
+  error: string | null
+}> {
+  const { data, error } = await supabase.rpc('organization_event_counts', { org_id: orgId })
+  if (error) return { data: {}, error: readableError(error, 'Could not load activity counts.') }
+  const counts: Record<string, OrgEventCounts> = {}
+  for (const row of (data ?? []) as {
+    event_id: string
+    registrations: string | number
+    checked_in: string | number
+    connections_made: string | number
+  }[]) {
+    counts[row.event_id] = {
+      registrations: Number(row.registrations) || 0,
+      checked_in: Number(row.checked_in) || 0,
+      connections_made: Number(row.connections_made) || 0,
+    }
+  }
+  return { data: counts, error: null }
+}
+
 export async function listInvitations(
   orgId: string
 ): Promise<{ data: OrganizationInvitation[]; error: string | null }> {
