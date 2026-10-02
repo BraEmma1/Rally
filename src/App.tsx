@@ -56,6 +56,7 @@ import MyInvitationsPage from '@/pages/organizer/MyInvitationsPage'
 import EventsListPage from '@/pages/organizer/EventsListPage'
 import EventFormPage from '@/pages/organizer/EventFormPage'
 import OrganizerEventDetailPage from '@/pages/organizer/EventDetailPage'
+import PartnerDetailPage from '@/pages/organizer/PartnerDetailPage'
 import PeoplePage from '@/pages/organizer/PeoplePage'
 
 function FullPageSpinner() {
@@ -256,6 +257,13 @@ export default function App() {
         <Route path="/organizer/events/new" element={<EventFormPage />} />
         <Route path="/organizer/events/:id" element={<OrganizerEventDetailPage />} />
         <Route path="/organizer/events/:id/edit" element={<EventFormPage />} />
+        {/* The partner workspace. Nested under the event because a partnership
+            only exists in one event's context, and `:id` rather than `:eventId`
+            because that is this area's existing parameter name. */}
+        <Route
+          path="/organizer/events/:id/partners/:partnershipId"
+          element={<PartnerDetailPage />}
+        />
         <Route path="/organizer/people" element={<PeoplePage />} />
         <Route path="/organizer/team" element={<TeamPage />} />
         <Route path="/organizer/settings" element={<OrganizationSettingsPage />} />

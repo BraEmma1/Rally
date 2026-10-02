@@ -33,8 +33,19 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
 export const EVENT_ASSET_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif'
 const MAX_BYTES = 5 * 1024 * 1024
 
-/** Folders under the uploader's own id. Keeps one kind of asset out of another's way. */
-export type EventAssetFolder = 'speakers' | 'exhibitors'
+/**
+ * Folders under the uploader's own id. Keeps one kind of asset out of
+ * another's way.
+ *
+ * `partners` is a partner company's logo. It belongs here rather than in the
+ * private `partnership-assets` bucket: a logo has to render in a plain <img>,
+ * `event_partnerships.logo_url` carries a CHECK that it be an https URL, and a
+ * signed URL stored in that column would be an access grant that expires.
+ * Evidence files -- the part that actually is confidential -- stay private.
+ * Nothing in the bucket's INSERT policy looks past the first path segment, so
+ * this needed no backend change at all.
+ */
+export type EventAssetFolder = 'speakers' | 'exhibitors' | 'partners'
 
 function uniqueName(): string {
   // randomUUID is available in every browser this app targets and, unlike a
