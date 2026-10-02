@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, Linkedin, Mail, Pencil } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Linkedin, Mail, Pencil, Send } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useOrganizer } from '@/context/OrganizerContext'
 import { Badge } from '@/components/ui/Badge'
@@ -15,7 +15,10 @@ import {
   allowedStatusTransitions,
   deletePartnership,
   getEventPartnership,
+  currentInvitation,
+  invitationDisplayStatus,
   listPartnershipEvidence,
+  listPartnershipInvitations,
   listPartnershipObligations,
   listPartnershipRoles,
   reorderObligations,
@@ -25,6 +28,7 @@ import {
   type Obligation,
   type ObligationStatus,
   type Partnership,
+  type PartnershipInvitation,
   type PartnershipRole,
   type PartnershipStatus,
 } from '@/lib/partnerships'
@@ -39,6 +43,10 @@ import {
   rolesLabel,
 } from '@/components/organizer/PartnerCommon'
 import { EditPartnerDialog } from '@/components/organizer/EditPartnerDialog'
+import {
+  PartnerInvitationCard,
+  SendInvitationDialog,
+} from '@/components/organizer/PartnerInvitation'
 import { PartnerObligationList } from '@/components/organizer/PartnerObligationList'
 import { EvidenceItems } from '@/components/organizer/PartnerEvidence'
 import { ConfirmDialog } from '@/components/organizer/SheetDialog'
@@ -80,9 +88,20 @@ export default function PartnerDetailPage() {
   const [notFound, setNotFound] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // The same banner carries two different kinds of news -- "invitation sent"
+  // and "the roles did not save" -- and they must not look alike.
+  const [noticeTone, setNoticeTone] = useState<'success' | 'warning'>('success')
+
+  // Invitation state is separate on purpose: Deliverables, Requirements and
+  // Evidence must not wait on it, and a failure to read the invitation must
+  // not take the whole page down.
+  const [invitations, setInvitations] = useState<PartnershipInvitation[]>([])
+  const [invitationsLoading, setInvitationsLoading] = useState(true)
+  const [invitationsError, setInvitationsError] = useState<string | null>(null)
 
   const [tab, setTab] = useState<Tab>('overview')
   const [editOpen, setEditOpen] = useState(false)
+  const [sendOpen, setSendOpen] = useState(false)
   const [confirm, setConfirm] = useState<'delete' | PartnershipStatus | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -136,6 +155,41 @@ export default function PartnerDetailPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  /** Its own fetch, so the rest of the page renders while this is in flight. */
+  const loadInvitations = useCallback(async () => {
+    if (!partnershipId) return
+    setInvitationsLoading(true)
+    const { data, error: invitationError } = await listPartnershipInvitations(partnershipId)
+    setInvitations(data)
+    setInvitationsError(invitationError)
+    setInvitationsLoading(false)
+  }, [partnershipId])
+
+  useEffect(() => {
+    void loadInvitations()
+  }, [loadInvitations])
+
+  /**
+   * After any invitation operation, refetch BOTH the invitation and the
+   * partnership: sending moves the partnership to `invited` and revoking moves
+   * it back to `draft`, and neither transition is this page's to assume. If
+   * another session changed things first, this is what surfaces their state
+   * rather than ours.
+   */
+  const refreshAfterInvitation = useCallback(
+    async (message?: string) => {
+      if (!eventId || !partnershipId) return
+      const [partnershipResult] = await Promise.all([
+        getEventPartnership(eventId, partnershipId),
+        loadInvitations(),
+      ])
+      if (partnershipResult.data) setPartnership(partnershipResult.data)
+      setNoticeTone('success')
+      setNotice(message ?? null)
+    },
+    [eventId, partnershipId, loadInvitations]
+  )
 
   /** Reload only the partnership's contents, keeping the current tab. */
   const reloadContents = useCallback(async () => {
@@ -254,6 +308,24 @@ export default function PartnerDetailPage() {
 
   const money = formatMoney(partnership.value_amount, partnership.value_currency)
   const transitions = allowedStatusTransitions(partnership.status)
+
+  // What the header may offer. Every one of these is also decided again in the
+  // database -- invite_partnership_representative re-checks authority, the
+  // archive freeze and the partnership status itself. This only avoids showing
+  // a button whose sole outcome would be an error.
+  const latestInvitation = currentInvitation(invitations)
+  const latestDisplay = latestInvitation ? invitationDisplayStatus(latestInvitation) : null
+  const hasRepresentative = Boolean(partnership.representative_email)
+  const canSend =
+    partnership.status === 'draft' && hasRepresentative && !invitationsLoading
+  const needsRepresentative = partnership.status === 'draft' && !hasRepresentative
+  const headerInvitationLabel =
+    partnership.status === 'invited' && latestDisplay === 'pending'
+      ? 'Invitation Pending'
+      : partnership.status === 'invited' && latestDisplay === 'expired'
+        ? 'Invitation Expired'
+        : null
+
   const TABS: { key: Tab; label: string; count?: number }[] = [
     { key: 'overview', label: 'Overview' },
     { key: 'deliverables', label: 'Deliverables', count: owed.length },
@@ -274,9 +346,9 @@ export default function PartnerDetailPage() {
         <p className="mt-1 truncate text-xs text-gray-400">{event.name}</p>
       </div>
 
-      {/* Header. A future Send Invitation action belongs in this action group,
-          beside Edit Partner -- the layout already has room for it, so adding
-          it later does not mean redesigning this page. */}
+      {/* Header. Once a partnership is live the relationship matters more than
+          how it began, so the invitation shrinks to a status chip here and its
+          management lives in Overview. */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <PartnerLogo name={partnership.company_name} logoUrl={partnership.logo_url} size="lg" />
@@ -305,11 +377,49 @@ export default function PartnerDetailPage() {
         </div>
 
         {editable && (
-          <div className="flex shrink-0 gap-2">
-            <Button variant="secondary" onClick={() => setEditOpen(true)}>
-              <Pencil className="h-4 w-4" />
-              Edit Partner
-            </Button>
+          <div className="flex shrink-0 flex-col items-stretch gap-2 sm:items-end">
+            <div className="flex flex-wrap gap-2 sm:justify-end">
+              <Button variant="secondary" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-4 w-4" />
+                Edit Partner
+              </Button>
+
+              {/* Draft with a representative: the one deliberate outward act
+                  on this page. It opens a confirmation rather than firing. */}
+              {canSend && (
+                <Button onClick={() => setSendOpen(true)}>
+                  <Send className="h-4 w-4" />
+                  Send Invitation
+                </Button>
+              )}
+
+              {/* Draft without one: an enabled Send here would only fail in
+                  the database, so the action points at the fix instead. */}
+              {needsRepresentative && (
+                <Button variant="outline" onClick={() => setEditOpen(true)}>
+                  <Mail className="h-4 w-4" />
+                  Add Representative Email
+                </Button>
+              )}
+
+              {/* Sent already: a status, not a button. Resend and Revoke are
+                  in the Invitation section below. */}
+              {headerInvitationLabel && (
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-600"
+                  role="status"
+                >
+                  <Mail className="h-4 w-4 text-gray-400" aria-hidden="true" />
+                  {headerInvitationLabel}
+                </span>
+              )}
+            </div>
+
+            {needsRepresentative && (
+              <p className="text-xs text-gray-500 sm:text-right">
+                Add a representative email before sending an invitation.
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -318,10 +428,22 @@ export default function PartnerDetailPage() {
 
       {notice && (
         <div
-          className="rounded-md border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-700"
-          role="alert"
+          className={cn(
+            'flex flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm',
+            noticeTone === 'success'
+              ? 'border-accent-200 bg-accent-50 text-accent-700'
+              : 'border-warning-200 bg-warning-50 text-warning-700'
+          )}
+          role="status"
         >
-          {notice}
+          <span>{notice}</span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="text-xs font-medium underline"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -356,6 +478,49 @@ export default function PartnerDetailPage() {
       {tab === 'overview' && (
         <div className="grid gap-4 lg:grid-cols-3">
           <div className="space-y-4 lg:col-span-2">
+            <Card>
+              <CardHeader>
+                <CardTitle>Partnership</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <DetailRow label="Tier" value={partnership.tier_label} />
+                <DetailRow label="Roles" value={roles.length > 0 ? rolesLabel(roles) : null} />
+                <DetailRow label="Status">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <PartnerStatusBadge status={partnership.status} />
+                    {partnership.acknowledged_at && (
+                      <span className="text-xs text-gray-500">
+                        Accepted{' '}
+                        {new Date(partnership.acknowledged_at).toLocaleDateString(undefined, {
+                          day: 'numeric',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </span>
+                    )}
+                  </div>
+                </DetailRow>
+                <DetailRow label="Commercial value" value={money} />
+                <DetailRow label="Representative" value={partnership.representative_email} />
+              </CardContent>
+            </Card>
+
+            {/* Renders only once an invitation exists. The partnership status
+                above and the invitation status here are different fields and
+                are shown as such: a partnership is Invited while its
+                invitation is Pending. */}
+            <PartnerInvitationCard
+              partnership={partnership}
+              roles={roles}
+              eventName={event.name}
+              invitations={invitations}
+              loading={invitationsLoading}
+              error={invitationsError}
+              editable={editable}
+              onChanged={refreshAfterInvitation}
+              onEditPartner={() => setEditOpen(true)}
+            />
+
             <Card>
               <CardHeader>
                 <CardTitle>Company</CardTitle>
@@ -396,33 +561,6 @@ export default function PartnerDetailPage() {
                     </p>
                   </DetailRow>
                 )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Partnership</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <DetailRow label="Tier" value={partnership.tier_label} />
-                <DetailRow label="Roles" value={roles.length > 0 ? rolesLabel(roles) : null} />
-                <DetailRow label="Status">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <PartnerStatusBadge status={partnership.status} />
-                    {partnership.acknowledged_at && (
-                      <span className="text-xs text-gray-500">
-                        Accepted{' '}
-                        {new Date(partnership.acknowledged_at).toLocaleDateString(undefined, {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </span>
-                    )}
-                  </div>
-                </DetailRow>
-                <DetailRow label="Commercial value" value={money} />
-                <DetailRow label="Representative" value={partnership.representative_email} />
               </CardContent>
             </Card>
 
@@ -570,8 +708,26 @@ export default function PartnerDetailPage() {
           onClose={() => setEditOpen(false)}
           onSaved={async (warning) => {
             setEditOpen(false)
+            setNoticeTone('warning')
             setNotice(warning)
             await load()
+            // The representative may have changed, which decides whether Send
+            // Invitation is offered at all.
+            await loadInvitations()
+          }}
+        />
+      )}
+
+      {sendOpen && partnership.representative_email && (
+        <SendInvitationDialog
+          partnership={partnership}
+          roles={roles}
+          eventName={event.name}
+          email={partnership.representative_email}
+          onClose={() => setSendOpen(false)}
+          onSent={async (message) => {
+            setSendOpen(false)
+            await refreshAfterInvitation(message)
           }}
         />
       )}

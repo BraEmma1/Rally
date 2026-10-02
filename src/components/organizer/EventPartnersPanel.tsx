@@ -330,9 +330,18 @@ function PartnersList({
                   )}
                 </div>
 
-                {/* Status, with the affordance that this row opens something */}
+                {/* Status, with the affordance that this row opens something.
+                    `Invited` is the only status that implies somebody else
+                    owes a reply, so it is the only one carrying a second line.
+                    The invitation itself -- expiry, delivery, resend, revoke
+                    -- lives on Partner Detail, not in a list row. */}
                 <div className="order-3 flex items-center justify-between gap-2 lg:order-none">
-                  <PartnerStatusBadge status={partner.status} />
+                  <div className="min-w-0">
+                    <PartnerStatusBadge status={partner.status} />
+                    {partner.status === 'invited' && (
+                      <p className="mt-1 truncate text-xs text-gray-500">Awaiting response</p>
+                    )}
+                  </div>
                   <ChevronRight className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
                 </div>
               </Link>
