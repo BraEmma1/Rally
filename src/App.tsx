@@ -336,6 +336,9 @@ export default function App() {
       >
         <Route path="/events/:eventId/home" element={<EventHomePage />} />
         <Route path="/events/:eventId/network" element={<EventNetworkPage />} />
+        {/* The same ConnectionDetailPage the main app uses, mounted here so a
+            connection opens without leaving the event shell. */}
+        <Route path="/events/:eventId/connections/:connectionId" element={<ConnectionDetailPage />} />
         <Route path="/events/:eventId/info" element={<EventComingSoonPage />} />
         <Route path="/events/:eventId/agenda" element={<EventAgendaPage />} />
         <Route path="/events/:eventId/schedule" element={<EventMySchedulePage />} />

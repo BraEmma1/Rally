@@ -106,8 +106,19 @@ function buildHistory(
 const TIMELINE_ICONS = { Connected: Link2, Note: StickyNote, 'Follow-up': CalendarClock, Opportunity: Target } as const
 const TIMELINE_DOTS = { primary: 'bg-primary-600', accent: 'bg-accent-600', gray: 'bg-gray-300', warning: 'bg-warning-500' } as const
 
+// Mounted at both /connections/:id and
+// /events/:eventId/connections/:connectionId. One implementation, two routes:
+// the only differences are which id param carries the connection, where "back"
+// goes, and that the event-scoped mount refuses a connection from another
+// event.
 export default function ConnectionDetailPage() {
-  const { id } = useParams<{ id: string }>()
+  const params = useParams<{ id?: string; connectionId?: string; eventId?: string }>()
+  const id = params.id ?? params.connectionId
+  const eventId = params.eventId
+  const inEventMode = Boolean(eventId)
+  // Never browser history: arriving here from a QR scan has no sensible
+  // previous entry, and Event Mode should not be escapable by going back.
+  const backPath = eventId ? `/events/${eventId}/network` : '/connections'
   const navigate = useNavigate()
   const { user } = useAuth()
 
@@ -167,6 +178,13 @@ export default function ConnectionDetailPage() {
         setError('Connection not found.')
         return
       }
+      // The query above already pins owner_id, so this is not an authorization
+      // check -- it stops a connection the viewer legitimately owns, but which
+      // was made at another event, from rendering inside this event's shell.
+      if (eventId && (connRes.data as Connection).event_id !== eventId) {
+        setError('That connection was not made at this event.')
+        return
+      }
       setConnection(connRes.data as Connection)
       setRelationshipType((connRes.data as Connection).relationship_type || 'Other')
       setNotes(notesRes.data as Note[])
@@ -182,7 +200,7 @@ export default function ConnectionDetailPage() {
   useEffect(() => {
     loadData()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, user])
+  }, [id, user, eventId])
 
   useEffect(() => {
     if (!menuOpen) return
@@ -327,7 +345,7 @@ export default function ConnectionDetailPage() {
     if (!id || !user) return
     if (!confirm('Delete this connection and all its notes and follow-ups?')) return
     await supabase.from('connections').delete().eq('id', id).eq('owner_id', user.id)
-    navigate('/connections')
+    navigate(backPath)
   }
 
   // Messaging goes through the backend RPC: it authorizes the connection and
@@ -346,7 +364,7 @@ export default function ConnectionDetailPage() {
       setMessageError(toFriendlyMessageError(convError, 'Could not open the conversation. Please try again.'))
       return
     }
-    navigate(`/messages/${conversationId}`)
+    navigate(inEventMode ? `/events/${eventId}/messages/${conversationId}` : `/messages/${conversationId}`)
   }
 
   async function handleShareContact() {
@@ -375,7 +393,17 @@ export default function ConnectionDetailPage() {
   }
 
   if (loading) return <LoadingState message="Loading connection…" />
-  if (error) return <ErrorState message={error} onRetry={loadData} />
+  // A wrong-event id is not retryable, so that one offers the way out instead.
+  if (error) {
+    const wrongEvent = error.startsWith('That connection was not made')
+    return (
+      <ErrorState
+        message={error}
+        onRetry={wrongEvent ? () => navigate(backPath) : loadData}
+        retryLabel={wrongEvent ? (inEventMode ? 'Back to event network' : 'Back to network') : undefined}
+      />
+    )
+  }
   if (!connection) return <ErrorState message="Connection not found." />
 
   const linkedinUrl = normalizeUrl(connection.linkedin)
@@ -397,7 +425,7 @@ export default function ConnectionDetailPage() {
     <div className="mx-auto max-w-md pb-10 md:max-w-2xl md:pb-0">
       {/* 1. Top header */}
       <div className="relative flex items-center justify-between border-b border-gray-100 py-2.5">
-        <button onClick={() => navigate('/connections')} aria-label="Back to network" className="-ml-2 rounded-full p-2 text-gray-500 hover:text-gray-700">
+        <button onClick={() => navigate(backPath)} aria-label="Back to network" className="-ml-2 rounded-full p-2 text-gray-500 hover:text-gray-700">
           <ArrowLeft className="h-5 w-5" />
         </button>
         <span className="max-w-[55%] truncate text-base font-semibold text-gray-900 md:text-lg">{connection.full_name}</span>

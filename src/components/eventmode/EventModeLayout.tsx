@@ -61,6 +61,10 @@ export default function EventModeLayout() {
   // and a back arrow -- so the generic event header would be a second, less
   // useful one stacked above it.
   const onConversation = location.pathname.startsWith(`${eventBasePath}/messages/`)
+  // Connection detail also renders its own header (the person's name, a back
+  // arrow and an options menu), so the generic event header would stack a
+  // second, less useful one above it -- same reasoning as a conversation.
+  const onConnection = location.pathname.startsWith(`${eventBasePath}/connections/`)
   const dateLabel = event.start_date
     ? `${formatDate(event.start_date)}${event.end_date && event.end_date !== event.start_date ? ` – ${formatDate(event.end_date)}` : ''}`
     : 'Dates to be announced'
@@ -69,7 +73,7 @@ export default function EventModeLayout() {
     <div className="flex min-h-screen flex-col bg-gray-50 supports-[height:100dvh]:min-h-[100dvh]">
       {/* Compact header for inner pages only; the home page's hero carries the
           event identity and bell itself. */}
-      {!onHome && !onConversation && (
+      {!onHome && !onConversation && !onConnection && (
         <header className="sticky top-0 z-30 border-b border-gray-200 bg-white">
           <div className="flex h-14 items-center gap-2 px-3">
             <button
