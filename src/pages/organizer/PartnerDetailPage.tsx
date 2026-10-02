@@ -1,6 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, ExternalLink, Linkedin, Mail, Pencil } from 'lucide-react'
+import {
+  ArrowLeft,
+  CircleDashed,
+  ClipboardList,
+  ExternalLink,
+  Linkedin,
+  ListChecks,
+  Mail,
+  Paperclip,
+  Pencil,
+} from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useOrganizer } from '@/context/OrganizerContext'
 import { Badge } from '@/components/ui/Badge'
@@ -62,6 +72,89 @@ import { ConfirmDialog } from '@/components/organizer/SheetDialog'
 // ---------------------------------------------------------------------------
 
 type Tab = 'overview' | 'deliverables' | 'requirements' | 'evidence'
+
+function PartnershipMetricCard({
+  icon,
+  iconClassName,
+  value,
+  suffix,
+  label,
+  hint,
+  progress,
+}: {
+  icon: ReactNode
+  iconClassName: string
+  value: number
+  suffix?: string
+  label: string
+  hint: string
+  progress: number
+}) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg',
+            iconClassName
+          )}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <p className="text-2xl font-bold leading-7 tabular-nums text-gray-900">
+            {value.toLocaleString()}
+            {suffix && <span className="ml-1 text-sm font-semibold text-gray-500">{suffix}</span>}
+          </p>
+          <p className="mt-0.5 text-sm font-medium text-gray-700">{label}</p>
+          <p className="mt-0.5 truncate text-xs text-gray-500">{hint}</p>
+        </div>
+      </div>
+      <div
+        className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-gray-100"
+        role="progressbar"
+        aria-valuenow={Math.min(100, Math.round(progress * 100))}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={label + ': ' + Math.round(progress * 100) + '% complete'}
+      >
+        <div
+          className="h-full rounded-full bg-success-500 transition-[width] duration-500"
+          style={{ width: `${Math.min(100, Math.round(progress * 100))}%` }}
+        />
+      </div>
+    </div>
+  )
+}
+
+function DetailRow({
+  label,
+  value,
+  children,
+}: {
+  label: string
+  value?: string | null
+  children?: React.ReactNode
+}) {
+  if (!children && !value) {
+    return (
+      <div className="grid gap-0.5 sm:grid-cols-[9rem_1fr] sm:gap-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-gray-400 sm:pt-0.5">
+          {label}
+        </p>
+        <p className="text-sm text-gray-400">Not recorded</p>
+      </div>
+    )
+  }
+  return (
+    <div className="grid gap-0.5 sm:grid-cols-[9rem_1fr] sm:gap-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-gray-400 sm:pt-0.5">{label}</p>
+      <div className="min-w-0">
+        {children ?? <p className="break-words text-sm text-gray-900">{value}</p>}
+      </div>
+    </div>
+  )
+}
 
 export default function PartnerDetailPage() {
   const { id: eventId, partnershipId } = useParams<{ id: string; partnershipId: string }>()
@@ -261,6 +354,66 @@ export default function PartnerDetailPage() {
     { key: 'evidence', label: 'Evidence', count: evidence.length },
   ]
 
+  const owedCompleted = owed.filter((o) => o.status === 'completed').length
+  const requiredCompleted = required.filter((o) => o.status === 'completed').length
+  const openItems = obligations.length - owedCompleted - requiredCompleted
+
+  const metrics = [
+    {
+      key: 'deliverables',
+      icon: <ClipboardList className="h-5 w-5" aria-hidden="true" />,
+      iconClassName: 'bg-primary-50 text-primary-600',
+      value: owedCompleted,
+      suffix: owed.length > 0 ? 'of ' + owed.length : undefined,
+      label: 'Deliverables',
+      hint: 'What we promised this partner',
+      progress: owed.length > 0 ? owedCompleted / owed.length : 0,
+    },
+    {
+      key: 'requirements',
+      icon: <ListChecks className="h-5 w-5" aria-hidden="true" />,
+      iconClassName: 'bg-accent-50 text-accent-600',
+      value: requiredCompleted,
+      suffix: required.length > 0 ? 'of ' + required.length : undefined,
+      label: 'Requirements',
+      hint: 'What this partner provides',
+      progress: required.length > 0 ? requiredCompleted / required.length : 0,
+    },
+    {
+      key: 'evidence',
+      icon: <Paperclip className="h-5 w-5" aria-hidden="true" />,
+      iconClassName: 'bg-violet-50 text-violet-600',
+      value: evidence.length,
+      label: 'Evidence',
+      hint: evidence.length === 1 ? 'Item attached' : 'Items attached',
+      progress: 0,
+    },
+    {
+      key: 'open',
+      icon: <CircleDashed className="h-5 w-5" aria-hidden="true" />,
+      iconClassName: 'bg-warning-50 text-warning-600',
+      value: openItems,
+      label: 'Open items',
+      hint: 'Not yet completed',
+      progress: 0,
+    },
+  ]
+
+  const quickActions = [
+    { key: 'edit' as const, label: 'Edit partnership', icon: <Pencil className="h-5 w-5" aria-hidden="true" />, disabled: !editable },
+    { key: 'deliverables' as const, label: 'Deliverables', icon: <ClipboardList className="h-5 w-5" aria-hidden="true" />, disabled: false },
+    { key: 'requirements' as const, label: 'Requirements', icon: <ListChecks className="h-5 w-5" aria-hidden="true" />, disabled: false },
+    { key: 'evidence' as const, label: 'Evidence', icon: <Paperclip className="h-5 w-5" aria-hidden="true" />, disabled: false },
+  ]
+
+  function runQuickAction(key: 'edit' | Tab) {
+    if (key === 'edit') {
+      if (editable) setEditOpen(true)
+      return
+    }
+    setTab(key)
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -268,51 +421,75 @@ export default function PartnerDetailPage() {
           to={partnersPath}
           className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-700"
         >
-          <ArrowLeft className="h-4 w-4" />
-          Partners
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          Back to partners
         </Link>
         <p className="mt-1 truncate text-xs text-gray-400">{event.name}</p>
       </div>
 
-      {/* Header. A future Send Invitation action belongs in this action group,
-          beside Edit Partner -- the layout already has room for it, so adding
-          it later does not mean redesigning this page. */}
+      {/* Identity: logo beside the partnership facts on desktop, stacked on
+          mobile. The single place this partnership is described. */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
+        <div className="flex min-w-0 items-start gap-4">
           <PartnerLogo name={partnership.company_name} logoUrl={partnership.logo_url} size="lg" />
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold text-gray-900">{partnership.company_name}</h1>
-              <PartnerStatusBadge status={partnership.status} />
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
+            <PartnerStatusBadge status={partnership.status} />
+            <h1 className="mt-1.5 text-2xl font-bold text-gray-900">{partnership.company_name}</h1>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
               {partnership.tier_label && (
                 <span className="font-medium text-gray-700">{partnership.tier_label}</span>
               )}
-              {roles.length > 0 && <span>{rolesLabel(roles)}</span>}
-              {money && <span className="tabular-nums">{money}</span>}
+              {partnership.tier_label && roles.length > 0 && (
+                <span aria-hidden="true" className="text-gray-300">
+                  •
+                </span>
+              )}
+              <span className="font-medium text-gray-700">{event.name}</span>
             </div>
-            {partnership.representative_email && (
+            {partnership.industry && (
+              <p className="mt-1 text-sm text-gray-500">{partnership.industry}</p>
+            )}
+            {partnership.website && (
               <a
-                href={'mailto:' + partnership.representative_email}
+                href={partnership.website}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="mt-1 inline-flex items-center gap-1.5 text-sm text-primary-700 hover:text-primary-800"
               >
-                <Mail className="h-3.5 w-3.5" aria-hidden="true" />
-                {partnership.representative_email}
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                {displayUrl(partnership.website)}
               </a>
+            )}
+            {partnership.description && (
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-gray-600">
+                {partnership.description}
+              </p>
             )}
           </div>
         </div>
 
+        {/* Desktop actions. There is no global partner profile in Rally, so
+            there is no "View partner profile" button: the only real
+            destination from here is the edit flow. */}
         {editable && (
-          <div className="flex shrink-0 gap-2">
-            <Button variant="secondary" onClick={() => setEditOpen(true)}>
-              <Pencil className="h-4 w-4" />
-              Edit Partner
+          <div className="hidden shrink-0 gap-2 sm:flex">
+            <Button onClick={() => setEditOpen(true)}>
+              <Pencil className="h-4 w-4" aria-hidden="true" />
+              Edit partnership
             </Button>
           </div>
         )}
       </div>
+
+      {/* Mobile primary action. */}
+      {editable && (
+        <div className="sm:hidden">
+          <Button className="w-full" onClick={() => setEditOpen(true)}>
+            <Pencil className="h-4 w-4" aria-hidden="true" />
+            Edit partnership
+          </Button>
+        </div>
+      )}
 
       {archived && <ArchivedNotice />}
 
@@ -354,174 +531,228 @@ export default function PartnerDetailPage() {
       </div>
 
       {tab === 'overview' && (
-        <div className="grid gap-4 lg:grid-cols-3">
-          <div className="space-y-4 lg:col-span-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Company</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <DetailRow label="Name" value={partnership.company_name} />
-                <DetailRow label="Industry" value={partnership.industry} />
-                {partnership.website && (
-                  <DetailRow label="Website">
-                    <a
-                      href={partnership.website}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-sm text-primary-700 hover:text-primary-800"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-                      {displayUrl(partnership.website)}
-                    </a>
-                  </DetailRow>
-                )}
-                {partnership.linkedin && (
-                  <DetailRow label="LinkedIn">
-                    <a
-                      href={partnership.linkedin}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1.5 text-sm text-primary-700 hover:text-primary-800"
-                    >
-                      <Linkedin className="h-3.5 w-3.5" aria-hidden="true" />
-                      {displayUrl(partnership.linkedin)}
-                    </a>
-                  </DetailRow>
-                )}
-                {partnership.description && (
-                  <DetailRow label="About">
-                    <p className="whitespace-pre-wrap text-sm text-gray-700">
-                      {partnership.description}
-                    </p>
-                  </DetailRow>
-                )}
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Partnership</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <DetailRow label="Tier" value={partnership.tier_label} />
-                <DetailRow label="Roles" value={roles.length > 0 ? rolesLabel(roles) : null} />
-                <DetailRow label="Status">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <PartnerStatusBadge status={partnership.status} />
-                    {partnership.acknowledged_at && (
-                      <span className="text-xs text-gray-500">
-                        Accepted{' '}
-                        {new Date(partnership.acknowledged_at).toLocaleDateString(undefined, {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })}
-                      </span>
-                    )}
-                  </div>
-                </DetailRow>
-                <DetailRow label="Commercial value" value={money} />
-                <DetailRow label="Representative" value={partnership.representative_email} />
-              </CardContent>
-            </Card>
-
-            {/* Organizer-only. Shown as what it is -- a private note -- and
-                never as company information. Nothing routes internal_notes
-                anywhere outside this page. */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Internal notes</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {partnership.internal_notes ? (
-                  <p className="whitespace-pre-wrap text-sm text-gray-700">
-                    {partnership.internal_notes}
-                  </p>
-                ) : (
-                  <p className="text-sm text-gray-500">
-                    Nothing recorded. Private to people who manage this event.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Progress</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <ProgressMeter
-                  label="Deliverables"
-                  completed={owed.filter((o) => o.status === 'completed').length}
-                  total={owed.length}
+        <div className="space-y-4">
+          <section aria-label="Partnership metrics">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              {metrics.map((m) => (
+                <PartnershipMetricCard
+                  key={m.key}
+                  icon={m.icon}
+                  iconClassName={m.iconClassName}
+                  value={m.value}
+                  suffix={m.suffix}
+                  label={m.label}
+                  hint={m.hint}
+                  progress={m.progress}
                 />
-                <ProgressMeter
-                  label="Requirements"
-                  completed={required.filter((o) => o.status === 'completed').length}
-                  total={required.length}
-                />
-                <p className="text-xs text-gray-500">
-                  Counts what is marked completed right now. Rally does not keep a history of
-                  reopened items.
-                </p>
-              </CardContent>
-            </Card>
+              ))}
+            </div>
+          </section>
 
-            {editable && (transitions.length > 0 || partnership.status === 'draft') && (
+          <div className="grid gap-4 lg:grid-cols-3">
+            <div className="space-y-4 lg:col-span-2">
               <Card>
-                <CardHeader>
-                  <CardTitle>Partnership status</CardTitle>
+                <CardHeader className="flex flex-row items-center justify-between gap-2">
+                  <CardTitle>Partnership information</CardTitle>
+                  {editable && (
+                    <button
+                      type="button"
+                      onClick={() => setEditOpen(true)}
+                      className="text-sm font-medium text-primary-600 hover:text-primary-700"
+                    >
+                      Edit
+                    </button>
+                  )}
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    {transitions.map((next) => (
-                      <Button
-                        key={next}
-                        variant={next === 'cancelled' ? 'secondary' : 'primary'}
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => setConfirm(next)}
+                  <DetailRow label="Partner" value={partnership.company_name} />
+                  <DetailRow label="Event">
+                    <Link
+                      to={partnersPath}
+                      className="text-sm font-medium text-primary-700 hover:text-primary-800"
+                    >
+                      {event.name}
+                    </Link>
+                  </DetailRow>
+                  <DetailRow label="Partnership status">
+                    <PartnerStatusBadge status={partnership.status} />
+                  </DetailRow>
+                  <DetailRow label="Tier" value={partnership.tier_label} />
+                  <DetailRow label="Roles" value={roles.length > 0 ? rolesLabel(roles) : null} />
+                  <DetailRow label="Commercial value" value={money} />
+                  <DetailRow
+                    label="Representative"
+                    value={partnership.representative_email}
+                  >
+                    {partnership.representative_email && (
+                      <a
+                        href={'mailto:' + partnership.representative_email}
+                        className="inline-flex items-center gap-1.5 text-sm text-primary-700 hover:text-primary-800"
                       >
-                        {next === 'cancelled'
-                          ? 'Cancel Partnership'
-                          : next === 'completed'
-                            ? 'Mark Completed'
-                            : next === 'active'
-                              ? 'Reopen as Active'
-                              : 'Restore to Draft'}
-                      </Button>
-                    ))}
-                  </div>
-
-                  {/* A draft may be discarded; anything past draft is a
-                      commercial record and is cancelled instead. The database
-                      refuses the other case, so the button is not offered. */}
-                  {partnership.status === 'draft' ? (
-                    <>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        disabled={busy}
-                        onClick={() => setConfirm('delete')}
+                        <Mail className="h-3.5 w-3.5" aria-hidden="true" />
+                        {partnership.representative_email}
+                      </a>
+                    )}
+                  </DetailRow>
+                  {partnership.website && (
+                    <DetailRow label="Website">
+                      <a
+                        href={partnership.website}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-primary-700 hover:text-primary-800"
                       >
-                        Delete Partner
-                      </Button>
-                      <p className="text-xs text-gray-500">
-                        This partner is still a draft, so it can be deleted outright.
+                        <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                        {displayUrl(partnership.website)}
+                      </a>
+                    </DetailRow>
+                  )}
+                  {partnership.linkedin && (
+                    <DetailRow label="LinkedIn">
+                      <a
+                        href={partnership.linkedin}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-primary-700 hover:text-primary-800"
+                      >
+                        <Linkedin className="h-3.5 w-3.5" aria-hidden="true" />
+                        {displayUrl(partnership.linkedin)}
+                      </a>
+                    </DetailRow>
+                  )}
+                  <DetailRow label="Industry" value={partnership.industry} />
+                  {partnership.description && (
+                    <DetailRow label="Description">
+                      <p className="whitespace-pre-wrap text-sm text-gray-700">
+                        {partnership.description}
                       </p>
-                    </>
+                    </DetailRow>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Progress</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <ProgressMeter label="Deliverables" completed={owedCompleted} total={owed.length} />
+                  <ProgressMeter
+                    label="Requirements"
+                    completed={requiredCompleted}
+                    total={required.length}
+                  />
+                  <p className="text-xs text-gray-500">
+                    Counts what is marked completed right now. Rally does not keep a history of
+                    reopened items.
+                  </p>
+                </CardContent>
+              </Card>
+
+              {/* Organizer-only. Shown as what it is -- a private note -- and
+                  never as company information. Nothing routes internal_notes
+                  anywhere outside this page. */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Internal notes</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {partnership.internal_notes ? (
+                    <p className="whitespace-pre-wrap text-sm text-gray-700">
+                      {partnership.internal_notes}
+                    </p>
                   ) : (
-                    <p className="text-xs text-gray-500">
-                      Past draft, a partnership is a commercial record: it is cancelled rather than
-                      deleted, and stays readable.
+                    <p className="text-sm text-gray-500">
+                      Nothing recorded. Private to people who manage this event.
                     </p>
                   )}
                 </CardContent>
               </Card>
-            )}
+            </div>
+
+            <div className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Actions</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-2">
+                    {quickActions.map((action) => (
+                      <button
+                        key={action.key}
+                        type="button"
+                        disabled={action.disabled}
+                        onClick={() => runQuickAction(action.key)}
+                        className={cn(
+                          'flex flex-col items-center justify-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-4 text-sm font-medium text-gray-700 transition-colors',
+                          action.disabled
+                            ? 'cursor-not-allowed opacity-50'
+                            : 'hover:border-primary-300 hover:bg-primary-50/50 hover:text-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-600'
+                        )}
+                      >
+                        <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-50 text-primary-600">
+                          {action.icon}
+                        </span>
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {editable && (transitions.length > 0 || partnership.status === 'draft') && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Partnership status</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex flex-wrap gap-2">
+                      {transitions.map((next) => (
+                        <Button
+                          key={next}
+                          variant={next === 'cancelled' ? 'secondary' : 'primary'}
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => setConfirm(next)}
+                        >
+                          {next === 'cancelled'
+                            ? 'Cancel Partnership'
+                            : next === 'completed'
+                              ? 'Mark Completed'
+                              : next === 'active'
+                                ? 'Reopen as Active'
+                                : 'Restore to Draft'}
+                        </Button>
+                      ))}
+                    </div>
+
+                    {/* A draft may be discarded; anything past draft is a
+                        commercial record and is cancelled instead. The database
+                        refuses the other case, so the button is not offered. */}
+                    {partnership.status === 'draft' ? (
+                      <>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => setConfirm('delete')}
+                        >
+                          Delete Partner
+                        </Button>
+                        <p className="text-xs text-gray-500">
+                          This partner is still a draft, so it can be deleted outright.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs text-gray-500">
+                        Past draft, a partnership is a commercial record: it is cancelled rather than
+                        deleted, and stays readable.
+                      </p>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -602,35 +833,6 @@ export default function PartnerDetailPage() {
           onClose={() => setConfirm(null)}
         />
       )}
-    </div>
-  )
-}
-
-function DetailRow({
-  label,
-  value,
-  children,
-}: {
-  label: string
-  value?: string | null
-  children?: React.ReactNode
-}) {
-  if (!children && !value) {
-    return (
-      <div className="grid gap-0.5 sm:grid-cols-[9rem_1fr] sm:gap-3">
-        <p className="text-xs font-medium uppercase tracking-wide text-gray-400 sm:pt-0.5">
-          {label}
-        </p>
-        <p className="text-sm text-gray-400">Not recorded</p>
-      </div>
-    )
-  }
-  return (
-    <div className="grid gap-0.5 sm:grid-cols-[9rem_1fr] sm:gap-3">
-      <p className="text-xs font-medium uppercase tracking-wide text-gray-400 sm:pt-0.5">{label}</p>
-      <div className="min-w-0">
-        {children ?? <p className="break-words text-sm text-gray-900">{value}</p>}
-      </div>
     </div>
   )
 }
