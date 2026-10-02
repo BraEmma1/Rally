@@ -276,7 +276,10 @@ export default function OrganizerDashboardPage() {
     void loadTeam()
   }, [loadTeam])
 
-  const attention = useMemo(() => attentionItems(events, counts), [events, counts])
+  const attention = useMemo(
+    () => (eventsLoading ? [] : attentionItems(events, counts)),
+    [events, counts, eventsLoading]
+  )
   const shown = useMemo(() => visibleEvents(events), [events])
   const pending = useMemo(() => invitations.filter((i) => i.status === 'pending'), [invitations])
 
@@ -422,7 +425,7 @@ export default function OrganizerDashboardPage() {
             </div>
           </section>
 
-          {attention.length > 0 && (
+          {!eventsLoading && attention.length > 0 && (
             <section aria-labelledby="attention-heading">
               <div className="rounded-lg border border-warning-200 bg-warning-50 p-4 sm:p-5">
                 <div className="flex items-center gap-3">
