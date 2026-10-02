@@ -322,7 +322,7 @@ export default function EventModeConnectFlow({
                   className="w-full"
                   onClick={() => {
                     onClose()
-                    if (connectionId) navigate(`/connections/${connectionId}`)
+                    if (connectionId) navigate(`/events/${event.id}/connections/${connectionId}`)
                   }}
                 >
                   <UserIcon className="h-4 w-4" /> View profile

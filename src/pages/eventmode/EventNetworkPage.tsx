@@ -218,7 +218,7 @@ export default function EventNetworkPage() {
                     >
                       <MessageSquare className="h-3.5 w-3.5" /> Message
                     </Button>
-                    <Button size="sm" variant="ghost" onClick={() => navigate(`/connections/${conn.id}`)}>
+                    <Button size="sm" variant="ghost" onClick={() => navigate(`${eventBasePath}/connections/${conn.id}`)}>
                       View Profile
                     </Button>
                   </div>

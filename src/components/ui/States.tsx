@@ -55,7 +55,18 @@ export function EmptyState({
   )
 }
 
-export function ErrorState({ message, onRetry }: { message: string; onRetry?: () => void }) {
+// retryLabel is optional and defaults to "Try again". Some failures are not
+// retryable -- a connection that belongs to another event will never load
+// here no matter how often you ask -- and those want a way out instead.
+export function ErrorState({
+  message,
+  onRetry,
+  retryLabel = "Try again",
+}: {
+  message: string
+  onRetry?: () => void
+  retryLabel?: string
+}) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-error-50 text-error-600">
@@ -66,7 +77,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
       <p className="text-sm text-gray-600">{message}</p>
       {onRetry && (
         <button onClick={onRetry} className="text-sm font-medium text-primary-600 hover:text-primary-700">
-          Try again
+          {retryLabel}
         </button>
       )}
     </div>
