@@ -61,13 +61,19 @@ export async function listEventExhibitors(
   return { data: (data ?? []) as EventExhibitor[], error: null }
 }
 
+// Scoped to the event in the URL, not just the id. Without the event filter
+// /events/<A>/exhibitors/<an-exhibitor-of-B> renders B's exhibitor inside A's
+// shell -- RLS still allows it, because the viewer may legitimately see both
+// events, so the scoping has to be asked for here.
 export async function getEventExhibitor(
+  eventId: string,
   exhibitorId: string
 ): Promise<{ data: EventExhibitor | null; error: string | null }> {
   const { data, error } = await supabase
     .from('event_exhibitors')
     .select('*')
     .eq('id', exhibitorId)
+    .eq('event_id', eventId)
     .maybeSingle()
   if (error) {
     return { data: null, error: mapExhibitorError(error, 'Could not load that exhibitor.') }

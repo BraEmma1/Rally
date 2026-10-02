@@ -196,8 +196,10 @@ export default function EventModeConnectFlow({
       event_id: event.id,
     })
     onClose()
-    if (data) navigate(`/messages/${data}`)
-    else navigate('/messages')
+    // Stay inside Event Mode: this flow only ever runs from the event shell.
+    const base = `/events/${event.id}/messages`
+    if (data) navigate(`${base}/${data}`)
+    else navigate(base)
   }
 
   if (!open) return null

@@ -345,7 +345,6 @@ export default function App() {
         <Route path="/events/:eventId/exhibitors/:exhibitorId" element={<ExhibitorDetailPage />} />
         <Route path="/events/:eventId/map" element={<EventComingSoonPage />} />
         <Route path="/events/:eventId/deal-room" element={<EventComingSoonPage />} />
-        <Route path="/events/:eventId/coming-soon" element={<EventComingSoonPage />} />
 
         {/* Messaging inside Event Mode: the existing Rally messaging pages
             reuse with event-scoped URLs, so the Event Mode nav stays visible

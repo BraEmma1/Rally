@@ -111,7 +111,7 @@ export default function EventHomePage() {
             </div>
 
             <div className="mt-7">
-              <h1 className="text-3xl font-bold leading-tight text-white">{event.name}</h1>
+              <h1 className="text-3xl font-bold leading-tight text-white md:text-4xl">{event.name}</h1>
               <p className="mt-1.5 text-sm text-white/90">
                 {dateLabel}
                 {event.location ? ` | ${event.location}` : ''}
