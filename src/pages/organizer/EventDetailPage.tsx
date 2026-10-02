@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import {
   Archive,
   ArchiveRestore,
@@ -44,7 +44,7 @@ import { EventNetworkingAnalytics } from '@/components/organizer/EventNetworking
 import { EventActivityPanel } from '@/components/organizer/EventActivityPanel'
 import { EventAgendaPanel } from '@/components/organizer/EventAgendaPanel'
 import { EventSpeakersPanel } from '@/components/organizer/EventSpeakersPanel'
-import { EventExhibitorsPanel } from '@/components/organizer/EventExhibitorsPanel'
+import { EventPartnersPanel } from '@/components/organizer/EventPartnersPanel'
 
 type Tab =
   | 'overview'
@@ -54,7 +54,7 @@ type Tab =
   | 'networking'
   | 'agenda'
   | 'speakers'
-  | 'exhibitors'
+  | 'partners'
   | 'invitations'
 
 const TABS: { key: Tab; label: string }[] = [
@@ -65,9 +65,22 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'networking', label: 'Networking' },
   { key: 'agenda', label: 'Agenda' },
   { key: 'speakers', label: 'Speakers' },
-  { key: 'exhibitors', label: 'Exhibitors' },
+  // Private operational relationships. The attendee-facing Exhibitors
+  // directory is a different thing on a different table and is untouched.
+  { key: 'partners', label: 'Partners' },
   { key: 'invitations', label: 'Invitations' },
 ]
+
+const TAB_KEYS = new Set<string>(TABS.map((t) => t.key))
+
+/**
+ * `?tab=partners` picks the tab this page opens on, and nothing else: clicking
+ * a tab still does not touch the URL. It exists so Partner Detail can link
+ * back to the list it came from instead of dropping the organizer on Overview.
+ */
+function initialTab(raw: string | null): Tab {
+  return raw && TAB_KEYS.has(raw) ? (raw as Tab) : 'overview'
+}
 
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleDateString(undefined, {
@@ -79,6 +92,7 @@ function formatDateTime(value: string): string {
 
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
+  const [searchParams] = useSearchParams()
   const { role, loading: orgLoading } = useOrganizer()
 
   const [event, setEvent] = useState<OrganizerEvent | null>(null)
@@ -87,7 +101,7 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const [tab, setTab] = useState<Tab>('overview')
+  const [tab, setTab] = useState<Tab>(() => initialTab(searchParams.get('tab')))
 
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviting, setInviting] = useState(false)
@@ -402,7 +416,7 @@ export default function EventDetailPage() {
 
       {tab === 'speakers' && <EventSpeakersPanel event={event} manages={manages} />}
 
-      {tab === 'exhibitors' && <EventExhibitorsPanel event={event} manages={manages} />}
+      {tab === 'partners' && <EventPartnersPanel event={event} manages={manages} />}
 
       {tab === 'invitations' && (
         <div className="space-y-4">
