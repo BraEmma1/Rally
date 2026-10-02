@@ -577,7 +577,7 @@ export default function OrganizerDashboardPage() {
                           <tr key={event.id} className="border-t border-gray-100 first:border-t-0 hover:bg-gray-50/60">
                             <td className="px-4 py-2.5">
                               <Link to={'/organizer/events/' + event.id} className="flex items-center gap-3">
-                                <EventThumb event={event} className="h-10 w-14" />
+                                <EventThumb event={event} className="h-12 w-20" />
                                 <span className="font-semibold text-gray-900 hover:text-primary-700">
                                   {event.name}
                                 </span>
@@ -624,7 +624,7 @@ export default function OrganizerDashboardPage() {
                           to={'/organizer/events/' + event.id}
                           className="flex items-center gap-3 rounded-lg border border-gray-200 bg-white px-3 py-2.5 transition-colors hover:border-gray-300"
                         >
-                          <EventThumb event={event} className="h-12 w-16" />
+                          <EventThumb event={event} className="h-14 w-20" />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
                               <p className="truncate text-sm font-semibold text-gray-900">{event.name}</p>
