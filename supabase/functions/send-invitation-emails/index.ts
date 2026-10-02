@@ -1,4 +1,9 @@
-// Drains organization_invitation_emails and sends each queued invitation.
+// Drains the invitation email queues and sends each queued message.
+//
+// Two queues, two passes: organization_invitation_emails (team invitations)
+// and partnership_invitation_emails (event sponsor/partner invitations). The
+// organization pass below is unchanged; the partnership pass is additive, so
+// a change to one cannot break the other.
 //
 // Runs with the service role, so it reads the queue and the invitation detail
 // directly; none of the RLS policies apply to it and none are relaxed for it.
@@ -37,6 +42,26 @@ type QueueRow = {
     expires_at: string
     organizations: { name: string } | null
   } | null
+}
+
+// One flattened row per queued partnership email, from the
+// partnership_invitation_email_payload view. A view rather than nested
+// PostgREST embedding because event_partnership_invitations reaches its
+// parent through a composite foreign key, and the delivery path should not
+// depend on that being auto-detected.
+type PartnershipQueueRow = {
+  queue_id: string
+  invitation_id: string
+  recipient_email: string
+  attempts: number
+  invitation_status: string
+  expires_at: string
+  company_name: string
+  tier_label: string | null
+  event_name: string
+  organizer_name: string
+  role_label: string
+  queue_status: string
 }
 
 function db(path: string, init: RequestInit = {}) {
@@ -142,6 +167,55 @@ function renderEmail(opts: {
   return { subject, html, text }
 }
 
+// Every interpolated value here is organizer-entered, so all of it goes
+// through escapeHtml. The link is built from the trusted APP_URL plus an id.
+function renderPartnershipEmail(opts: {
+  organizer: string
+  company: string
+  what: string
+  event: string
+  expiresAt: string
+  reviewUrl: string
+}) {
+  const organizer = escapeHtml(opts.organizer)
+  const company = escapeHtml(opts.company)
+  const what = escapeHtml(opts.what)
+  const event = escapeHtml(opts.event)
+  const expires = new Date(opts.expiresAt).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
+
+  const subject = `${opts.organizer} invited ${opts.company} to ${opts.event}`
+
+  const html = [
+    '<!doctype html><html><body style="margin:0;background:#f6f7f9;padding:24px;',
+    'font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif;">',
+    '<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">',
+    '<table role="presentation" width="100%" style="max-width:560px;background:#fff;',
+    'border-radius:12px;padding:32px;"><tr><td>',
+    '<p style="margin:0 0 16px;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;">Rally</p>',
+    `<h1 style="margin:0 0 16px;font-size:22px;line-height:1.3;color:#111827;">${organizer} has invited ${company} to ${event}</h1>`,
+    `<p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#374151;">You have been invited to participate as <strong>${what}</strong>. Review what has been agreed, what the organizer will deliver, and what they need from you.</p>`,
+    `<p style="margin:0 0 28px;"><a href="${opts.reviewUrl}" style="display:inline-block;background:#4f46e5;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:15px;font-weight:600;">Review sponsorship</a></p>`,
+    `<p style="margin:0;font-size:13px;line-height:1.6;color:#6b7280;">This invitation expires on ${expires}. If you were not expecting it, you can ignore this email.</p>`,
+    '</td></tr></table></td></tr></table></body></html>',
+  ].join('')
+
+  const text = [
+    `${opts.organizer} has invited ${opts.company} to ${opts.event}.`,
+    '',
+    `You have been invited to participate as ${opts.what}.`,
+    '',
+    `Review the invitation: ${opts.reviewUrl}`,
+    '',
+    `This invitation expires on ${expires}.`,
+  ].join('\n')
+
+  return { subject, html, text }
+}
+
 async function sendEmail(to: string, subject: string, html: string, text: string) {
   if (!RESEND_API_KEY) {
     // Loudly, not silently: a missing credential is a configuration failure
@@ -211,6 +285,7 @@ Deno.serve(async (request) => {
   let sent = 0
   let failed = 0
   let skipped = 0
+  let processed = rows.length
 
   for (const row of rows) {
     const invitation = row.organization_invitations
@@ -277,9 +352,87 @@ Deno.serve(async (request) => {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Second pass: partnership invitations. Same queue discipline as above --
+  // attempts ceiling, stay queued on a transient failure, mark failed if the
+  // invitation is no longer live.
+  // ---------------------------------------------------------------------
+  const pQueued = await db(
+    `partnership_invitation_email_payload?queue_status=eq.queued` +
+      `&invitation_status=eq.pending` +
+      `&attempts=lt.${MAX_ATTEMPTS}&order=queue_id.asc&limit=${BATCH_SIZE}`
+  )
+
+  if (pQueued.ok) {
+    const pRows = (await pQueued.json()) as PartnershipQueueRow[]
+
+    for (const row of pRows) {
+      const attempts = row.attempts + 1
+
+      // Revoked, answered or expired between queueing and draining.
+      if (
+        row.invitation_status !== 'pending' ||
+        new Date(row.expires_at).getTime() <= Date.now()
+      ) {
+        await db(`partnership_invitation_emails?id=eq.${row.queue_id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            status: 'failed',
+            attempts,
+            last_error: 'Invitation was no longer pending when the email was sent',
+          }),
+        })
+        skipped++
+        continue
+      }
+
+      // The id identifies which invitation to show and grants nothing:
+      // accepting still requires a session whose confirmed email matches
+      // invited_email.
+      const reviewUrl = `${APP_URL}/partner/invitations?invitation=${row.invitation_id}`
+
+      const { subject, html, text } = renderPartnershipEmail({
+        organizer: row.organizer_name,
+        company: row.company_name,
+        what: row.tier_label?.trim() ? row.tier_label : row.role_label,
+        event: row.event_name,
+        expiresAt: row.expires_at,
+        reviewUrl,
+      })
+
+      try {
+        const messageId = await sendEmail(row.recipient_email, subject, html, text)
+        await db(`partnership_invitation_emails?id=eq.${row.queue_id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            status: 'sent',
+            attempts,
+            sent_at: new Date().toISOString(),
+            provider_message_id: messageId,
+            last_error: null,
+          }),
+        })
+        sent++
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        await db(`partnership_invitation_emails?id=eq.${row.queue_id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({
+            status: attempts >= MAX_ATTEMPTS ? 'failed' : 'queued',
+            attempts,
+            last_error: message.slice(0, 500),
+          }),
+        })
+        failed++
+      }
+    }
+
+    processed += pRows.length
+  }
+
   // A run that failed to deliver anything is not a success.
-  const status = failed > 0 && sent === 0 && rows.length > 0 ? 502 : 200
-  return new Response(JSON.stringify({ processed: rows.length, sent, failed, skipped }), {
+  const status = failed > 0 && sent === 0 && processed > 0 ? 502 : 200
+  return new Response(JSON.stringify({ processed, sent, failed, skipped }), {
     status,
     headers: { 'Content-Type': 'application/json' },
   })
