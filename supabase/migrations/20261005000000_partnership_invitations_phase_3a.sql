@@ -349,6 +349,10 @@ GRANT EXECUTE ON FUNCTION public.can_read_partnership(uuid) TO authenticated;
 -- Phase 1's single FOR ALL policy is therefore split: SELECT widens, and the
 -- write policies stay organizer-only.
 DROP POLICY IF EXISTS "manage_event_partnership_roles" ON event_partnership_roles;
+DROP POLICY IF EXISTS "read_event_partnership_roles" ON event_partnership_roles;
+DROP POLICY IF EXISTS "write_event_partnership_roles" ON event_partnership_roles;
+DROP POLICY IF EXISTS "update_event_partnership_roles" ON event_partnership_roles;
+DROP POLICY IF EXISTS "delete_event_partnership_roles" ON event_partnership_roles;
 CREATE POLICY "read_event_partnership_roles"
   ON event_partnership_roles FOR SELECT TO authenticated
   USING (public.can_read_partnership(partnership_id));
@@ -364,6 +368,10 @@ CREATE POLICY "delete_event_partnership_roles"
   USING (public.can_manage_event(event_id) AND public.account_is_active());
 
 DROP POLICY IF EXISTS "manage_event_partnership_obligations" ON event_partnership_obligations;
+DROP POLICY IF EXISTS "read_event_partnership_obligations" ON event_partnership_obligations;
+DROP POLICY IF EXISTS "write_event_partnership_obligations" ON event_partnership_obligations;
+DROP POLICY IF EXISTS "update_event_partnership_obligations" ON event_partnership_obligations;
+DROP POLICY IF EXISTS "delete_event_partnership_obligations" ON event_partnership_obligations;
 CREATE POLICY "read_event_partnership_obligations"
   ON event_partnership_obligations FOR SELECT TO authenticated
   USING (public.can_read_partnership(partnership_id));
@@ -379,6 +387,10 @@ CREATE POLICY "delete_event_partnership_obligations"
   USING (public.can_manage_event(event_id) AND public.account_is_active());
 
 DROP POLICY IF EXISTS "manage_event_partnership_evidence" ON event_partnership_obligation_evidence;
+DROP POLICY IF EXISTS "read_event_partnership_evidence" ON event_partnership_obligation_evidence;
+DROP POLICY IF EXISTS "write_event_partnership_evidence" ON event_partnership_obligation_evidence;
+DROP POLICY IF EXISTS "update_event_partnership_evidence" ON event_partnership_obligation_evidence;
+DROP POLICY IF EXISTS "delete_event_partnership_evidence" ON event_partnership_obligation_evidence;
 CREATE POLICY "read_event_partnership_evidence"
   ON event_partnership_obligation_evidence FOR SELECT TO authenticated
   USING (public.can_read_partnership(partnership_id));
@@ -1062,7 +1074,10 @@ SELECT
     (SELECT string_agg(initcap(replace(r.role, '_', ' ')), ' + ' ORDER BY r.role)
      FROM event_partnership_roles r WHERE r.partnership_id = p.id),
     'Partner'
-  )                     AS role_label
+  )                     AS role_label,
+  -- The queue row's own state. Without this the drainer has nothing to
+  -- filter on and re-sends an already-sent row on every run.
+  q.status              AS queue_status
 FROM partnership_invitation_emails q
 JOIN event_partnership_invitations i ON i.id = q.invitation_id
 JOIN event_partnerships p ON p.id = i.partnership_id

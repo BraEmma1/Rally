@@ -61,6 +61,7 @@ type PartnershipQueueRow = {
   event_name: string
   organizer_name: string
   role_label: string
+  queue_status: string
 }
 
 function db(path: string, init: RequestInit = {}) {
@@ -357,7 +358,8 @@ Deno.serve(async (request) => {
   // invitation is no longer live.
   // ---------------------------------------------------------------------
   const pQueued = await db(
-    `partnership_invitation_email_payload?invitation_status=eq.pending` +
+    `partnership_invitation_email_payload?queue_status=eq.queued` +
+      `&invitation_status=eq.pending` +
       `&attempts=lt.${MAX_ATTEMPTS}&order=queue_id.asc&limit=${BATCH_SIZE}`
   )
 
