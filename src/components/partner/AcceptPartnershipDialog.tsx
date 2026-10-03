@@ -11,7 +11,7 @@ import {
   listEligibleSponsorOrganizations,
   partnershipRolesLabel,
   type EligibleSponsorOrganization,
-  type PendingPartnershipInvitation,
+  type PartnershipInvitationReview,
 } from '@/lib/partnerInvitations'
 
 // ---------------------------------------------------------------------------
@@ -40,9 +40,9 @@ export function AcceptPartnershipDialog({
   onClose,
   onAccepted,
 }: {
-  invitation: PendingPartnershipInvitation
+  invitation: PartnershipInvitationReview
   onClose: () => void
-  onAccepted: (organizationName: string) => void
+  onAccepted: (organizationName: string) => void | Promise<void>
 }) {
   const [organizations, setOrganizations] = useState<EligibleSponsorOrganization[]>([])
   const [loading, setLoading] = useState(true)

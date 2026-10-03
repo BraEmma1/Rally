@@ -17,6 +17,7 @@ import {
   getEventPartnership,
   currentInvitation,
   invitationDisplayStatus,
+  listEventPartnershipPackages,
   listPartnershipEvidence,
   listPartnershipInvitations,
   listPartnershipObligations,
@@ -97,6 +98,9 @@ export default function PartnerDetailPage() {
   // not take the whole page down.
   const [invitations, setInvitations] = useState<PartnershipInvitation[]>([])
   const [invitationsLoading, setInvitationsLoading] = useState(true)
+  // Resolved separately and only for display -- the package is provenance,
+  // and nothing on this page waits on it.
+  const [packageName, setPackageName] = useState<string | null>(null)
   const [invitationsError, setInvitationsError] = useState<string | null>(null)
 
   const [tab, setTab] = useState<Tab>('overview')
@@ -169,6 +173,24 @@ export default function PartnerDetailPage() {
   useEffect(() => {
     void loadInvitations()
   }, [loadInvitations])
+
+  // The package's current name, purely to label the provenance row. If it has
+  // since been renamed this shows the new name; what the partnership IS still
+  // comes from its own tier_label, which was snapshotted when it was created.
+  useEffect(() => {
+    const id = partnership?.package_id
+    if (!eventId || !id) {
+      setPackageName(null)
+      return
+    }
+    let cancelled = false
+    void listEventPartnershipPackages(eventId).then(({ data }) => {
+      if (!cancelled) setPackageName(data.find((p) => p.id === id)?.name ?? null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [eventId, partnership?.package_id])
 
   /**
    * After any invitation operation, refetch BOTH the invitation and the
@@ -484,6 +506,21 @@ export default function PartnerDetailPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <DetailRow label="Tier" value={partnership.tier_label} />
+                {/* Where this partnership started, not what it currently is.
+                    The deliverables below and the tier above are its own and
+                    are unaffected by anything that happens to the package. */}
+                <DetailRow label="Package">
+                  {partnership.package_id ? (
+                    <p className="text-sm text-gray-900">
+                      {packageName ?? 'A package'}
+                      <span className="ml-1.5 text-xs text-gray-500">
+                        · deliverables were copied from it and are now this partner&rsquo;s own
+                      </span>
+                    </p>
+                  ) : (
+                    <p className="text-sm text-gray-500">Custom — no package</p>
+                  )}
+                </DetailRow>
                 <DetailRow label="Roles" value={roles.length > 0 ? rolesLabel(roles) : null} />
                 <DetailRow label="Status">
                   <div className="flex flex-wrap items-center gap-2">

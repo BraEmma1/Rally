@@ -47,6 +47,65 @@ export type PendingPartnershipInvitation = {
   expires_at: string
 }
 
+/**
+ * One row of my_partnership_invitation -- phase 3B.
+ *
+ * The caller own invitation, in whatever state it is, with the terms it
+ * proposes. Authorized entirely by the confirmed email matching
+ * invited_email: the uuid is a selector, and a caller who is not the
+ * recipient gets zero rows rather than an error, so there is nothing to
+ * enumerate.
+ *
+ * `terms_visible` is false once the invitation is over (declined or revoked).
+ * The partnership snapshot is mutable and belongs to the organizer, so a dead
+ * invitation must not stay a live window onto a deal that has moved on --
+ * possibly to terms negotiated with somebody else. The state and the identity
+ * of the event, organizer and company stay visible so the recipient can be
+ * told truthfully what became of the invitation they remember.
+ */
+export type PartnershipInvitationReview = {
+  invitation_id: string
+  invitation_status: InvitationStatus
+  /** Derived server-side: still pending, but past expires_at. */
+  is_expired: boolean
+  invited_email: string
+  created_at: string
+  expires_at: string
+  responded_at: string | null
+  invited_by_name: string
+  organizer_organization_name: string
+  event_id: string
+  event_name: string
+  event_start_date: string | null
+  event_end_date: string | null
+  event_location: string
+  event_archived: boolean
+  partnership_id: string
+  partnership_status: string
+  company_name: string
+  tier_label: string | null
+  roles: string[]
+  terms_visible: boolean
+  value_amount: number | null
+  value_currency: string | null
+}
+
+export type InvitationStatus = 'pending' | 'accepted' | 'declined' | 'revoked'
+
+/** What each side has been asked to provide. No status, no evidence. */
+export type InvitationObligation = {
+  id: string
+  direction: ObligationDirection
+  title: string
+  description: string | null
+  category: string | null
+  quantity: number | null
+  due_date: string | null
+  display_order: number
+}
+
+export type ObligationDirection = 'organizer_to_partner' | 'partner_to_organizer'
+
 export type EligibleSponsorOrganization = {
   organization_id: string
   name: string
@@ -123,9 +182,12 @@ function mapInviteeError(
 }
 
 /**
- * Every pending invitation this account has. The page picks the one named in
- * the URL; asking for the list rather than for an id is what the backend
- * offers, and it is also what keeps a uuid from being a lookup key.
+ * Every pending invitation this account has.
+ *
+ * Phase 3B's `my_partnership_invitation` is what the review page uses now --
+ * it answers for one invitation in any state, which this cannot. This is kept
+ * because it is the right contract for "what is waiting for me", which a
+ * future invitations inbox will want.
  */
 export async function listMyPendingPartnershipInvitations(): Promise<{
   data: PendingPartnershipInvitation[]
@@ -133,10 +195,58 @@ export async function listMyPendingPartnershipInvitations(): Promise<{
 }> {
   const { data, error } = await supabase.rpc('my_pending_partnership_invitations')
   if (error) {
-    return { data: [], error: mapInviteeError(error, 'Unable to load this invitation.') }
+    return { data: [], error: mapInviteeError(error, 'Unable to load your invitations.') }
   }
   const rows = (data ?? []) as PendingPartnershipInvitation[]
   return { data: rows.map((row) => ({ ...row, roles: row.roles ?? [] })), error: null }
+}
+
+/**
+ * One invitation -- the caller's own -- in whatever state it is, with the
+ * terms it proposes. Phase 3B.
+ *
+ * Returns null when there is no such invitation for this account, which covers
+ * a wrong signed-in account, an unconfirmed address and a uuid that does not
+ * exist. The backend answers all three identically on purpose, so this does
+ * not try to tell them apart.
+ */
+export async function getMyPartnershipInvitation(
+  invitationId: string
+): Promise<{ data: PartnershipInvitationReview | null; error: string | null }> {
+  const { data, error } = await supabase.rpc('my_partnership_invitation', {
+    invitation_id: invitationId,
+  })
+  if (error) {
+    return { data: null, error: mapInviteeError(error, 'Unable to load this invitation.') }
+  }
+  const row = ((data ?? []) as PartnershipInvitationReview[])[0]
+  if (!row) return { data: null, error: null }
+  return {
+    data: {
+      ...row,
+      roles: row.roles ?? [],
+      value_amount: row.value_amount === null ? null : Number(row.value_amount),
+    },
+    error: null,
+  }
+}
+
+/**
+ * The deliverables and requirements proposed by this invitation.
+ *
+ * Returns nothing once the invitation is over -- the same `terms_visible` rule
+ * the projection reports -- so the caller does not have to enforce it.
+ */
+export async function getMyPartnershipInvitationObligations(
+  invitationId: string
+): Promise<{ data: InvitationObligation[]; error: string | null }> {
+  const { data, error } = await supabase.rpc('my_partnership_invitation_obligations', {
+    invitation_id: invitationId,
+  })
+  if (error) {
+    return { data: [], error: mapInviteeError(error, 'Unable to load the partnership terms.') }
+  }
+  return { data: (data ?? []) as InvitationObligation[], error: null }
 }
 
 /**
