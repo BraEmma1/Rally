@@ -8,8 +8,8 @@ import SponsorBottomNav from '@/components/SponsorBottomNav'
 import { cn } from '@/lib/utils'
 
 const primaryItems = [
-  { label: 'Home', icon: Home, active: true },
-  { label: 'Partnerships', icon: Grid2X2 },
+  { label: 'Home', icon: Home, to: '/sponsor', end: true },
+  { label: 'Partnerships', icon: Grid2X2, to: '/sponsor/partnerships' },
   { label: 'Network', icon: Users },
   { label: 'Messages', icon: MessageCircle, to: '/messages' },
   { label: 'Meetings', icon: CalendarDays },
@@ -37,11 +37,11 @@ export default function SponsorLayout() {
         </div>
         <nav aria-label="Sponsor workspace" className={cn('flex-1 space-y-1 py-5', sidebarCollapsed ? 'px-2' : 'px-3')}>
           {primaryItems.map((item) => item.to ? (
-            <NavLink key={item.label} to={item.to} className={({ isActive }) => cn('flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium', sidebarCollapsed && 'justify-center px-0', isActive ? 'bg-primary-50 text-primary-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')} title={sidebarCollapsed ? item.label : undefined}>
+            <NavLink key={item.label} to={item.to} end={item.end} className={({ isActive }) => cn('flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium', sidebarCollapsed && 'justify-center px-0', isActive ? 'bg-primary-50 text-primary-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900')} title={sidebarCollapsed ? item.label : undefined}>
               <item.icon className="h-4 w-4 shrink-0" /><span className={sidebarCollapsed ? 'sr-only' : undefined}>{item.label}</span>
             </NavLink>
           ) : (
-            <button key={item.label} type="button" disabled={!item.active} className={cn('flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium', sidebarCollapsed && 'justify-center px-0', item.active ? 'bg-primary-50 text-primary-700' : 'text-slate-500 hover:bg-slate-50', !item.active && 'cursor-default')} title={sidebarCollapsed ? item.label : undefined}>
+            <button key={item.label} type="button" disabled className={cn('flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-left text-sm font-medium', sidebarCollapsed && 'justify-center px-0', 'text-slate-500 hover:bg-slate-50', 'cursor-default')} title={sidebarCollapsed ? item.label : undefined}>
               <item.icon className="h-4 w-4 shrink-0" /><span className={sidebarCollapsed ? 'sr-only' : undefined}>{item.label}</span>
             </button>
           ))}

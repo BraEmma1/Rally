@@ -14,9 +14,9 @@ export default function SponsorBottomNav({ onMore }: { onMore: () => void }) {
       <NavLink to="/sponsor" end className={itemClass} aria-label="Home">
         {({ isActive }) => <><Home className={cn('h-5 w-5', isActive && 'fill-primary-100')} /><span className={isActive ? 'font-semibold' : undefined}>Home</span></>}
       </NavLink>
-      <button type="button" disabled className={itemClass({ isActive: false })} aria-label="Partnerships, coming soon">
-        <Grid2X2 className="h-5 w-5" /><span>Partnerships</span>
-      </button>
+      <NavLink to="/sponsor/partnerships" className={itemClass} aria-label="Partnerships">
+        {({ isActive }) => <><Grid2X2 className={cn('h-5 w-5', isActive && 'fill-primary-100')} /><span className={isActive ? 'font-semibold' : undefined}>Partnerships</span></>}
+      </NavLink>
       <button type="button" disabled className={itemClass({ isActive: false })} aria-label="Network, coming soon">
         <Users className="h-5 w-5" /><span>Network</span>
       </button>

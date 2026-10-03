@@ -18,6 +18,7 @@ import { EventModeProvider } from '@/context/EventModeContext'
 import OrganizerLayout from '@/components/OrganizerLayout'
 import SponsorLayout from '@/components/SponsorLayout'
 import SponsorHomePage from '@/pages/sponsor/SponsorHomePage'
+import SponsorPartnershipsPage from '@/pages/sponsor/SponsorPartnershipsPage'
 import LoginPage from '@/pages/auth/LoginPage'
 import SignUpPage from '@/pages/auth/SignUpPage'
 import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
@@ -321,6 +322,8 @@ export default function App() {
         }
       >
         <Route path="/sponsor" element={<SponsorHomePage />} />
+        <Route path="/sponsor/partnerships" element={<SponsorPartnershipsPage />} />
+        <Route path="/sponsor/partnerships/:partnershipId" element={<Navigate to="/sponsor/partnerships" replace />} />
       </Route>
 
       {/* ------------------------------------------------------------------ */}
