@@ -22,6 +22,8 @@ export function accountHomePath(account: UserAccount | null): string {
       return '/organizer'
     case 'platform_admin':
       return '/admin'
+    case 'sponsor':
+      return '/sponsor'
     default:
       return '/account'
   }
