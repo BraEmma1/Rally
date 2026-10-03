@@ -59,6 +59,36 @@ export function invitationDestination(target: InvitationTarget): string {
   return DESTINATIONS[target.kind] + invitationAuthSearch(target)
 }
 
+/**
+ * The query string to hand the login screen when a guard bounces someone off
+ * an invitation page.
+ *
+ * This exists because the invitation emails do NOT carry `invitation_type`:
+ * the partnership link is `/partner/invitations?invitation=<id>` and the
+ * organization link is `/organizer/invitations?invitation=<id>`. The *path* is
+ * what says which kind it is, and the path is exactly what a redirect to
+ * /login throws away -- so without this, a signed-out partnership recipient
+ * signs in and lands on the organization invitations screen.
+ *
+ * An explicit `invitation_type` in the URL still wins; the path is only
+ * consulted when there is none. A URL with no invitation at all comes back
+ * untouched, so ordinary protected routes behave exactly as before.
+ */
+export function loginSearchForInvitationPath(pathname: string, search: string): string {
+  const params = new URLSearchParams(search)
+  const id = params.get(INVITATION_PARAM)
+  if (!id) return search
+
+  const explicit = params.get(INVITATION_TYPE_PARAM)
+  const kind = explicit
+    ? asKind(explicit)
+    : ((Object.keys(DESTINATIONS) as InvitationKind[]).find(
+        (candidate) => DESTINATIONS[candidate] === pathname
+      ) ?? 'organization')
+
+  return invitationAuthSearch({ id, kind })
+}
+
 // ---------------------------------------------------------------------------
 // OAuth carrier
 //
