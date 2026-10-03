@@ -120,11 +120,28 @@ export function PartnershipDocumentsPanel({
   }
 
   const uploadButton = editable ? (
-    <Button onClick={() => setUploadOpen(true)} className="shrink-0">
+    <Button onClick={() => setUploadOpen(true)} className="w-full shrink-0 sm:w-auto">
       <Upload className="h-4 w-4" aria-hidden="true" />
       Upload document
     </Button>
   ) : null
+
+  // Rendered from every return path: the empty state returns early, and
+  // without this layer the upload dialog would never open from it.
+  const dialogLayer = (
+    <>
+      {uploadOpen && (
+        <UploadDocumentDialog
+          partnershipId={partnershipId}
+          eventId={eventId}
+          onClose={() => setUploadOpen(false)}
+          onSaved={closeAndReload}
+        />
+      )}
+      {editing && <EditDocumentDialog doc={editing} onClose={() => setEditing(null)} onSaved={closeAndReload} />}
+      {deleting && <DeleteDocumentDialog doc={deleting} onClose={() => setDeleting(null)} onDeleted={closeAndReload} />}
+    </>
+  )
 
   if (loading) {
     return (
@@ -176,6 +193,7 @@ export function PartnershipDocumentsPanel({
             action={editable ? <Button onClick={() => setUploadOpen(true)}>Upload document</Button> : undefined}
           />
         </CardContent>
+        {dialogLayer}
       </Card>
     )
   }
@@ -293,7 +311,7 @@ export function PartnershipDocumentsPanel({
               Manage agreements, proposals and other documents for this partnership.
             </p>
           </div>
-          {uploadButton && <div className="hidden sm:block">{uploadButton}</div>}
+          {uploadButton && <div className="w-full sm:w-auto">{uploadButton}</div>}
         </div>
 
         {archived && editable === false && (
@@ -511,16 +529,7 @@ export function PartnershipDocumentsPanel({
         )}
       </CardContent>
 
-      {uploadOpen && (
-        <UploadDocumentDialog
-          partnershipId={partnershipId}
-          eventId={eventId}
-          onClose={() => setUploadOpen(false)}
-          onSaved={closeAndReload}
-        />
-      )}
-      {editing && <EditDocumentDialog doc={editing} onClose={() => setEditing(null)} onSaved={closeAndReload} />}
-      {deleting && <DeleteDocumentDialog doc={deleting} onClose={() => setDeleting(null)} onDeleted={closeAndReload} />}
+      {dialogLayer}
     </Card>
   )
 }
