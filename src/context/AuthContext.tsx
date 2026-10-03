@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase, type Profile, type UserAccount } from '@/lib/supabase'
 
@@ -11,7 +11,14 @@ type AuthContextValue = {
   // surfaces as a fault rather than guessing a type.
   account: UserAccount | null
   accountError: string | null
+  // True only while Rally has no authorization for the current user yet: the
+  // first load of a tab, or a different person signing in. It is NOT set again
+  // for routine background work — see the comment on the auth listener below.
   loading: boolean
+  // True while an already-authorized identity is being re-checked in the
+  // background. Nothing is required to react to it; it exists so a screen can
+  // show a quiet indicator without any of them blocking on it.
+  revalidating: boolean
   isRecovery: boolean
   recoveryError: string | null
   oauthError: string | null
@@ -173,6 +180,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<UserAccount | null>(null)
   const [accountError, setAccountError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [revalidating, setRevalidating] = useState(false)
+
+  // Whose identity (profile + account) is currently loaded, and whose is being
+  // fetched right now. Refs, not state: the listener closes over them and must
+  // read the live value, and changing them must not cause a render.
+  const identityUserIdRef = useRef<string | null>(null)
+  const identityInFlightRef = useRef<string | null>(null)
+
   const [isRecovery, setIsRecovery] = useState(
     () => detectRecoveryFromUrl() || readStored(RECOVERY_FLAG_KEY) === '1'
   )
@@ -205,6 +220,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     writeStored(RECOVERY_ERROR_KEY, recoveryError)
   }, [recoveryError])
 
+  // Whether two rows carry the same values. Used to decide if a revalidation
+  // actually changed anything, because for every consumer that watches one of
+  // these objects, a NEW OBJECT IS A CHANGE even when the data is identical.
+  //
+  // The profile is the clearest case: ProfilePage resyncs its edit form from
+  // `profile` whenever the object changes, so republishing an unchanged profile
+  // after a background refresh silently discarded whatever the user had typed.
+  function sameRow<T extends object>(a: T | null, b: T | null): boolean {
+    if (a === b) return true
+    if (!a || !b) return false
+    const keys = Object.keys(a) as (keyof T)[]
+    if (keys.length !== Object.keys(b).length) return false
+    return keys.every((k) => a[k] === b[k])
+  }
+
+  // supabase-js publishes a NEW user object on every auth event, even when it is
+  // the same person with the same token. Around twenty effects across the app
+  // depend on `user`, so handing out a fresh object re-ran every one of them on
+  // each resume. Hold the identity stable while the id is unchanged;
+  // USER_UPDATED is the one event that really does carry new user fields.
+  function publishUser(next: User | null, userChanged: boolean) {
+    setUser((prev) => {
+      if (!userChanged && prev && next && prev.id === next.id) return prev
+      return next
+    })
+  }
+
   async function loadProfile(userId: string) {
     const { data, error } = await supabase
       .from('profiles')
@@ -212,15 +254,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .eq('id', userId)
       .maybeSingle()
     if (error) {
+      // Keep whatever profile we already have: a failed request is not
+      // evidence that the profile changed.
       console.error('Error loading profile:', error)
       return
     }
-    setProfile(data as Profile | null)
+    const next = data as Profile | null
+    setProfile((prev) => (sameRow(prev, next) ? prev : next))
   }
 
   // The row is readable only by its owner, so no filter on user_id is needed —
   // RLS already narrows this to one row.
-  async function loadAccount(userId: string) {
+  // `bootstrap` separates the two very different failures this can have:
+  //
+  //   bootstrap  — we have never established what this user may do, so a
+  //                failure has to be reported. /account explains it, and no
+  //                protected data is rendered on a guess.
+  //   revalidate — we already know, and the network simply did not answer.
+  //                Clearing the account here is what threw someone from a deep
+  //                page to /account on a flaky connection: the route guards
+  //                cannot tell "no account" from "no answer", so they treated a
+  //                dropped request as a revoked account.
+  //
+  // A revalidation that SUCCEEDS is always applied, including when it returns no
+  // row or a suspended status — that is authoritative and must take effect.
+  async function loadAccount(userId: string, bootstrap: boolean) {
     const { data, error } = await supabase
       .from('user_accounts')
       .select('account_type, status')
@@ -228,55 +286,95 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .maybeSingle()
     if (error) {
       console.error('Error loading account:', error)
-      setAccount(null)
-      setAccountError(error.message)
+      if (bootstrap) {
+        setAccount(null)
+        setAccountError(error.message)
+      }
       return
     }
-    setAccount((data as UserAccount | null) ?? null)
+    const next = (data as UserAccount | null) ?? null
+    setAccount((prev) => (sameRow(prev, next) ? prev : next))
     setAccountError(null)
   }
 
   // Both are needed before any routing decision can be made, so they load
   // together and `loading` clears once.
-  async function loadIdentity(userId: string) {
-    await Promise.all([loadProfile(userId), loadAccount(userId)])
+  async function loadIdentity(userId: string, bootstrap: boolean) {
+    await Promise.all([loadProfile(userId), loadAccount(userId, bootstrap)])
   }
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session)
-      setUser(data.session?.user ?? null)
-      if (data.session?.user) {
-        loadIdentity(data.session.user.id).finally(() => setLoading(false))
-      } else {
-        setLoading(false)
-      }
-    })
-
+    // No getSession() call here on purpose. onAuthStateChange delivers
+    // INITIAL_SESSION to every new subscriber, so asking separately ran the
+    // whole bootstrap twice on every cold start — two profile reads and two
+    // account reads for one page load.
     const { data: authListener } = supabase.auth.onAuthStateChange((event, newSession) => {
       // Authoritative signal from the client once it has consumed the grant.
       if (event === 'PASSWORD_RECOVERY') {
         setIsRecovery(true)
         setRecoveryError(null)
       }
+
       setSession(newSession)
-      setUser(newSession?.user ?? null)
-      if (newSession?.user) {
-        // Mark identity as loading for this transition: without this, the
-        // guard on the destination page sees account === null (not "loading")
-        // and bounces a fresh sign-in to /account, which flashes "Your account
-        // is not set up" until the record lands and redirects back.
-        setLoading(true)
-        ;(async () => {
-          await loadIdentity(newSession.user.id)
-          setLoading(false)
-        })()
-      } else {
+      publishUser(newSession?.user ?? null, event === 'USER_UPDATED')
+
+      const nextUserId = newSession?.user?.id ?? null
+
+      // A definitive end of the session. Protected state goes immediately --
+      // this is the one path that must forget everything.
+      if (!nextUserId) {
+        identityUserIdRef.current = null
+        identityInFlightRef.current = null
         setProfile(null)
         setAccount(null)
         setAccountError(null)
         setLoading(false)
+        setRevalidating(false)
+        return
       }
+
+      // Already fetching for exactly this person: nothing to add. Keeps the
+      // bootstrap idempotent when INITIAL_SESSION and SIGNED_IN arrive
+      // together, and under StrictMode's double mount.
+      if (identityInFlightRef.current === nextUserId) return
+
+      // THE DISTINCTION THIS WHOLE PROVIDER TURNS ON.
+      //
+      // supabase-js re-announces the stored session as SIGNED_IN every time the
+      // tab becomes visible again, and as TOKEN_REFRESHED whenever it rotates
+      // the token (roughly hourly, and on resume when expiry is near). Both used
+      // to take the blocking branch, and App renders a full-page spinner INSTEAD
+      // OF the router whenever loading is true — so every return to the tab
+      // unmounted the router, every page, every open dialog and every unsaved
+      // form, then remounted and refetched all of it.
+      //
+      // If this is the same person we already authorized, it is a revalidation:
+      // refresh quietly and leave the interface where the user left it.
+      const bootstrap = identityUserIdRef.current !== nextUserId
+
+      if (bootstrap) {
+        // No authorization for this user yet — a cold start, or a different
+        // person signing in. Blocking here is correct: a guard that sees
+        // account === null cannot tell "not allowed" from "not known yet", and
+        // without it a fresh sign-in flashes "Your account is not set up".
+        setLoading(true)
+      } else {
+        setRevalidating(true)
+      }
+
+      identityInFlightRef.current = nextUserId
+      ;(async () => {
+        try {
+          await loadIdentity(nextUserId, bootstrap)
+          identityUserIdRef.current = nextUserId
+        } finally {
+          if (identityInFlightRef.current === nextUserId) {
+            identityInFlightRef.current = null
+          }
+          if (bootstrap) setLoading(false)
+          else setRevalidating(false)
+        }
+      })()
     })
 
     return () => {
@@ -320,6 +418,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // render instead of bouncing the recovery session to the dashboard.
   async function signOut() {
     await supabase.auth.signOut()
+    identityUserIdRef.current = null
+    identityInFlightRef.current = null
     setProfile(null)
     setAccount(null)
     setAccountError(null)
@@ -334,7 +434,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // An organizer awaiting approval sits on a screen that has to notice when the
   // decision lands, without making them sign out and back in.
   async function refreshAccount() {
-    if (user) await loadAccount(user.id)
+    if (user) await loadAccount(user.id, false)
   }
 
   async function resetPassword(email: string) {
@@ -381,7 +481,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ session, user, profile, account, accountError, loading, isRecovery, recoveryError, oauthError, clearOauthError: () => setOauthError(null), signUp, signIn, signOut, refreshProfile, refreshAccount, resetPassword, updatePassword, signInWithGoogle, signInWithLinkedIn }}>
+    <AuthContext.Provider value={{ session, user, profile, account, accountError, loading, revalidating, isRecovery, recoveryError, oauthError, clearOauthError: () => setOauthError(null), signUp, signIn, signOut, refreshProfile, refreshAccount, resetPassword, updatePassword, signInWithGoogle, signInWithLinkedIn }}>
       {children}
     </AuthContext.Provider>
   )

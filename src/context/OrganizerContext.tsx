@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { listMyOrganizations } from '@/lib/organizer'
 import type { Organization, OrganizationMembership, OrgRole } from '@/lib/supabase'
@@ -30,7 +38,12 @@ type OrganizerContextValue = {
   memberships: OrganizationMembership[]
   organization: Organization | null
   role: OrgRole | null
+  // First load only. Route guards block on this, so it must never be set again
+  // for a background re-check — that is what replaced the organizer area with a
+  // spinner on every return to the tab.
   loading: boolean
+  // A re-check of memberships we already have, running behind the interface.
+  refreshing: boolean
   error: string | null
   selectOrganization: (id: string) => void
   refresh: () => Promise<void>
@@ -43,20 +56,48 @@ export function OrganizerProvider({ children }: { children: ReactNode }) {
   const [memberships, setMemberships] = useState<OrganizationMembership[]>([])
   const [activeId, setActiveId] = useState<string | null>(() => readStored())
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Whose memberships are already loaded. The id, not the user object: supabase
+  // hands out a new user object on every auth event, and depending on the object
+  // re-ran this whole load on every token refresh and every tab return.
+  const loadedForRef = useRef<string | null>(null)
+
+  const userId = user?.id ?? null
 
   const refresh = useCallback(async () => {
-    if (!user) {
+    if (!userId) {
+      loadedForRef.current = null
       setMemberships([])
+      setError(null)
       setLoading(false)
+      setRefreshing(false)
       return
     }
-    setLoading(true)
+
+    const first = loadedForRef.current !== userId
+    if (first) setLoading(true)
+    else setRefreshing(true)
+
     const { data, error: loadError } = await listMyOrganizations()
-    setMemberships(data)
-    setError(loadError)
-    setLoading(false)
-  }, [user])
+
+    if (loadError) {
+      // listMyOrganizations returns an empty list alongside its error, and the
+      // route guards read an empty list as "this person has no organization" —
+      // which would send an organizer from a deep page to /organizer/setup
+      // because one background request did not come back. Keep what we had and
+      // report the error instead; only a SUCCESSFUL answer changes membership.
+      setError(loadError)
+      if (first) setMemberships([])
+    } else {
+      setMemberships(data)
+      setError(null)
+      loadedForRef.current = userId
+    }
+
+    if (first) setLoading(false)
+    else setRefreshing(false)
+  }, [userId])
 
   useEffect(() => {
     void refresh()
@@ -91,6 +132,7 @@ export function OrganizerProvider({ children }: { children: ReactNode }) {
         organization: active?.organization ?? null,
         role: active?.role ?? null,
         loading,
+        refreshing,
         error,
         selectOrganization,
         refresh,
