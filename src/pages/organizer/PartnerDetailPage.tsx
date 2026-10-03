@@ -1,13 +1,18 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import {
-  ArrowLeft,
+  Building2,
   CircleDashed,
   ClipboardList,
   ExternalLink,
+  FileText,
+  Globe,
+  Image as ImageIcon,
+  LayoutGrid,
   Linkedin,
   ListChecks,
   Mail,
+  MoreHorizontal,
   Paperclip,
   Pencil,
 } from 'lucide-react'
@@ -47,6 +52,7 @@ import {
   ProgressMeter,
   formatMoney,
   rolesLabel,
+  safeWebUrl,
 } from '@/components/organizer/PartnerCommon'
 import { EditPartnerDialog } from '@/components/organizer/EditPartnerDialog'
 import { PartnerObligationList } from '@/components/organizer/PartnerObligationList'
@@ -348,12 +354,29 @@ export default function PartnerDetailPage() {
 
   const money = formatMoney(partnership.value_amount, partnership.value_currency)
   const transitions = allowedStatusTransitions(partnership.status)
-  const TABS: { key: Tab; label: string; count?: number }[] = [
-    { key: 'overview', label: 'Overview' },
-    { key: 'deliverables', label: 'Deliverables', count: owed.length },
-    { key: 'requirements', label: 'Requirements', count: required.length },
-    { key: 'documents', label: 'Documents' },
-    { key: 'evidence', label: 'Evidence', count: evidence.length },
+  const canDeleteDraft = editable && partnership.status === 'draft'
+  const hasOverflowActions = (editable && transitions.length > 0) || canDeleteDraft
+  const TABS: { key: Tab; label: string; icon: ReactNode; count?: number }[] = [
+    { key: 'overview', label: 'Overview', icon: <LayoutGrid className="h-4 w-4" aria-hidden="true" /> },
+    {
+      key: 'deliverables',
+      label: 'Deliverables',
+      icon: <ClipboardList className="h-4 w-4" aria-hidden="true" />,
+      count: owed.length,
+    },
+    {
+      key: 'requirements',
+      label: 'Requirements',
+      icon: <ListChecks className="h-4 w-4" aria-hidden="true" />,
+      count: required.length,
+    },
+    { key: 'documents', label: 'Documents', icon: <FileText className="h-4 w-4" aria-hidden="true" /> },
+    {
+      key: 'evidence',
+      label: 'Evidence',
+      icon: <ImageIcon className="h-4 w-4" aria-hidden="true" />,
+      count: evidence.length,
+    },
   ]
 
   const owedCompleted = owed.filter((o) => o.status === 'completed').length
@@ -418,55 +441,81 @@ export default function PartnerDetailPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          to={partnersPath}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-700"
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-          Back to partners
+      {/* Breadcrumb uses real data and existing routes only. */}
+      <nav
+        aria-label="Breadcrumb"
+        className="flex flex-wrap items-center gap-1.5 text-sm text-gray-500"
+      >
+        <Link to="/organizer/events" className="hover:text-gray-700">
+          Events
         </Link>
-        <p className="mt-1 truncate text-xs text-gray-400">{event.name}</p>
-      </div>
+        <span aria-hidden="true" className="text-gray-300">
+          /
+        </span>
+        <Link to={'/organizer/events/' + eventId} className="hover:text-gray-700">
+          {event.name}
+        </Link>
+        <span aria-hidden="true" className="text-gray-300">
+          /
+        </span>
+        <Link to={partnersPath} className="hover:text-gray-700">
+          Partners
+        </Link>
+        <span aria-hidden="true" className="text-gray-300">
+          /
+        </span>
+        <span className="min-w-0 truncate font-medium text-gray-900">
+          {partnership.company_name}
+        </span>
+      </nav>
 
       {/* Identity: logo beside the partnership facts on desktop, stacked on
-          mobile. The single place this partnership is described. */}
+          mobile. The single place this partnership is described. Open
+          page-header layout, deliberately not a card. */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-4">
-          <PartnerLogo name={partnership.company_name} logoUrl={partnership.logo_url} size="lg" />
+          <PartnerLogo name={partnership.company_name} logoUrl={partnership.logo_url} size="xl" />
           <div className="min-w-0">
-            <PartnerStatusBadge status={partnership.status} />
-            <h1 className="mt-1.5 text-2xl font-bold text-gray-900">{partnership.company_name}</h1>
-            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <h1 className="text-2xl font-bold text-gray-900">{partnership.company_name}</h1>
               {partnership.tier_label && (
-                <span className="font-medium text-gray-700">{partnership.tier_label}</span>
-              )}
-              {partnership.tier_label && roles.length > 0 && (
-                <span aria-hidden="true" className="text-gray-300">
-                  •
+                <span className="rounded-full bg-warning-50 px-2.5 py-0.5 text-xs font-semibold text-warning-700 ring-1 ring-inset ring-warning-200">
+                  {partnership.tier_label}
                 </span>
               )}
-              <span className="font-medium text-gray-700">{event.name}</span>
+              {partnership.status === 'active' ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-success-50 px-2.5 py-0.5 text-xs font-medium text-success-700">
+                  <span
+                    aria-hidden="true"
+                    className="h-1.5 w-1.5 rounded-full bg-success-500"
+                  />
+                  {STATUS_LABELS[partnership.status]}
+                </span>
+              ) : (
+                <PartnerStatusBadge status={partnership.status} />
+              )}
             </div>
-            {partnership.industry && (
-              <p className="mt-1 text-sm text-gray-500">{partnership.industry}</p>
-            )}
-            {partnership.website && (
-              <a
-                href={partnership.website}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 inline-flex items-center gap-1.5 text-sm text-primary-700 hover:text-primary-800"
-              >
-                <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                {displayUrl(partnership.website)}
-              </a>
-            )}
-            {partnership.description && (
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-gray-600">
-                {partnership.description}
-              </p>
-            )}
+            {/* Only metadata the data model actually carries is shown; a
+                missing field is omitted rather than placeholder-rendered. */}
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-500">
+              {partnership.industry && (
+                <span className="inline-flex items-center gap-1.5">
+                  <Building2 className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                  {partnership.industry}
+                </span>
+              )}
+              {partnership.website && safeWebUrl(partnership.website) && (
+                <a
+                  href={safeWebUrl(partnership.website)!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-primary-700 hover:text-primary-800"
+                >
+                  <Globe className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  {displayUrl(partnership.website)}
+                </a>
+              )}
+            </div>
           </div>
         </div>
 
@@ -474,22 +523,40 @@ export default function PartnerDetailPage() {
             there is no "View partner profile" button: the only real
             destination from here is the edit flow. */}
         {editable && (
-          <div className="hidden shrink-0 gap-2 sm:flex">
-            <Button onClick={() => setEditOpen(true)}>
+          <div className="hidden shrink-0 items-center gap-2 sm:flex">
+            <Button variant="outline" onClick={() => setEditOpen(true)}>
               <Pencil className="h-4 w-4" aria-hidden="true" />
-              Edit partnership
+              Edit partner
             </Button>
+            {hasOverflowActions && (
+              <PartnerOverflowMenu
+                transitions={editable ? transitions : []}
+                canDelete={canDeleteDraft}
+                busy={busy}
+                disabled={busy}
+                onAction={(action) => setConfirm(action)}
+              />
+            )}
           </div>
         )}
       </div>
 
       {/* Mobile primary action. */}
       {editable && (
-        <div className="sm:hidden">
-          <Button className="w-full" onClick={() => setEditOpen(true)}>
+        <div className="flex items-center gap-2 sm:hidden">
+          <Button variant="outline" className="flex-1" onClick={() => setEditOpen(true)}>
             <Pencil className="h-4 w-4" aria-hidden="true" />
-            Edit partnership
+            Edit partner
           </Button>
+          {hasOverflowActions && (
+            <PartnerOverflowMenu
+              transitions={editable ? transitions : []}
+              canDelete={canDeleteDraft}
+              busy={busy}
+              disabled={busy}
+              onAction={(action) => setConfirm(action)}
+            />
+          )}
         </div>
       )}
 
@@ -516,16 +583,18 @@ export default function PartnerDetailPage() {
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
+              aria-current={tab === t.key ? 'page' : undefined}
               className={cn(
-                'whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors',
+                'flex items-center gap-2 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors',
                 tab === t.key
                   ? 'border-primary-600 text-primary-700'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               )}
             >
+              {t.icon}
               {t.label}
               {t.count !== undefined && t.count > 0 && (
-                <span className="ml-1.5 text-xs text-gray-400">{t.count}</span>
+                <span className="text-xs text-gray-400">{t.count}</span>
               )}
             </button>
           ))}
@@ -717,13 +786,7 @@ export default function PartnerDetailPage() {
                           disabled={busy}
                           onClick={() => setConfirm(next)}
                         >
-                          {next === 'cancelled'
-                            ? 'Cancel Partnership'
-                            : next === 'completed'
-                              ? 'Mark Completed'
-                              : next === 'active'
-                                ? 'Reopen as Active'
-                                : 'Restore to Draft'}
+                          {transitionLabel(next)}
                         </Button>
                       ))}
                     </div>
@@ -843,6 +906,103 @@ export default function PartnerDetailPage() {
           onConfirm={() => void handleLifecycle(confirm)}
           onClose={() => setConfirm(null)}
         />
+      )}
+    </div>
+  )
+}
+
+/** Same wording the Overview status card has always used. */
+function transitionLabel(next: PartnershipStatus): string {
+  if (next === 'cancelled') return 'Cancel Partnership'
+  if (next === 'completed') return 'Mark Completed'
+  if (next === 'active') return 'Reopen as Active'
+  return 'Restore to Draft'
+}
+
+/**
+ * The existing partner lifecycle actions, kept out of the way behind the
+ * three-dot button. Nothing new is offered here: every item routes into the
+ * same confirm dialog the Overview card has always driven. Destructive
+ * deletion sits below a divider, last.
+ */
+function PartnerOverflowMenu({
+  transitions,
+  canDelete,
+  busy,
+  disabled,
+  onAction,
+}: {
+  transitions: PartnershipStatus[]
+  canDelete: boolean
+  busy: boolean
+  disabled: boolean
+  onAction: (action: 'delete' | PartnershipStatus) => void
+}) {
+  const [open, setOpen] = useState(false)
+  if (transitions.length === 0 && !canDelete) return null
+
+  return (
+    <div className="relative">
+      <Button
+        variant="secondary"
+        size="icon"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More partner actions"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+      </Button>
+      {open && (
+        <>
+          <button
+            type="button"
+            aria-hidden="true"
+            tabIndex={-1}
+            className="fixed inset-0 z-40 cursor-default"
+            onClick={() => setOpen(false)}
+          />
+          <div
+            role="menu"
+            className="absolute right-0 z-50 mt-2 w-56 rounded-md border border-gray-200 bg-white py-1 shadow-lg"
+          >
+            {transitions.map((next) => (
+              <button
+                key={next}
+                type="button"
+                role="menuitem"
+                disabled={busy}
+                onClick={() => {
+                  setOpen(false)
+                  onAction(next)
+                }}
+                className="block w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                {transitionLabel(next)}
+              </button>
+            ))}
+            {canDelete && (
+              <>
+                {transitions.length > 0 && (
+                  <div aria-hidden="true" className="my-1 border-t border-gray-100" />
+                )}
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={busy}
+                  onClick={() => {
+                    setOpen(false)
+                    onAction('delete')
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm text-error-700 hover:bg-error-50 disabled:opacity-50"
+                >
+                  Delete Partner
+                </button>
+              </>
+            )}
+          </div>
+        </>
       )}
     </div>
   )

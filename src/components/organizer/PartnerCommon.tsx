@@ -26,15 +26,22 @@ export function PartnerLogo({
 }: {
   name: string
   logoUrl: string | null | undefined
-  size?: 'sm' | 'md' | 'lg'
+  size?: 'sm' | 'md' | 'lg' | 'xl'
 }) {
-  const box = size === 'lg' ? 'h-14 w-14' : size === 'sm' ? 'h-9 w-9' : 'h-11 w-11'
+  const box =
+    size === 'xl'
+      ? 'h-16 w-16 text-lg'
+      : size === 'lg'
+        ? 'h-14 w-14'
+        : size === 'sm'
+          ? 'h-9 w-9'
+          : 'h-11 w-11'
   if (logoUrl) {
     return (
       <img
         src={logoUrl}
         alt={name + ' logo'}
-        className={box + ' shrink-0 rounded-md border border-gray-200 bg-white object-contain'}
+        className={box + ' shrink-0 rounded-xl border border-gray-200 bg-white object-contain'}
       />
     )
   }
@@ -43,7 +50,7 @@ export function PartnerLogo({
       aria-hidden="true"
       className={
         box +
-        ' flex shrink-0 items-center justify-center rounded-md bg-primary-50 text-sm font-semibold text-primary-700'
+        ' flex shrink-0 items-center justify-center rounded-xl bg-primary-50 font-semibold text-primary-700'
       }
     >
       {initials(name)}
