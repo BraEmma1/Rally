@@ -1,18 +1,23 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Input, Label, Textarea } from '@/components/ui/Input'
+import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { EventPhotoUpload } from '@/components/ui/EventPhotoUpload'
 import { formatDueDate, rolesLabel, safeWebUrl } from './PartnerCommon'
 import {
   PARTNERSHIP_ROLES,
   ROLE_LABELS,
   createPartnershipWithDetails,
+  listEventPartnershipPackages,
+  listPackageDeliverables,
   type ObligationDirection,
   type ObligationInput,
   type PartnershipInput,
+  type PackageDeliverable,
+  type PartnershipPackage,
   type PartnershipRole,
 } from '@/lib/partnerships'
+import { PackagePreview } from './PackagePreview'
 import { SheetDialog } from './SheetDialog'
 import {
   EMPTY_OBLIGATION_VALUES,
@@ -155,6 +160,67 @@ export function AddPartnerDialog({
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
+  // Packages are an accelerator, so they load alongside the form rather than
+  // gating it: if the fetch is slow or fails, the custom path still works.
+  const [packages, setPackages] = useState<PartnershipPackage[]>([])
+  const [selectedPackage, setSelectedPackage] = useState<PartnershipPackage | null>(null)
+  const [packagePreview, setPackagePreview] = useState<PackageDeliverable[]>([])
+  const [previewLoading, setPreviewLoading] = useState(false)
+
+  const loadPackages = useCallback(async () => {
+    const { data } = await listEventPartnershipPackages(event.id)
+    // An archived package is not on offer any more, and the backend refuses
+    // to apply one, so it is not in the list.
+    setPackages(data.filter((p) => p.archived_at === null))
+  }, [event.id])
+
+  useEffect(() => {
+    void loadPackages()
+  }, [loadPackages])
+
+  /**
+   * Selecting a package fills the form in. It writes nothing: the organizer
+   * may switch between Gold and Platinum as often as they like, and the
+   * deliverables are copied once, by the backend, when the partnership is
+   * actually created.
+   *
+   * Prefilled fields that the organizer has already typed into are left
+   * alone; fields this function filled are replaced, so switching package
+   * does not leave the previous one's value behind.
+   */
+  async function choosePackage(pkg: PartnershipPackage | null) {
+    const previous = selectedPackage
+    setSelectedPackage(pkg)
+    setError(null)
+
+    // "Still whatever the last package put there" -- blank counts, because a
+    // field the organizer has not touched is theirs to overwrite.
+    const cameFromPrevious = (current: string, was: string | number | null | undefined) =>
+      current === '' || (was !== null && was !== undefined && current === String(was))
+
+    setValues((v) => ({
+      ...v,
+      tier_label: cameFromPrevious(v.tier_label, previous?.name) ? (pkg?.name ?? '') : v.tier_label,
+      value_amount: cameFromPrevious(v.value_amount, previous?.value_amount)
+        ? pkg?.value_amount === null || pkg?.value_amount === undefined
+          ? ''
+          : String(pkg.value_amount)
+        : v.value_amount,
+      value_currency: cameFromPrevious(v.value_currency, previous?.value_currency)
+        ? (pkg?.value_currency ?? '')
+        : v.value_currency,
+    }))
+
+    if (!pkg) {
+      setPackagePreview([])
+      return
+    }
+    setPreviewLoading(true)
+    const { data } = await listPackageDeliverables(pkg.id)
+    setPackagePreview(data)
+    setPreviewLoading(false)
+  }
+
   function next() {
     const invalid =
       step === 0 ? validateCompanyStep(values) : step === 1 ? validatePartnershipStep(values) : null
@@ -190,7 +256,8 @@ export function AddPartnerDialog({
       event.id,
       partnershipInputFrom(values),
       values.roles,
-      obligations
+      obligations,
+      selectedPackage?.id ?? null
     )
 
     if (result.orphanDraftId) {
@@ -226,13 +293,36 @@ export function AddPartnerDialog({
 
       <div className="mt-4">
         {step === 0 && <CompanyFields values={values} onChange={setValues} />}
-        {step === 1 && <PartnershipFields values={values} onChange={setValues} />}
-        {step === 2 && (
-          <DraftObligationStep
-            direction="organizer_to_partner"
-            items={deliverables}
-            onChange={setDeliverables}
+        {step === 1 && (
+          <PartnershipFields
+            values={values}
+            onChange={setValues}
+            packages={packages}
+            selectedPackageId={selectedPackage?.id ?? null}
+            onSelectPackage={(pkg) => void choosePackage(pkg)}
           />
+        )}
+        {step === 2 && (
+          <>
+            {selectedPackage && (
+              <PackagePreview
+                pkg={selectedPackage}
+                deliverables={packagePreview}
+                loading={previewLoading}
+              />
+            )}
+            <DraftObligationStep
+              direction="organizer_to_partner"
+              items={deliverables}
+              onChange={setDeliverables}
+              heading={selectedPackage ? 'Additional deliverables' : undefined}
+              support={
+                selectedPackage
+                  ? 'Anything beyond the package. You can edit the package deliverables once the partner is created.'
+                  : undefined
+              }
+            />
+          </>
         )}
         {step === 3 && (
           <DraftObligationStep
@@ -246,6 +336,8 @@ export function AddPartnerDialog({
             values={values}
             deliverables={deliverables.length}
             requirements={requirements.length}
+            pkg={selectedPackage}
+            packageDeliverables={packagePreview.length}
           />
         )}
       </div>
@@ -440,9 +532,20 @@ export function CompanyFields({
 export function PartnershipFields({
   values,
   onChange,
+  packages,
+  selectedPackageId,
+  onSelectPackage,
 }: {
   values: PartnerFormValues
   onChange: (next: PartnerFormValues) => void
+  /**
+   * Offered only while creating. Changing the package of a partnership that
+   * already has obligations is deliberately not a thing you can do here --
+   * see the note in the phase 5A migration.
+   */
+  packages?: PartnershipPackage[]
+  selectedPackageId?: string | null
+  onSelectPackage?: (pkg: PartnershipPackage | null) => void
 }) {
   function set<K extends keyof PartnerFormValues>(key: K, value: PartnerFormValues[K]) {
     onChange({ ...values, [key]: value })
@@ -459,6 +562,38 @@ export function PartnershipFields({
 
   return (
     <div className="space-y-5">
+      {/* Nothing is written when this changes: picking a package fills the
+          tier and the value in this form, and the deliverables are copied
+          once, by the backend, during the controlled creation sequence. */}
+      {packages && onSelectPackage && (
+        <div>
+          <Label htmlFor="pt-package">Package</Label>
+          <Select
+            id="pt-package"
+            value={selectedPackageId ?? ''}
+            onChange={(e) => {
+              const next = packages.find((p) => p.id === e.target.value) ?? null
+              onSelectPackage(next)
+            }}
+          >
+            <option value="">No package — custom partnership</option>
+            {packages.map((pkg) => (
+              <option key={pkg.id} value={pkg.id}>
+                {pkg.name}
+                {pkg.value_amount !== null
+                  ? ' — ' + (pkg.value_currency ? pkg.value_currency + ' ' : '') + pkg.value_amount
+                  : ''}
+              </option>
+            ))}
+          </Select>
+          <p className="mt-1 text-xs text-gray-500">
+            {packages.length === 0
+              ? 'No packages for this event yet. You can still define everything by hand.'
+              : 'A package fills in the tier, the value and a set of deliverables you can then change.'}
+          </p>
+        </div>
+      )}
+
       <fieldset>
         <legend className="label-base">Roles *</legend>
         <p className="-mt-1 mb-2 text-xs text-gray-500">
@@ -567,10 +702,15 @@ function DraftObligationStep({
   direction,
   items,
   onChange,
+  heading,
+  support,
 }: {
   direction: ObligationDirection
   items: DraftObligation[]
   onChange: (next: DraftObligation[]) => void
+  /** Overridden when a package already supplies the main list. */
+  heading?: string
+  support?: string
 }) {
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<DraftObligation | null>(null)
@@ -588,8 +728,8 @@ function DraftObligationStep({
   return (
     <div className="space-y-3">
       <div>
-        <h3 className="text-sm font-semibold text-gray-900">{copy.heading}</h3>
-        <p className="mt-0.5 text-sm text-gray-500">{copy.support}</p>
+        <h3 className="text-sm font-semibold text-gray-900">{heading ?? copy.heading}</h3>
+        <p className="mt-0.5 text-sm text-gray-500">{support ?? copy.support}</p>
       </div>
 
       {items.length === 0 ? (
@@ -711,10 +851,14 @@ function ReviewStep({
   values,
   deliverables,
   requirements,
+  pkg,
+  packageDeliverables,
 }: {
   values: PartnerFormValues
   deliverables: number
   requirements: number
+  pkg: PartnershipPackage | null
+  packageDeliverables: number
 }) {
   const input = useMemo(() => partnershipInputFrom(values), [values])
   const money =
@@ -729,6 +873,9 @@ function ReviewStep({
         <p className="text-sm font-medium text-gray-900">{input.company_name}</p>
         {input.industry && <p className="text-sm text-gray-500">{input.industry}</p>}
       </ReviewRow>
+      <ReviewRow label="Package">
+        <p className="text-sm text-gray-900">{pkg ? pkg.name : 'Custom — no package'}</p>
+      </ReviewRow>
       <ReviewRow label="Partnership">
         {input.tier_label && <p className="text-sm font-medium text-gray-900">{input.tier_label}</p>}
         <p className="text-sm text-gray-500">{rolesLabel(values.roles)}</p>
@@ -738,7 +885,11 @@ function ReviewStep({
       </ReviewRow>
       <ReviewRow label="Deliverables">
         <p className="text-sm text-gray-900">
-          {deliverables} {deliverables === 1 ? 'item' : 'items'}
+          {deliverables + packageDeliverables}{' '}
+          {deliverables + packageDeliverables === 1 ? 'item' : 'items'}
+          {pkg && packageDeliverables > 0 && (
+            <span className="text-gray-500"> ({packageDeliverables} from the package)</span>
+          )}
         </p>
       </ReviewRow>
       <ReviewRow label="Requirements">

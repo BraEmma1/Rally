@@ -15,7 +15,9 @@ import {
   type PartnershipStatus,
   type PartnershipSummary,
 } from '@/lib/partnerships'
+import { cn } from '@/lib/utils'
 import { AddPartnerDialog } from './AddPartnerDialog'
+import { PackagesPanel } from './PackagesPanel'
 import {
   ArchivedNotice,
   PartnerLogo,
@@ -55,6 +57,7 @@ export function EventPartnersPanel({ event, manages }: { event: EventLike; manag
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [view, setView] = useState<'partners' | 'packages'>('partners')
 
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<StatusFilter>('all')
@@ -112,7 +115,7 @@ export function EventPartnersPanel({ event, manages }: { event: EventLike; manag
             Manage sponsors, exhibitors and other event partners.
           </p>
         </div>
-        {editable && (
+        {editable && view === 'partners' && (
           <Button onClick={() => setAddOpen(true)} className="shrink-0">
             <Plus className="h-4 w-4" />
             Add Partner
@@ -120,116 +123,145 @@ export function EventPartnersPanel({ event, manages }: { event: EventLike; manag
         )}
       </div>
 
-      {archived && <ArchivedNotice />}
-
-      {notice && (
-        <div
-          className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-700"
-          role="alert"
-        >
-          <span>{notice}</span>
+      {/* Two views of the same workspace: the partners themselves, and the
+          reusable packages they can be built from. A segmented control rather
+          than another row of tabs -- Event Detail already owns the tab strip
+          above this. */}
+      <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5">
+        {(['partners', 'packages'] as const).map((key) => (
           <button
-            onClick={() => setNotice(null)}
-            className="text-xs font-medium text-warning-700 underline"
+            key={key}
+            type="button"
+            onClick={() => setView(key)}
+            aria-current={view === key ? 'page' : undefined}
+            className={cn(
+              'rounded px-3 py-1.5 text-sm font-medium capitalize transition-colors',
+              view === key
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            )}
           >
-            Dismiss
+            {key}
           </button>
-        </div>
-      )}
+        ))}
+      </div>
 
-      {error && <ErrorState message={error} onRetry={() => void load()} />}
+      {view === 'packages' && <PackagesPanel event={event} manages={manages} />}
 
-      {loading && <PartnersSkeleton />}
-
-      {!loading && !error && partners !== null && partners.length === 0 && (
-        <Card>
-          <CardContent>
-            <EmptyState
-              icon={<Handshake className="h-10 w-10" />}
-              title="No partners yet"
-              description="Add sponsors, exhibitors and other partners, then track what each side has agreed to deliver."
-              action={editable ? <Button onClick={() => setAddOpen(true)}>Add Partner</Button> : undefined}
-            />
-          </CardContent>
-        </Card>
-      )}
-
-      {!loading && !error && partners !== null && partners.length > 0 && (
+      {view === 'partners' && (
         <>
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-            <div className="relative sm:max-w-xs sm:flex-1">
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
-                aria-hidden="true"
-              />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search company, industry or tier…"
-                aria-label="Search partners"
-                className="pl-9"
-              />
-            </div>
-            <Select
-              value={status}
-              onChange={(e) => setStatus(e.target.value as StatusFilter)}
-              aria-label="Filter by status"
-              className="sm:w-40"
-            >
-              <option value="all">All statuses</option>
-              {PARTNERSHIP_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </Select>
-            <Select
-              value={role}
-              onChange={(e) => setRole(e.target.value as RoleFilter)}
-              aria-label="Filter by role"
-              className="sm:w-48"
-            >
-              <option value="all">All roles</option>
-              {PARTNERSHIP_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {ROLE_LABELS[r]}
-                </option>
-              ))}
-            </Select>
-          </div>
+              {archived && <ArchivedNotice />}
 
-          {visible.length === 0 ? (
+          {notice && (
+            <div
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-700"
+              role="alert"
+            >
+              <span>{notice}</span>
+              <button
+                onClick={() => setNotice(null)}
+                className="text-xs font-medium text-warning-700 underline"
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+
+          {error && <ErrorState message={error} onRetry={() => void load()} />}
+
+          {loading && <PartnersSkeleton />}
+
+          {!loading && !error && partners !== null && partners.length === 0 && (
             <Card>
-              <CardContent className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-gray-600">No partners match these filters.</p>
-                <Button variant="secondary" size="sm" onClick={clearFilters}>
-                  Clear filters
-                </Button>
+              <CardContent>
+                <EmptyState
+                  icon={<Handshake className="h-10 w-10" />}
+                  title="No partners yet"
+                  description="Add sponsors, exhibitors and other partners, then track what each side has agreed to deliver."
+                  action={editable ? <Button onClick={() => setAddOpen(true)}>Add Partner</Button> : undefined}
+                />
               </CardContent>
             </Card>
-          ) : (
-            <PartnersList eventId={event.id} partners={visible} />
           )}
 
-          {filtering && visible.length > 0 && (
-            <p className="text-xs text-gray-500">
-              Showing {visible.length} of {partners.length}{' '}
-              {partners.length === 1 ? 'partner' : 'partners'}.
-            </p>
+          {!loading && !error && partners !== null && partners.length > 0 && (
+            <>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <div className="relative sm:max-w-xs sm:flex-1">
+                  <Search
+                    className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"
+                    aria-hidden="true"
+                  />
+                  <Input
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search company, industry or tier…"
+                    aria-label="Search partners"
+                    className="pl-9"
+                  />
+                </div>
+                <Select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value as StatusFilter)}
+                  aria-label="Filter by status"
+                  className="sm:w-40"
+                >
+                  <option value="all">All statuses</option>
+                  {PARTNERSHIP_STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {STATUS_LABELS[s]}
+                    </option>
+                  ))}
+                </Select>
+                <Select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as RoleFilter)}
+                  aria-label="Filter by role"
+                  className="sm:w-48"
+                >
+                  <option value="all">All roles</option>
+                  {PARTNERSHIP_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {ROLE_LABELS[r]}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              {visible.length === 0 ? (
+                <Card>
+                  <CardContent className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-gray-600">No partners match these filters.</p>
+                    <Button variant="secondary" size="sm" onClick={clearFilters}>
+                      Clear filters
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <PartnersList eventId={event.id} partners={visible} />
+              )}
+
+              {filtering && visible.length > 0 && (
+                <p className="text-xs text-gray-500">
+                  Showing {visible.length} of {partners.length}{' '}
+                  {partners.length === 1 ? 'partner' : 'partners'}.
+                </p>
+              )}
+            </>
+          )}
+
+          {addOpen && (
+            <AddPartnerDialog
+              event={event}
+              onClose={() => setAddOpen(false)}
+              onSaved={async (warning) => {
+                setAddOpen(false)
+                setNotice(warning)
+                await load()
+              }}
+            />
           )}
         </>
-      )}
-
-      {addOpen && (
-        <AddPartnerDialog
-          event={event}
-          onClose={() => setAddOpen(false)}
-          onSaved={async (warning) => {
-            setAddOpen(false)
-            setNotice(warning)
-            await load()
-          }}
-        />
       )}
     </div>
   )
