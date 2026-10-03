@@ -1,17 +1,18 @@
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Building2, CalendarRange, Check, Handshake, Mail, Users, X } from 'lucide-react'
+import { Building2, CalendarRange, Check, Handshake, Mail, MapPin, Users, X } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent } from '@/components/ui/Card'
 import { formatDate } from '@/lib/utils'
 import {
   partnershipRolesLabel,
-  type PendingPartnershipInvitation,
+  type InvitationObligation,
+  type PartnershipInvitationReview,
 } from '@/lib/partnerInvitations'
 
 // The screens a partnership invitee can be shown, as presentation only. The
-// page itself owns the data, the decisions and every call; these take props and
+// page owns the data, the decisions and every call; these take props and
 // render. Keeping them separable is what makes each state checkable at a given
 // width without a signed-in session.
 
@@ -19,13 +20,37 @@ import {
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50 px-4 py-10">
-      <div className="mx-auto w-full max-w-xl">{children}</div>
+      <div className="mx-auto w-full max-w-2xl">{children}</div>
     </div>
   )
 }
 
+/** The Rally mark and the one-line statement of what this page is. */
+export function InvitationHeader({ title }: { title: string }) {
+  return (
+    <div className="mb-6 flex flex-col items-center gap-3 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary-600 text-white">
+        <Handshake className="h-6 w-6" aria-hidden="true" />
+      </div>
+      <div>
+        <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Rally</p>
+        <h1 className="text-xl font-bold text-gray-900">{title}</h1>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Reviewing a proposal, not reading a notification: the offer in one sentence,
+ * then the event, then the commercial terms, then what each side has
+ * undertaken to do. The two obligation lists are the point of phase 3B -- they
+ * are what the recipient is actually being asked to agree to.
+ */
 export function InvitationReview({
   invitation,
+  deliverables,
+  requirements,
+  termsLoading,
   signedInEmail,
   actionError,
   busy,
@@ -33,7 +58,10 @@ export function InvitationReview({
   onAccept,
   onDecline,
 }: {
-  invitation: PendingPartnershipInvitation
+  invitation: PartnershipInvitationReview
+  deliverables: InvitationObligation[]
+  requirements: InvitationObligation[]
+  termsLoading: boolean
   signedInEmail: string | null
   actionError: string | null
   busy: boolean
@@ -42,26 +70,18 @@ export function InvitationReview({
   onDecline: () => void
 }) {
   const roles = partnershipRolesLabel(invitation.roles)
+  const money = formatValue(invitation.value_amount, invitation.value_currency)
+  const organizer = invitation.organizer_organization_name || 'The event organizer'
 
   return (
     <Shell>
-      <div className="mb-6 flex flex-col items-center gap-3 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary-600 text-white">
-          <Handshake className="h-6 w-6" aria-hidden="true" />
-        </div>
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Rally</p>
-          <h1 className="text-xl font-bold text-gray-900">Partnership Invitation</h1>
-        </div>
-      </div>
+      <InvitationHeader title="Partnership Invitation" />
 
       <Card>
-        <CardContent className="space-y-5 py-6">
-          {/* Who, whom, what, as what -- the shape of the offer in one block. */}
+        <CardContent className="space-y-6 py-6">
+          {/* The offer, stated once. */}
           <div className="space-y-1 text-center">
-            <p className="text-base font-semibold text-gray-900">
-              {invitation.organizer_organization_name || 'The event organizer'}
-            </p>
+            <p className="text-base font-semibold text-gray-900">{organizer}</p>
             <p className="text-sm text-gray-500">has invited</p>
             <p className="text-lg font-bold text-gray-900">{invitation.company_name}</p>
             <p className="text-sm text-gray-500">to participate in</p>
@@ -77,7 +97,12 @@ export function InvitationReview({
           <dl className="divide-y divide-gray-100 border-y border-gray-100">
             {invitation.event_start_date && (
               <Row icon={<CalendarRange className="h-4 w-4" />} label="Event date">
-                {formatDate(invitation.event_start_date)}
+                {formatEventDates(invitation.event_start_date, invitation.event_end_date)}
+              </Row>
+            )}
+            {invitation.event_location && (
+              <Row icon={<MapPin className="h-4 w-4" />} label="Location">
+                {invitation.event_location}
               </Row>
             )}
             {invitation.organizer_organization_name && (
@@ -97,11 +122,41 @@ export function InvitationReview({
             )}
           </dl>
 
-          {/* Said plainly rather than left as a gap: phase 3A withholds the
-              obligations and the commercial terms until acceptance. */}
+          {(invitation.tier_label || money) && (
+            <Section title="Partnership">
+              <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <p className="text-sm font-medium text-gray-900">
+                  {invitation.tier_label ?? 'Partnership'}
+                </p>
+                {money && (
+                  <p className="text-base font-semibold tabular-nums text-gray-900">{money}</p>
+                )}
+              </div>
+              {roles && <p className="mt-0.5 text-sm text-gray-500">{roles}</p>}
+            </Section>
+          )}
+
+          {termsLoading ? (
+            <p className="text-sm text-gray-500">Loading the partnership terms…</p>
+          ) : (
+            <>
+              <Section title="What you'll receive">
+                <ObligationList
+                  items={deliverables}
+                  empty="The organizer has not listed anything yet."
+                />
+              </Section>
+              <Section title="What we'll need from you">
+                <ObligationList
+                  items={requirements}
+                  empty="Nothing has been requested from you yet."
+                />
+              </Section>
+            </>
+          )}
+
           <p className="text-xs leading-relaxed text-gray-500">
-            This invitation expires on {formatDate(invitation.expires_at)}. The deliverables and
-            requirements agreed for this partnership become available to you once you accept.
+            This invitation expires on {formatDate(invitation.expires_at)}.
           </p>
 
           {actionError && (
@@ -133,13 +188,50 @@ export function InvitationReview({
   )
 }
 
+function Section({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500">{title}</h2>
+      <div className="mt-2">{children}</div>
+    </section>
+  )
+}
+
+function ObligationList({ items, empty }: { items: InvitationObligation[]; empty: string }) {
+  if (items.length === 0) {
+    return <p className="text-sm text-gray-400">{empty}</p>
+  }
+  return (
+    <ul className="divide-y divide-gray-100 rounded-md border border-gray-200">
+      {items.map((item) => {
+        const meta = [
+          item.category,
+          item.quantity !== null ? 'Qty ' + item.quantity : null,
+          item.due_date ? 'Due ' + formatDate(item.due_date) : null,
+        ].filter(Boolean)
+        return (
+          <li key={item.id} className="px-3 py-2.5">
+            <p className="text-sm font-medium text-gray-900">{item.title}</p>
+            {item.description && (
+              <p className="mt-0.5 whitespace-pre-wrap text-sm text-gray-600">{item.description}</p>
+            )}
+            {meta.length > 0 && (
+              <p className="mt-0.5 text-xs text-gray-500">{meta.join(' · ')}</p>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 export function AcceptedScreen({
   organizationName,
   invitation,
   onHome,
 }: {
-  organizationName: string
-  invitation: PendingPartnershipInvitation
+  organizationName: string | null
+  invitation: PartnershipInvitationReview
   onHome: () => void
 }) {
   return (
@@ -153,9 +245,22 @@ export function AcceptedScreen({
           {/* Not "your account is now a Sponsor": the account type is unchanged,
               and the authority comes from organization membership. */}
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-gray-600">
-            You now represent <strong className="font-semibold">{organizationName}</strong> for{' '}
-            {invitation.event_name}.
+            {organizationName ? (
+              <>
+                You now represent <strong className="font-semibold">{organizationName}</strong> for{' '}
+                {invitation.event_name}.
+              </>
+            ) : (
+              <>
+                {invitation.company_name} is confirmed as a partner for {invitation.event_name}.
+              </>
+            )}
           </p>
+          {invitation.responded_at && (
+            <p className="mt-1 text-xs text-gray-500">
+              Accepted on {formatDate(invitation.responded_at)}
+            </p>
+          )}
           <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
             {invitation.tier_label && <Badge variant="primary">{invitation.tier_label}</Badge>}
             {invitation.roles.length > 0 && (
@@ -171,7 +276,13 @@ export function AcceptedScreen({
   )
 }
 
-export function DeclinedScreen({ onHome }: { onHome: () => void }) {
+export function DeclinedScreen({
+  invitation,
+  onHome,
+}: {
+  invitation: PartnershipInvitationReview | null
+  onHome: () => void
+}) {
   return (
     <Shell>
       <Card>
@@ -181,8 +292,20 @@ export function DeclinedScreen({ onHome }: { onHome: () => void }) {
           </div>
           <h1 className="mt-4 text-xl font-bold text-gray-900">Invitation Declined</h1>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-gray-600">
+            {invitation
+              ? 'You declined the invitation to partner with ' +
+                (invitation.organizer_organization_name || 'the organizer') +
+                ' for ' +
+                invitation.event_name +
+                '. '
+              : ''}
             The organizer can update the partnership and send another invitation if needed.
           </p>
+          {invitation?.responded_at && (
+            <p className="mt-1 text-xs text-gray-500">
+              Declined on {formatDate(invitation.responded_at)}
+            </p>
+          )}
           <div className="mt-6">
             <Button variant="secondary" onClick={onHome}>
               Back to Rally
@@ -198,11 +321,14 @@ export function UnavailableScreen({
   title,
   body,
   homePath,
+  detail,
   footer,
 }: {
   title: string
   body: string
   homePath: string
+  /** A short factual line under the body, e.g. when it expired. */
+  detail?: string
   footer?: ReactNode
 }) {
   return (
@@ -215,6 +341,7 @@ export function UnavailableScreen({
             </div>
             <h1 className="mt-4 text-xl font-bold text-gray-900">{title}</h1>
             <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-gray-600">{body}</p>
+            {detail && <p className="mt-1 text-xs text-gray-500">{detail}</p>}
           </div>
           {footer}
           <div className="mt-6 text-center">
@@ -242,4 +369,24 @@ function Row({ icon, label, children }: { icon: ReactNode; label: string; childr
       </dd>
     </div>
   )
+}
+
+/**
+ * "GHS 60,000". The currency is printed as the code the organizer recorded,
+ * not as a symbol: Rally does not know the locale of a commercial agreement,
+ * and guessing one would misrepresent the amount.
+ */
+function formatValue(amount: number | null, currency: string | null): string | null {
+  if (amount === null) return null
+  const fractionDigits = Number.isInteger(amount) ? 0 : 2
+  const formatted = new Intl.NumberFormat(undefined, {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  }).format(amount)
+  return currency ? currency + ' ' + formatted : formatted
+}
+
+function formatEventDates(start: string, end: string | null): string {
+  if (!end || end === start) return formatDate(start)
+  return formatDate(start) + ' – ' + formatDate(end)
 }

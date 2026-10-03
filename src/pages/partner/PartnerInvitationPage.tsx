@@ -13,10 +13,13 @@ import {
 } from '@/components/partner/PartnerInvitationViews'
 import { accountHomePath } from '@/lib/routing'
 import { invitationAuthSearch } from '@/lib/invitationRouting'
+import { formatDate } from '@/lib/utils'
 import {
   declinePartnershipInvitation,
-  listMyPendingPartnershipInvitations,
-  type PendingPartnershipInvitation,
+  getMyPartnershipInvitation,
+  getMyPartnershipInvitationObligations,
+  type InvitationObligation,
+  type PartnershipInvitationReview,
 } from '@/lib/partnerInvitations'
 
 // ---------------------------------------------------------------------------
@@ -26,19 +29,13 @@ import {
 // recipient is normally an attendee, may be a brand-new Rally user, and
 // belongs to none of the app shells.
 //
-// The id in the URL is a selector, never an authorization.
-// my_pending_partnership_invitations returns only invitations whose
-// invited_email matches this caller's CONFIRMED email, so an id that is not in
-// that list simply is not here -- and the page cannot tell whether it was
-// revoked, expired, already answered, or addressed to somebody else. That is
-// the backend's deliberate position ("the uuid alone reveals nothing about
-// what exists"), so this screen presents one honest combined state rather than
-// inventing a reason it has not been given.
+// The id in the URL is a selector, never an authorization. Phase 3B's
+// my_partnership_invitation is authorized entirely by the caller's CONFIRMED
+// email matching invited_email, and returns zero rows otherwise -- the same
+// answer as a uuid that does not exist. So this page can tell the RIGHTFUL
+// recipient exactly what became of their invitation (expired, revoked,
+// declined, accepted) while telling everyone else nothing at all.
 // ---------------------------------------------------------------------------
-
-type Outcome =
-  | { kind: 'accepted'; organizationName: string; invitation: PendingPartnershipInvitation }
-  | { kind: 'declined' }
 
 export default function PartnerInvitationPage() {
   const [searchParams] = useSearchParams()
@@ -47,35 +44,54 @@ export default function PartnerInvitationPage() {
 
   const invitationId = searchParams.get('invitation')
 
-  const [invitations, setInvitations] = useState<PendingPartnershipInvitation[] | null>(null)
+  const [invitation, setInvitation] = useState<PartnershipInvitationReview | null>(null)
+  const [obligations, setObligations] = useState<InvitationObligation[]>([])
+  const [loading, setLoading] = useState(true)
+  const [termsLoading, setTermsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+
   const [acceptOpen, setAcceptOpen] = useState(false)
   const [confirmDecline, setConfirmDecline] = useState(false)
   const [declining, setDeclining] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [outcome, setOutcome] = useState<Outcome | null>(null)
+  const [acceptedOrganization, setAcceptedOrganization] = useState<string | null>(null)
 
   // Supabase populates this only once the address has actually been verified,
   // which is the same fact current_user_confirmed_email() reads server-side.
   const emailConfirmed = Boolean(user?.email_confirmed_at)
 
   const load = useCallback(async () => {
-    if (!emailConfirmed) {
-      setInvitations([])
+    if (!invitationId || !emailConfirmed) {
+      setLoading(false)
+      setTermsLoading(false)
       return
     }
-    const { data, error } = await listMyPendingPartnershipInvitations()
-    setInvitations(data)
-    setLoadError(error)
-  }, [emailConfirmed])
+    setLoading(true)
+    setTermsLoading(true)
+    // Both in flight together: the terms are a second narrow projection, and
+    // the header should not wait on them.
+    const [result, obligationResult] = await Promise.all([
+      getMyPartnershipInvitation(invitationId),
+      getMyPartnershipInvitationObligations(invitationId),
+    ])
+    setInvitation(result.data)
+    setLoadError(result.error)
+    setLoading(false)
+    setObligations(obligationResult.data)
+    setTermsLoading(false)
+  }, [invitationId, emailConfirmed])
 
   useEffect(() => {
     void load()
   }, [load])
 
-  const invitation = useMemo(
-    () => invitations?.find((i) => i.invitation_id === invitationId) ?? null,
-    [invitations, invitationId]
+  const deliverables = useMemo(
+    () => obligations.filter((o) => o.direction === 'organizer_to_partner'),
+    [obligations]
+  )
+  const requirements = useMemo(
+    () => obligations.filter((o) => o.direction === 'partner_to_organizer'),
+    [obligations]
   )
 
   const home = accountHomePath(account)
@@ -87,28 +103,10 @@ export default function PartnerInvitationPage() {
     const { error } = await declinePartnershipInvitation(invitation.invitation_id)
     setDeclining(false)
     setConfirmDecline(false)
-    if (error) {
-      setActionError(error)
-      // The refusal may itself be stale state -- another tab, or the organizer
-      // revoking it -- so the authoritative list is refetched either way.
-      await load()
-      return
-    }
-    setOutcome({ kind: 'declined' })
-  }
-
-  if (outcome?.kind === 'accepted') {
-    return (
-      <AcceptedScreen
-        organizationName={outcome.organizationName}
-        invitation={outcome.invitation}
-        onHome={() => navigate(home)}
-      />
-    )
-  }
-
-  if (outcome?.kind === 'declined') {
-    return <DeclinedScreen onHome={() => navigate(home)} />
+    if (error) setActionError(error)
+    // Either way the authoritative state is refetched: a refusal usually means
+    // somebody else got there first, and that is what should be on screen.
+    await load()
   }
 
   if (!invitationId) {
@@ -131,19 +129,18 @@ export default function PartnerInvitationPage() {
     )
   }
 
-  if (invitations === null) return <LoadingState message="Loading your invitation…" />
+  if (loading) return <LoadingState message="Loading your invitation…" />
 
+  // No row means: not this account's invitation, or no such invitation. The
+  // backend answers both identically so that a uuid reveals nothing, and this
+  // does not try to tell them apart.
   if (!invitation) {
-    // One state for revoked, expired, already answered, a partnership that has
-    // moved on, an archived event, and an invitation addressed to someone else.
-    // The backend refuses to distinguish them, and guessing a reason in public
-    // is exactly what that refusal exists to prevent.
     return (
       <UnavailableScreen
         title="This invitation is not available"
         body={
           loadError ??
-          'It may have expired, been withdrawn, or already been answered — or it may have been sent to a different email address.'
+          'It may have been sent to a different email address, or the link may no longer be valid.'
         }
         homePath={home}
         footer={
@@ -171,10 +168,69 @@ export default function PartnerInvitationPage() {
     )
   }
 
+  // ---- states the rightful recipient may now be told truthfully -----------
+
+  if (invitation.invitation_status === 'accepted') {
+    return (
+      <AcceptedScreen
+        organizationName={acceptedOrganization}
+        invitation={invitation}
+        onHome={() => navigate(home)}
+      />
+    )
+  }
+
+  if (invitation.invitation_status === 'declined') {
+    return <DeclinedScreen invitation={invitation} onHome={() => navigate(home)} />
+  }
+
+  if (invitation.invitation_status === 'revoked') {
+    return (
+      <UnavailableScreen
+        title="Invitation No Longer Available"
+        body="This invitation was withdrawn by the event organizer."
+        detail={
+          invitation.responded_at ? 'Withdrawn on ' + formatDate(invitation.responded_at) : undefined
+        }
+        homePath={home}
+      />
+    )
+  }
+
+  if (invitation.is_expired) {
+    return (
+      <UnavailableScreen
+        title="Invitation Expired"
+        body="This invitation expired before it was accepted. Contact the event organizer for a new one."
+        detail={'Expired on ' + formatDate(invitation.expires_at)}
+        homePath={home}
+      />
+    )
+  }
+
+  // Still pending, but the partnership or the event has moved on. The backend
+  // would refuse the acceptance, so the button is not offered.
+  if (invitation.event_archived || invitation.partnership_status !== 'invited') {
+    return (
+      <UnavailableScreen
+        title="This partnership is no longer open"
+        body={
+          invitation.event_archived
+            ? 'The event has been archived, so this invitation can no longer be accepted.'
+            : 'The organizer has changed this partnership, so the invitation can no longer be accepted. Contact them if you were expecting to take part.'
+        }
+        homePath={home}
+      />
+    )
+  }
+
   return (
     <>
       <InvitationReview
         invitation={invitation}
+        deliverables={deliverables}
+        requirements={requirements}
+        termsLoading={termsLoading}
         signedInEmail={user?.email ?? null}
         actionError={actionError}
         busy={declining || acceptOpen}
@@ -187,9 +243,12 @@ export default function PartnerInvitationPage() {
         <AcceptPartnershipDialog
           invitation={invitation}
           onClose={() => setAcceptOpen(false)}
-          onAccepted={(organizationName) => {
+          onAccepted={async (organizationName) => {
             setAcceptOpen(false)
-            setOutcome({ kind: 'accepted', organizationName, invitation })
+            setAcceptedOrganization(organizationName)
+            // The accepted screen renders from the refetched invitation, so
+            // what it shows is what the server actually did.
+            await load()
           }}
         />
       )}
