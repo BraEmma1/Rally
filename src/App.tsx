@@ -11,7 +11,7 @@ import {
   isActiveOrganizer,
   isActivePlatformAdmin,
 } from '@/lib/routing'
-import { Spinner } from '@/components/ui/States'
+import { ErrorState, Spinner } from '@/components/ui/States'
 import AppLayout from '@/components/AppLayout'
 import EventModeLayout from '@/components/eventmode/EventModeLayout'
 import { EventModeProvider } from '@/context/EventModeContext'
@@ -115,9 +115,19 @@ function RequireCompleteProfile({ children }: { children: React.ReactNode }) {
 // on a team and an organizer account both pass; what each may do inside is
 // decided by the backend, page by page, from the same membership.
 function RequireOrganizationAccess({ children }: { children: React.ReactNode }) {
-  const { memberships, loading } = useOrganizer()
+  const { memberships, loading, error, refresh } = useOrganizer()
   const { account } = useAuth()
   if (loading) return <FullPageSpinner />
+  // Four states, not two: loading, could-not-ask, none, and some. Reporting the
+  // middle one is what stops a dropped request from looking like a revoked
+  // membership and redirecting the user out of the area they were working in.
+  if (error && memberships.length === 0) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <ErrorState message={error} onRetry={() => void refresh()} />
+      </div>
+    )
+  }
   if (memberships.length === 0) {
     // An organizer account with no organization yet still owns this area: the
     // inner guard sends them to setup. Anyone else — an attendee whose
@@ -134,9 +144,16 @@ function RequireOrganizationAccess({ children }: { children: React.ReactNode }) 
 // redirects to setup until they have one — except setup itself, which is where
 // they either create one or accept an invitation to join one.
 function RequireOrganization({ children }: { children: React.ReactNode }) {
-  const { memberships, loading } = useOrganizer()
+  const { memberships, loading, error, refresh } = useOrganizer()
   const location = useLocation()
   if (loading) return <FullPageSpinner />
+  if (error && memberships.length === 0) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <ErrorState message={error} onRetry={() => void refresh()} />
+      </div>
+    )
+  }
   if (memberships.length === 0 && location.pathname !== '/organizer/setup') {
     return <Navigate to="/organizer/setup" replace />
   }
@@ -172,6 +189,11 @@ function OrganizerInvitationsEntry() {
 
 export default function App() {
   const { session, account, loading, isRecovery } = useAuth()
+
+  // The one place that may replace the whole application with a spinner, and
+  // only while BOOTING: `loading` is no longer set for background work, so a
+  // token refresh or a return to the tab can no longer unmount the router and
+  // every page under it. See the auth listener in AuthContext.
 
   if (loading) return <FullPageSpinner />
 
