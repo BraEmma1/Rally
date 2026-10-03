@@ -11,7 +11,6 @@ import {
   LayoutDashboard,
   LogOut,
   Mail,
-  Menu,
   Search,
   Settings,
   UserCircle,
@@ -279,9 +278,10 @@ export default function OrganizerLayout() {
         </div>
       </header>
 
-      {/* Mobile top header: shared Rally toolbar — menu, brand, workspace
-          badge, then search, notifications and the user's avatar. The page name
-          lives in the page body, not here. */}
+      {/* Mobile top header: shared Rally toolbar — brand, workspace badge,
+          then search, notifications and the user's avatar. Navigation lives in
+          the bottom bar (More opens the drawer); the page name lives in the
+          page body. */}
       <div className="sticky top-0 z-20 border-b border-gray-200 bg-white pt-[env(safe-area-inset-top)] md:hidden">
         {searchOpen ? (
           <div className="flex h-16 items-center gap-2 px-4">
@@ -308,53 +308,50 @@ export default function OrganizerLayout() {
             </button>
           </div>
         ) : (
-          <div className="flex h-16 items-center px-4">
-            <button
-              onClick={() => setMobileOpen(true)}
-              aria-label="Open menu"
-              className="-ml-2 rounded-full p-2.5 text-slate-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
-            >
-              <Menu className="h-6 w-6" />
-            </button>
-            <img
-              src="/favicon.svg"
-              alt=""
-              aria-hidden="true"
-              className="ml-3 h-10 w-10 shrink-0"
-            />
-            <span className="ml-2 whitespace-nowrap text-[21px] font-bold leading-none text-gray-900">
-              Rally
-            </span>
-            <span className="ml-2 whitespace-nowrap rounded-full bg-[#E6F2FF] px-2.5 py-0.5 text-xs font-semibold text-primary-600">
-              Organizer
-            </span>
-            <div className="flex-1" />
-            <button
-              onClick={() => setSearchOpen(true)}
-              aria-label="Search"
-              className="rounded-full p-2.5 text-slate-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
-            >
-              <Search className="h-6 w-6" />
-            </button>
-            <button
-              onClick={() => navigate('/organizer/invitations')}
-              aria-label="Notifications"
-              className="relative ml-1 rounded-full p-2.5 text-slate-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
-            >
-              <Bell className="h-6 w-6" />
-              <UnreadBadge count={unreadCount} />
-            </button>
-            <button
-              onClick={() => setMobileOpen(true)}
-              aria-label="Open profile"
-              className="ml-1 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
-            >
-              <Avatar
-                name={profile?.full_name || user?.email || 'Organizer'}
-                src={profile?.photo_url}
-                size="md"
+          <div className="flex h-16 items-center justify-between px-4">
+            <div className="flex min-w-0 items-center">
+              <img
+                src="/favicon.svg"
+                alt=""
+                aria-hidden="true"
+                className="h-8 w-8 shrink-0"
               />
-            </button>
+              <span className="ml-2 whitespace-nowrap text-[19px] font-bold leading-none text-gray-900">
+                Rally
+              </span>
+              <span className="ml-2 whitespace-nowrap rounded-full bg-[#E6F2FF] px-2 py-0.5 text-[11px] font-semibold text-primary-600">
+                Organizer
+              </span>
+            </div>
+            <div className="flex items-center">
+              <button
+                onClick={() => setSearchOpen(true)}
+                aria-label="Search"
+                className="rounded-full p-2.5 text-slate-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+              >
+                <Search className="h-5 w-5" />
+              </button>
+              <button
+                onClick={() => navigate('/organizer/invitations')}
+                aria-label="Notifications"
+                className="relative -ml-1 rounded-full p-2.5 text-slate-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+              >
+                <Bell className="h-5 w-5" />
+                <UnreadBadge count={unreadCount} />
+              </button>
+              <button
+                onClick={() => setMobileOpen(true)}
+                aria-label="Open profile"
+                className="-ml-1 rounded-full p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+              >
+                <Avatar
+                  name={profile?.full_name || user?.email || 'Organizer'}
+                  src={profile?.photo_url}
+                  size="sm"
+                  className="h-9 w-9 text-xs"
+                />
+              </button>
+            </div>
           </div>
         )}
       </div>
