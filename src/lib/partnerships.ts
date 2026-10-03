@@ -223,6 +223,13 @@ export type Partnership = {
   value_currency: string | null
   internal_notes: string | null
   representative_email: string | null
+  /**
+   * Which sponsorship package this partnership started from, if any.
+   * Provenance only -- it is never read to decide what the partnership owes
+   * or what it is worth. Those are the obligations and value_amount, which
+   * were copied once and are its own from then on.
+   */
+  package_id: string | null
   display_order: number
   created_by: string
   created_at: string
@@ -484,7 +491,9 @@ export async function createPartnershipWithDetails(
   eventId: string,
   input: PartnershipInput,
   roles: PartnershipRole[],
-  obligations: ObligationInput[]
+  obligations: ObligationInput[],
+  /** A sponsorship package to copy default deliverables from, if chosen. */
+  packageId?: string | null
 ): Promise<CreatePartnershipResult> {
   const { data, error } = await supabase
     .from('event_partnerships')
@@ -515,12 +524,29 @@ export async function createPartnershipWithDetails(
     return rollback(mapPartnershipError(rolesError, 'Unable to save the partner roles.'))
   }
 
+  // The package, if one was chosen, before any hand-written obligations --
+  // so the copied deliverables keep the template's order and anything the
+  // organizer typed follows them.
+  let copiedFromPackage = 0
+  if (packageId) {
+    const { copied, error: packageError } = await applyPartnershipPackage(
+      partnershipId,
+      packageId,
+      // The wizard has already put the package's name and value into the form,
+      // where the organizer could change them, and those values are on the row
+      // by now. Letting the backend prefill too would quietly undo an edit.
+      { copyValue: false, copyNameToTier: false }
+    )
+    if (packageError) return rollback(packageError)
+    copiedFromPackage = copied
+  }
+
   if (obligations.length > 0) {
     // display_order is per direction, which is how both lists are read back.
     const owed = obligations.filter((o) => o.direction === 'organizer_to_partner')
     const required = obligations.filter((o) => o.direction === 'partner_to_organizer')
     const rows = [
-      ...owed.map((o, index) => ({ ...o, display_order: index })),
+      ...owed.map((o, index) => ({ ...o, display_order: copiedFromPackage + index })),
       ...required.map((o, index) => ({ ...o, display_order: index })),
     ].map((o) => ({ partnership_id: partnershipId, event_id: eventId, ...o }))
 
@@ -699,6 +725,235 @@ export async function revokePartnershipInvitation(
   })
   if (error) return { error: mapInvitationError(error, 'Unable to revoke this invitation.') }
   return { error: null }
+}
+
+// ---------------------------------------------------------------------------
+// Sponsorship packages
+//
+// A package is a reusable TEMPLATE belonging to one event: a name the
+// organizer chose, a suggested value, and a list of default deliverables.
+// Applying one copies those deliverables into a partnership as real
+// obligations, once. After that the two are unrelated -- editing either side
+// leaves the other alone -- which is why nothing in this file ever reads a
+// package to render a partnership.
+// ---------------------------------------------------------------------------
+
+export type PartnershipPackage = {
+  id: string
+  event_id: string
+  name: string
+  description: string | null
+  value_amount: number | null
+  value_currency: string | null
+  display_order: number
+  archived_at: string | null
+  deliverable_count: number
+  /** How many partnerships started from it. Non-zero means Delete is refused. */
+  partnership_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** A template deliverable. No direction, no status, no completion, no evidence. */
+export type PackageDeliverable = {
+  id: string
+  package_id: string
+  event_id: string
+  title: string
+  description: string | null
+  category: string | null
+  quantity: number | null
+  due_date: string | null
+  display_order: number
+}
+
+export type PackageInput = {
+  name: string
+  description: string | null
+  value_amount: number | null
+  value_currency: string | null
+}
+
+export type PackageDeliverableInput = {
+  title: string
+  description: string | null
+  category: string | null
+  quantity: number | null
+  due_date: string | null
+}
+
+export async function listEventPartnershipPackages(
+  eventId: string
+): Promise<{ data: PartnershipPackage[]; error: string | null }> {
+  const { data, error } = await supabase.rpc('get_event_partnership_packages', {
+    target_event_id: eventId,
+  })
+  if (error) return { data: [], error: mapPartnershipError(error, 'Unable to load the packages.') }
+  return {
+    data: ((data ?? []) as PartnershipPackage[]).map((row) => ({
+      ...row,
+      value_amount: row.value_amount === null ? null : Number(row.value_amount),
+      deliverable_count: Number(row.deliverable_count),
+      partnership_count: Number(row.partnership_count),
+    })),
+    error: null,
+  }
+}
+
+export async function listPackageDeliverables(
+  packageId: string
+): Promise<{ data: PackageDeliverable[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from('event_partnership_package_deliverables')
+    .select('*')
+    .eq('package_id', packageId)
+    .order('display_order')
+    .order('created_at')
+  if (error) {
+    return { data: [], error: mapPartnershipError(error, 'Unable to load the default deliverables.') }
+  }
+  return { data: (data ?? []) as PackageDeliverable[], error: null }
+}
+
+export async function createPackage(
+  eventId: string,
+  input: PackageInput,
+  displayOrder: number
+): Promise<{ id: string | null; error: string | null }> {
+  const { data, error } = await supabase
+    .from('event_partnership_packages')
+    .insert({ event_id: eventId, display_order: displayOrder, ...input })
+    .select('id')
+    .single()
+  if (error || !data) {
+    return { id: null, error: mapPartnershipError(error, 'Unable to save this package.') }
+  }
+  return { id: (data as { id: string }).id, error: null }
+}
+
+export async function updatePackage(
+  packageId: string,
+  patch: Partial<PackageInput>
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('event_partnership_packages')
+    .update(patch)
+    .eq('id', packageId)
+  if (error) return { error: mapPartnershipError(error, 'Unable to save this package.') }
+  return { error: null }
+}
+
+/** Archiving is how a package that has been used is retired. */
+export async function setPackageArchived(
+  packageId: string,
+  archived: boolean
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('event_partnership_packages')
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq('id', packageId)
+  if (error) return { error: mapPartnershipError(error, 'Unable to update this package.') }
+  return { error: null }
+}
+
+/** The database refuses this for a package any partnership started from. */
+export async function deletePackage(packageId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('event_partnership_packages')
+    .delete()
+    .eq('id', packageId)
+  if (error) return { error: mapPartnershipError(error, 'Unable to delete this package.') }
+  return { error: null }
+}
+
+export async function createPackageDeliverable(
+  packageId: string,
+  eventId: string,
+  input: PackageDeliverableInput,
+  displayOrder: number
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.from('event_partnership_package_deliverables').insert({
+    package_id: packageId,
+    event_id: eventId,
+    display_order: displayOrder,
+    ...input,
+  })
+  if (error) return { error: mapPartnershipError(error, 'Unable to save this deliverable.') }
+  return { error: null }
+}
+
+export async function updatePackageDeliverable(
+  deliverableId: string,
+  patch: Partial<PackageDeliverableInput>
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('event_partnership_package_deliverables')
+    .update(patch)
+    .eq('id', deliverableId)
+  if (error) return { error: mapPartnershipError(error, 'Unable to save this deliverable.') }
+  return { error: null }
+}
+
+export async function deletePackageDeliverable(
+  deliverableId: string
+): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('event_partnership_package_deliverables')
+    .delete()
+    .eq('id', deliverableId)
+  if (error) return { error: mapPartnershipError(error, 'Unable to remove this deliverable.') }
+  return { error: null }
+}
+
+export async function reorderPackages(
+  eventId: string,
+  packageIds: string[]
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('reorder_event_partnership_packages', {
+    target_event_id: eventId,
+    package_ids: packageIds,
+  })
+  if (error) return { error: mapPartnershipError(error, 'Unable to save the new order.') }
+  return { error: null }
+}
+
+export async function reorderPackageDeliverables(
+  packageId: string,
+  deliverableIds: string[]
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('reorder_package_deliverables', {
+    target_package_id: packageId,
+    deliverable_ids: deliverableIds,
+  })
+  if (error) return { error: mapPartnershipError(error, 'Unable to save the new order.') }
+  return { error: null }
+}
+
+/**
+ * Copy a package's default deliverables into a partnership, once.
+ *
+ * One backend call does the whole thing in one transaction: it copies the
+ * deliverables, records the provenance, and fills the tier and value only
+ * where the partnership has none. It refuses outright if a package is already
+ * applied, so a double-clicked button, a retry and two open tabs all end the
+ * same way instead of duplicating everything.
+ *
+ * Returns the number of deliverables copied, which the caller needs so any
+ * extra obligations it adds are ordered after them.
+ */
+export async function applyPartnershipPackage(
+  partnershipId: string,
+  packageId: string,
+  options: { copyValue?: boolean; copyNameToTier?: boolean } = {}
+): Promise<{ copied: number; error: string | null }> {
+  const { data, error } = await supabase.rpc('apply_partnership_package', {
+    target_partnership_id: partnershipId,
+    target_package_id: packageId,
+    copy_value: options.copyValue ?? true,
+    copy_name_to_tier: options.copyNameToTier ?? true,
+  })
+  if (error) return { copied: 0, error: mapPartnershipError(error, 'Unable to apply this package.') }
+  return { copied: Number(data ?? 0), error: null }
 }
 
 // ---------------------------------------------------------------------------
