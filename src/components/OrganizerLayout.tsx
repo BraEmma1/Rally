@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   Bell,
@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   LogOut,
   Mail,
+  Menu,
   Search,
   Settings,
   UserCircle,
@@ -20,6 +21,7 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import { useOrganizer } from '@/context/OrganizerContext'
+import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import OrganizerBottomNav from '@/components/organizer/OrganizerBottomNav'
 import OrganizerMobileDrawer from '@/components/organizer/OrganizerMobileDrawer'
@@ -33,20 +35,6 @@ const navItems = [
   { to: '/organizer/invitations', label: 'My invitations', icon: Mail, end: false },
   { to: '/organizer/settings', label: 'Settings', icon: Settings, end: false },
 ]
-
-const pageTitles: Array<{ match: (path: string) => boolean; title: string }> = [
-  { match: (p) => p === '/organizer' || p === '/organizer/', title: 'Dashboard' },
-  { match: (p) => p.startsWith('/organizer/events'), title: 'Events' },
-  { match: (p) => p.startsWith('/organizer/people'), title: 'People' },
-  { match: (p) => p.startsWith('/organizer/team'), title: 'Team' },
-  { match: (p) => p.startsWith('/organizer/invitations'), title: 'Invitations' },
-  { match: (p) => p.startsWith('/organizer/settings'), title: 'Settings' },
-]
-
-function pageTitle(pathname: string): string {
-  const found = pageTitles.find((entry) => entry.match(pathname))
-  return found?.title ?? 'Organizer'
-}
 
 function UnreadBadge({ count }: { count: number }) {
   if (count <= 0) return null
@@ -112,10 +100,9 @@ function OrganizationSwitcher({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export default function OrganizerLayout() {
-  const { signOut, account } = useAuth()
+  const { signOut, account, profile, user } = useAuth()
   const { role, organization } = useOrganizer()
   const { unreadCount } = useNotifications()
-  const location = useLocation()
   const navigate = useNavigate()
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
@@ -137,16 +124,6 @@ export default function OrganizerLayout() {
   async function handleSignOut() {
     await signOut()
     navigate('/login')
-  }
-
-  const title = pageTitle(location.pathname)
-
-  // Search is organizer-scoped: the attendee global search reads connections,
-  // which organizers do not have. Navigating to People keeps the organizer in
-  // their own workspace instead of showing an empty attendee search.
-  function handleSearch() {
-    setSearchOpen(false)
-    navigate('/organizer/people')
   }
 
   const nav = (onNavigate?: () => void) => (
@@ -302,32 +279,89 @@ export default function OrganizerLayout() {
         </div>
       </header>
 
-      {/* Mobile top header: page title on the left, search and notifications on
-          the right. No avatar — it lives in the More drawer. */}
-      <div className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-gray-200 bg-white px-3 md:hidden">
-        <h1 className="truncate pl-1 text-lg font-bold text-gray-900">{title}</h1>
-        <div className="flex items-center">
-          <button
-            onClick={() => setSearchOpen(true)}
-            aria-label="Search"
-            className="rounded-md p-2.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
-          >
-            <Search className="h-5 w-5" />
-          </button>
-          <button
-            onClick={() => navigate('/organizer/invitations')}
-            aria-label="My invitations"
-            className="relative rounded-md p-2.5 text-gray-600 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
-          >
-            <Bell className="h-5 w-5" />
-            <UnreadBadge count={unreadCount} />
-          </button>
-        </div>
+      {/* Mobile top header: shared Rally toolbar — menu, brand, workspace
+          badge, then search, notifications and the user's avatar. The page name
+          lives in the page body, not here. */}
+      <div className="sticky top-0 z-20 border-b border-gray-200 bg-white pt-[env(safe-area-inset-top)] md:hidden">
+        {searchOpen ? (
+          <div className="flex h-16 items-center gap-2 px-4">
+            <Search className="h-5 w-5 shrink-0 text-slate-500" aria-hidden="true" />
+            <input
+              autoFocus
+              placeholder="Search people, events…"
+              aria-label="Search people and events"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  setSearchOpen(false)
+                  navigate('/organizer/people')
+                }
+                if (e.key === 'Escape') setSearchOpen(false)
+              }}
+              className="min-w-0 flex-1 bg-transparent text-[15px] text-gray-900 outline-none placeholder:text-gray-400"
+            />
+            <button
+              onClick={() => setSearchOpen(false)}
+              aria-label="Close search"
+              className="-mr-2 rounded-full p-2.5 text-slate-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        ) : (
+          <div className="flex h-16 items-center px-4">
+            <button
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open menu"
+              className="-ml-2 rounded-full p-2.5 text-slate-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            >
+              <Menu className="h-6 w-6" />
+            </button>
+            <img
+              src="/favicon.svg"
+              alt=""
+              aria-hidden="true"
+              className="ml-3 h-10 w-10 shrink-0"
+            />
+            <span className="ml-2 whitespace-nowrap text-[21px] font-bold leading-none text-gray-900">
+              Rally
+            </span>
+            <span className="ml-2 whitespace-nowrap rounded-full bg-[#E6F2FF] px-2.5 py-0.5 text-xs font-semibold text-primary-600">
+              Organizer
+            </span>
+            <div className="flex-1" />
+            <button
+              onClick={() => setSearchOpen(true)}
+              aria-label="Search"
+              className="rounded-full p-2.5 text-slate-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            >
+              <Search className="h-6 w-6" />
+            </button>
+            <button
+              onClick={() => navigate('/organizer/invitations')}
+              aria-label="Notifications"
+              className="relative ml-1 rounded-full p-2.5 text-slate-500 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            >
+              <Bell className="h-6 w-6" />
+              <UnreadBadge count={unreadCount} />
+            </button>
+            <button
+              onClick={() => setMobileOpen(true)}
+              aria-label="Open profile"
+              className="ml-1 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            >
+              <Avatar
+                name={profile?.full_name || user?.email || 'Organizer'}
+                src={profile?.photo_url}
+                size="md"
+              />
+            </button>
+          </div>
+        )}
       </div>
 
       {searchOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-start justify-center bg-gray-900/50 p-4 pt-20"
+          className="fixed inset-0 z-50 hidden items-start justify-center bg-gray-900/50 p-4 pt-20 md:flex"
           role="dialog"
           aria-modal="true"
           aria-label="Search people and events"
@@ -343,7 +377,10 @@ export default function OrganizerLayout() {
                 autoFocus
                 placeholder="Search people, events…"
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSearch()
+                  if (e.key === 'Enter') {
+                    setSearchOpen(false)
+                    navigate('/organizer/people')
+                  }
                   if (e.key === 'Escape') setSearchOpen(false)
                 }}
                 className="min-w-0 flex-1 bg-transparent text-[15px] text-gray-900 outline-none placeholder:text-gray-400"
