@@ -58,6 +58,8 @@ import EventFormPage from '@/pages/organizer/EventFormPage'
 import OrganizerEventDetailPage from '@/pages/organizer/EventDetailPage'
 import PartnerDetailPage from '@/pages/organizer/PartnerDetailPage'
 import PeoplePage from '@/pages/organizer/PeoplePage'
+import PartnerInvitationPage from '@/pages/partner/PartnerInvitationPage'
+import { loginSearchForInvitationPath } from '@/lib/invitationRouting'
 
 function FullPageSpinner() {
   return (
@@ -74,7 +76,17 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   if (loading) return <FullPageSpinner />
   if (!session) {
-    return <Navigate to={{ pathname: '/login', search: location.search }} replace />
+    // The pathname carries which KIND of invitation this was; the redirect
+    // is where it would otherwise be lost.
+    return (
+      <Navigate
+        to={{
+          pathname: '/login',
+          search: loginSearchForInvitationPath(location.pathname, location.search),
+        }}
+        replace
+      />
+    )
   }
   // A recovery grant is a session, but it is not a sign-in: it came from opening
   // a link in an inbox, not from proving knowledge of the password. Keep it on
@@ -202,6 +214,19 @@ export default function App() {
           verification signs the user in, and the page routes them onward. */}
       <Route path="/auth/callback" element={<AuthCallbackPage />} />
       <Route path="/p/:id" element={<PublicProfilePage />} />
+
+      {/* Partnership invitation entry. Standalone and outside every account
+          gate: the recipient is normally an attendee, and may be a brand-new
+          Rally user. The page itself decides what it may show, from a backend
+          contract keyed on the caller confirmed email. */}
+      <Route
+        path="/partner/invitations"
+        element={
+          <ProtectedRoute>
+            <PartnerInvitationPage />
+          </ProtectedRoute>
+        }
+      />
 
       {/* Pending approval, suspended, vendor, sponsor, or a missing account
           record. Any signed-in user may reach it; it redirects them onward if

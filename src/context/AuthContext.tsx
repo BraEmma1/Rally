@@ -20,7 +20,7 @@ type AuthContextValue = {
     email: string,
     password: string,
     fullName: string,
-    invitationId?: string
+    invitationSearch?: string
   ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
@@ -284,14 +284,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  async function signUp(email: string, password: string, fullName: string, invitationId?: string) {
+  async function signUp(email: string, password: string, fullName: string, invitationSearch?: string) {
     // An organization-invitation email link carries ?invitation=<id>; threading
     // it into emailRedirectTo means the confirmation email returns the user to
     // /auth/callback with the id still attached, and the callback page routes
     // them to the invitation instead of their account home. Without an id the
     // redirect is exactly as before.
-    const callbackUrl = invitationId
-      ? `${window.location.origin}/auth/callback?invitation=${encodeURIComponent(invitationId)}`
+    const callbackUrl = invitationSearch
+      ? `${window.location.origin}/auth/callback` + invitationSearch
       : `${window.location.origin}/auth/callback`
     const { data, error } = await supabase.auth.signUp({
       email,
