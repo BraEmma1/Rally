@@ -51,6 +51,7 @@ import {
 import { EditPartnerDialog } from '@/components/organizer/EditPartnerDialog'
 import { PartnerObligationList } from '@/components/organizer/PartnerObligationList'
 import { EvidenceItems } from '@/components/organizer/PartnerEvidence'
+import { PartnershipDocumentsPanel } from '@/components/organizer/PartnershipDocumentsPanel'
 import { ConfirmDialog } from '@/components/organizer/SheetDialog'
 
 // ---------------------------------------------------------------------------
@@ -71,7 +72,7 @@ import { ConfirmDialog } from '@/components/organizer/SheetDialog'
 // Knowing a uuid therefore grants nothing.
 // ---------------------------------------------------------------------------
 
-type Tab = 'overview' | 'deliverables' | 'requirements' | 'evidence'
+type Tab = 'overview' | 'deliverables' | 'requirements' | 'documents' | 'evidence'
 
 function PartnershipMetricCard({
   icon,
@@ -351,6 +352,7 @@ export default function PartnerDetailPage() {
     { key: 'overview', label: 'Overview' },
     { key: 'deliverables', label: 'Deliverables', count: owed.length },
     { key: 'requirements', label: 'Requirements', count: required.length },
+    { key: 'documents', label: 'Documents' },
     { key: 'evidence', label: 'Evidence', count: evidence.length },
   ]
 
@@ -782,6 +784,15 @@ export default function PartnerDetailPage() {
           onStatus={handleStatus}
           onReorder={handleReorder}
           onReload={reloadContents}
+        />
+      )}
+
+      {tab === 'documents' && (
+        <PartnershipDocumentsPanel
+          partnershipId={partnership.id}
+          eventId={event.id}
+          editable={editable}
+          archived={archived}
         />
       )}
 
