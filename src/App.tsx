@@ -16,6 +16,8 @@ import AppLayout from '@/components/AppLayout'
 import EventModeLayout from '@/components/eventmode/EventModeLayout'
 import { EventModeProvider } from '@/context/EventModeContext'
 import OrganizerLayout from '@/components/OrganizerLayout'
+import SponsorLayout from '@/components/SponsorLayout'
+import SponsorHomePage from '@/pages/sponsor/SponsorHomePage'
 import LoginPage from '@/pages/auth/LoginPage'
 import SignUpPage from '@/pages/auth/SignUpPage'
 import ForgotPasswordPage from '@/pages/auth/ForgotPasswordPage'
@@ -305,6 +307,20 @@ export default function App() {
         }
       >
         <Route index element={<MyInvitationsPage />} />
+      </Route>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Sponsor workspace. Access is determined by the Phase 6A sponsor RPC; */}
+      {/* no account-type or organizer-membership gate is applied here.        */}
+      {/* ------------------------------------------------------------------ */}
+      <Route
+        element={
+          <ProtectedRoute>
+            <SponsorLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route path="/sponsor" element={<SponsorHomePage />} />
       </Route>
 
       {/* ------------------------------------------------------------------ */}
