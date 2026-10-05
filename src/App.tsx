@@ -61,6 +61,7 @@ import EventFormPage from '@/pages/organizer/EventFormPage'
 import OrganizerEventDetailPage from '@/pages/organizer/EventDetailPage'
 import PartnerDetailPage from '@/pages/organizer/PartnerDetailPage'
 import PeoplePage from '@/pages/organizer/PeoplePage'
+import MarketingHomePage from '@/pages/MarketingHomePage'
 
 function FullPageSpinner() {
   return (
@@ -208,6 +209,7 @@ export default function App() {
   return (
     <OrganizerProvider>
       <Routes>
+      <Route path="/" element={signedIn ? <Navigate to={home} replace /> : <MarketingHomePage />} />
       {/* `session && !isRecovery` throughout: during recovery a session exists,
           and treating it as a normal sign-in is what sent "Back to sign in" to
           the dashboard instead of the login screen. */}
