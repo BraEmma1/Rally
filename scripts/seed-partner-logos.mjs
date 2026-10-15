@@ -12,11 +12,28 @@ const key = env.match(/VITE_SUPABASE_ANON_KEY=(.*)/)[1].trim()
 
 const supabase = createClient(url, key)
 
-const ORGANIZER_ID = '7a4e9c12-5b3f-4d8e-9a6c-1f2b3c4d5e6f'
+// Credentials come from the environment, never from this file. A login
+// committed here is a published credential for whichever database .env points
+// at — which is how audit finding R-03 happened.
+//
+//   SEED_USER_ID=<uuid> SEED_EMAIL=<address> SEED_PASSWORD=<password> \
+//     node scripts/seed-partner-logos.mjs
+//
+// Run it against a non-production project.
+const ORGANIZER_ID = process.env.SEED_USER_ID
+const SEED_EMAIL = process.env.SEED_EMAIL
+const SEED_PASSWORD = process.env.SEED_PASSWORD
+
+if (!ORGANIZER_ID || !SEED_EMAIL || !SEED_PASSWORD) {
+  console.error(
+    'Set SEED_USER_ID, SEED_EMAIL and SEED_PASSWORD in the environment before running this script.'
+  )
+  process.exit(1)
+}
 
 const { error: signInError } = await supabase.auth.signInWithPassword({
-  email: 'seed.partners@rally.test',
-  password: 'sample-partners-2026',
+  email: SEED_EMAIL,
+  password: SEED_PASSWORD,
 })
 if (signInError) {
   console.error('sign-in failed:', signInError.message)
