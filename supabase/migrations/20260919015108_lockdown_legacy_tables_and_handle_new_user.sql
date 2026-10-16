@@ -25,12 +25,33 @@ any auth users) and the application never reads or writes them.
   dashboard under Authentication > Policies.
 */
 
-REVOKE ALL ON public.account FROM anon, authenticated;
-REVOKE ALL ON public.identifier FROM anon, authenticated;
-REVOKE ALL ON public.profile FROM anon, authenticated;
-REVOKE ALL ON public.organizer FROM anon, authenticated;
-REVOKE ALL ON public.event FROM anon, authenticated;
-REVOKE ALL ON public.participation FROM anon, authenticated;
-REVOKE ALL ON public.connection FROM anon, authenticated;
+-- The legacy tables are a leftover from an earlier prototype. They exist in
+-- the database this migration was first written against, but nothing in this
+-- repository creates them — so on a database built only from this source they
+-- are absent, and an unconditional REVOKE aborts the deploy on the first one
+-- (42P01: relation "public.account" does not exist). That is finding F-01 of
+-- the fresh-database validation, which stopped a clean rebuild at file 11 of
+-- 68.
+--
+-- Revoking per table, only where the table is present, keeps the original
+-- semantics exactly where they matter and makes the statement a no-op where
+-- the table was never created. to_regclass() returns NULL for an unknown
+-- relation instead of raising, which is what makes the test safe.
+DO $$
+DECLARE
+  legacy_table text;
+BEGIN
+  FOREACH legacy_table IN ARRAY ARRAY[
+    'account', 'identifier', 'profile', 'organizer',
+    'event', 'participation', 'connection'
+  ] LOOP
+    IF to_regclass('public.' || quote_ident(legacy_table)) IS NOT NULL THEN
+      EXECUTE format('REVOKE ALL ON public.%I FROM anon, authenticated', legacy_table);
+    END IF;
+  END LOOP;
+END
+$$;
 
+-- Unconditional: handle_new_user() is created by this repository, so it is
+-- always present here and must always lose its API grants.
 REVOKE EXECUTE ON FUNCTION public.handle_new_user() FROM anon, authenticated;
