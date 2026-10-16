@@ -1046,46 +1046,26 @@ GRANT EXECUTE ON FUNCTION public.decline_partnership_invitation(uuid) TO authent
 GRANT EXECUTE ON FUNCTION public.my_sponsor_partnerships() TO authenticated;
 
 -- ============================================================================
--- Delivery payload for the Edge Function
+-- The delivery payload view is NOT created here.
 --
--- Everything the invitation email needs, flattened into one row. The drainer
--- could in principle embed four levels through PostgREST, but
--- event_partnership_invitations reaches its parent through a COMPOSITE foreign
--- key, and relying on that being auto-detected for embedding is a gamble the
--- delivery path does not need to take. A view is deterministic.
+-- Production builds it in two steps -- 20261002131805 creates it with eleven
+-- columns, 20261002133909 appends queue_status -- and the production
+-- counterpart of this file (20261002131727) contains no statement touching it
+-- at all.
 --
--- SECURITY INVOKER is deliberately NOT set, so this runs as its owner and
--- service_role can read it. There is no grant to anon or authenticated: it
--- exposes recipient addresses and is for the drainer alone.
+-- This file once carried the view in its FINAL, twelve-column form. That made
+-- a clean rebuild fail at the very next migration: 20261005000100 recreates
+-- the view with eleven columns, and CREATE OR REPLACE VIEW may append a
+-- column but never drop one (42P16: cannot drop columns from view). That is
+-- finding F-02 of the fresh-database validation, which stopped a clean
+-- rebuild at file 61 of 68.
+--
+-- The view is therefore left to the two migrations that own it:
+--   20261005000100_partnership_invitation_email_payload_view.sql
+--   20261005000200_partnership_invitation_payload_expose_queue_status.sql
+--
+-- The end state is identical, and against production this removal is a no-op.
 -- ============================================================================
-CREATE OR REPLACE VIEW public.partnership_invitation_email_payload AS
-SELECT
-  q.id                  AS queue_id,
-  q.invitation_id,
-  q.recipient_email,
-  q.attempts,
-  i.status              AS invitation_status,
-  i.expires_at,
-  p.company_name,
-  p.tier_label,
-  e.name                AS event_name,
-  COALESCE(o.name, 'a Rally organizer') AS organizer_name,
-  COALESCE(
-    (SELECT string_agg(initcap(replace(r.role, '_', ' ')), ' + ' ORDER BY r.role)
-     FROM event_partnership_roles r WHERE r.partnership_id = p.id),
-    'Partner'
-  )                     AS role_label,
-  -- The queue row's own state. Without this the drainer has nothing to
-  -- filter on and re-sends an already-sent row on every run.
-  q.status              AS queue_status
-FROM partnership_invitation_emails q
-JOIN event_partnership_invitations i ON i.id = q.invitation_id
-JOIN event_partnerships p ON p.id = i.partnership_id
-JOIN events e ON e.id = p.event_id
-LEFT JOIN organizations o ON o.id = e.organization_id;
-
-REVOKE ALL ON public.partnership_invitation_email_payload FROM anon, authenticated;
-GRANT SELECT ON public.partnership_invitation_email_payload TO service_role;
 
 /*
 ## Deferred, deliberately
