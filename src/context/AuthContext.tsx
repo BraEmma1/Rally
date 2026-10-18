@@ -27,7 +27,8 @@ type AuthContextValue = {
     email: string,
     password: string,
     fullName: string,
-    invitationId?: string
+    invitationId?: string,
+    accountType?: 'attendee' | 'organizer'
   ) => Promise<{ error: string | null; needsEmailConfirmation: boolean }>
   signIn: (email: string, password: string) => Promise<{ error: string | null }>
   signOut: () => Promise<void>
@@ -382,7 +383,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
-  async function signUp(email: string, password: string, fullName: string, invitationId?: string) {
+  async function signUp(
+    email: string,
+    password: string,
+    fullName: string,
+    invitationId?: string,
+    accountType?: 'attendee' | 'organizer'
+  ) {
     // An organization-invitation email link carries ?invitation=<id>; threading
     // it into emailRedirectTo means the confirmation email returns the user to
     // /auth/callback with the id still attached, and the callback page routes
@@ -395,7 +402,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email,
       password,
       options: {
-        data: { full_name: fullName },
+        // Only an organizer request adds account_type, so an attendee signup
+        // sends exactly what it always has. This is a request, not a grant: the
+        // handle_new_user trigger turns 'organizer' into pending_approval and
+        // ignores every other value.
+        data: {
+          full_name: fullName,
+          ...(accountType === 'organizer' ? { account_type: 'organizer' } : {}),
+        },
         // Where the {{ .ConfirmationURL }} in the confirmation email sends the
         // user back to. /login would bounce them straight to the dashboard
         // without ever reporting a failed or expired link.

@@ -15,7 +15,12 @@ export default function LoginPage() {
   // experience; when the recipient had to sign in first, the id survives here
   // and is honored after sign-in instead of dropping them on the dashboard.
   const invitationId = new URLSearchParams(location.search).get('invitation')
-  const signupLink = invitationId ? `/signup?invitation=${encodeURIComponent(invitationId)}` : '/signup'
+  // Carries the organizer choice back to sign-up. An invitation takes precedence.
+  const signupLink = invitationId
+    ? `/signup?invitation=${encodeURIComponent(invitationId)}`
+    : new URLSearchParams(location.search).get('type') === 'organizer'
+      ? '/signup?type=organizer'
+      : '/signup'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
