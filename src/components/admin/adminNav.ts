@@ -24,7 +24,7 @@ export const ADMIN_NAV: AdminNavItem[] = [
   { to: '/admin', label: 'Overview', icon: LayoutDashboard, end: true, available: true },
   { to: '/admin/approvals', label: 'Approvals', icon: ClipboardCheck, available: true },
   { to: '/admin/users', label: 'Users', icon: Users, available: true },
-  { to: '/admin/organizations', label: 'Organizations', icon: Building2, available: false },
+  { to: '/admin/organizations', label: 'Organizations', icon: Building2, available: true },
   { to: '/admin/events', label: 'Events', icon: CalendarRange, available: false },
   { to: '/admin/partnerships', label: 'Partnerships', icon: Handshake, available: false },
   { to: '/admin/analytics', label: 'Analytics', icon: BarChart3, available: false },

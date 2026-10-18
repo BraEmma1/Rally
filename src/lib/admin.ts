@@ -23,7 +23,7 @@ const ACCOUNT_COLUMNS = 'user_id, account_type, status, approved_by, approved_at
 const CHANGE_COLUMNS =
   'id, user_id, changed_by, previous_type, new_type, previous_status, new_status, reason, created_at'
 
-function readableError(error: { message?: string } | null, fallback: string): string {
+export function readableError(error: { message?: string } | null, fallback: string): string {
   const message = error?.message?.trim()
   if (!message) return fallback
   if (/^(permission denied|new row violates|duplicate key|null value|invalid input)/i.test(message)) {
