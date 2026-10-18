@@ -1,5 +1,12 @@
 import { ACCOUNT_STATUS_LABELS, ACCOUNT_TYPE_LABELS, supabase } from '@/lib/supabase'
-import type { AccountChange, AdminAccountRow, ProfileName } from '@/lib/supabase'
+import type {
+  AccountChange,
+  AccountStatus,
+  AccountType,
+  AdminAccountRow,
+  ProfileName,
+  PublicProfile,
+} from '@/lib/supabase'
 
 // Read access for the platform admin workspace.
 //
@@ -94,14 +101,149 @@ export async function fetchAccountChanges(
   return { data: (data ?? []) as AccountChange[], total: count ?? 0, error: null }
 }
 
-export async function fetchOwnAccount(userId: string): Promise<{ data: AdminAccountRow | null; error: string | null }> {
+export type AccountSort = 'newest' | 'oldest' | 'recently_updated'
+
+export type AccountQuery = {
+  type?: AccountType | 'all'
+  status?: AccountStatus | 'all'
+  sort?: AccountSort
+  page: number
+  pageSize: number
+}
+
+// The user directory, filtered, sorted and paginated by the database so the
+// cost stays constant as the account table grows. Names are not searchable
+// here: they live in profiles, which an admin can only resolve by id through
+// get_public_profiles, so name search runs over the loaded page (see callers).
+export async function fetchAccounts(
+  query: AccountQuery
+): Promise<{ data: AdminAccountRow[]; total: number; error: string | null }> {
+  const from = query.page * query.pageSize
+  let request = supabase.from('user_accounts').select(ACCOUNT_COLUMNS, { count: 'exact' })
+  if (query.type && query.type !== 'all') request = request.eq('account_type', query.type)
+  if (query.status && query.status !== 'all') request = request.eq('status', query.status)
+  const sort = query.sort ?? 'newest'
+  request =
+    sort === 'recently_updated'
+      ? request.order('updated_at', { ascending: false, nullsFirst: false })
+      : request.order('created_at', { ascending: sort === 'oldest' })
+  // A stable tiebreaker, so rows do not swap between pages when timestamps tie.
+  request = request.order('user_id', { ascending: true })
+  const { data, error, count } = await request.range(from, from + query.pageSize - 1)
+  if (error) return { data: [], total: 0, error: readableError(error, 'Could not load accounts.') }
+  return { data: (data ?? []) as AdminAccountRow[], total: count ?? 0, error: null }
+}
+
+export async function fetchAccount(userId: string): Promise<{ data: AdminAccountRow | null; error: string | null }> {
   const { data, error } = await supabase
     .from('user_accounts')
     .select(ACCOUNT_COLUMNS)
     .eq('user_id', userId)
     .maybeSingle()
-  if (error) return { data: null, error: readableError(error, 'Could not load your account.') }
+  if (error) return { data: null, error: readableError(error, 'Could not load this account.') }
   return { data: (data as AdminAccountRow | null) ?? null, error: null }
+}
+
+// Changes made TO an account, and changes made BY it (non-empty only for an
+// administrator), newest first.
+export async function fetchAccountHistory(
+  userId: string
+): Promise<{ about: AccountChange[]; by: AccountChange[]; error: string | null }> {
+  const [about, by] = await Promise.all([
+    supabase
+      .from('account_type_changes')
+      .select(CHANGE_COLUMNS)
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(50),
+    supabase
+      .from('account_type_changes')
+      .select(CHANGE_COLUMNS)
+      .eq('changed_by', userId)
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ])
+  const failed = about.error ?? by.error
+  if (failed) return { about: [], by: [], error: readableError(failed, 'Could not load account history.') }
+  return { about: (about.data ?? []) as AccountChange[], by: (by.data ?? []) as AccountChange[], error: null }
+}
+
+// The full public card for each account: the fields every signed-in user may
+// already see on a profile page. Never email or phone.
+export async function fetchPublicProfiles(
+  ids: (string | null | undefined)[]
+): Promise<Record<string, PublicProfile>> {
+  const unique = Array.from(new Set(ids.filter((id): id is string => Boolean(id))))
+  if (unique.length === 0) return {}
+  const { data, error } = await supabase.rpc('get_public_profiles', { profile_ids: unique })
+  if (error || !data) return {}
+  const profiles: Record<string, PublicProfile> = {}
+  for (const row of data as PublicProfile[]) profiles[row.id] = row
+  return profiles
+}
+
+// ---------------------------------------------------------------------------
+// Account status changes
+// ---------------------------------------------------------------------------
+export type StatusAction = 'approve' | 'reactivate' | 'suspend'
+
+export const STATUS_ACTION_TARGET: Record<StatusAction, AccountStatus> = {
+  approve: 'active',
+  reactivate: 'active',
+  suspend: 'suspended',
+}
+
+// Which status action the interface may offer for an account. The database is
+// the authority — set_account_status refuses non-admins and self-changes — but
+// the interface must not offer an action that would be wrong even if allowed:
+// "approve" exists only for a pending organizer, and nothing is offered on the
+// admin's own account.
+export function availableStatusActions(account: AdminAccountRow, selfId: string | undefined): StatusAction[] {
+  if (!selfId || account.user_id === selfId) return []
+  if (account.status === 'pending_approval') return account.account_type === 'organizer' ? ['approve'] : []
+  if (account.status === 'active') return ['suspend']
+  if (account.status === 'suspended') return ['reactivate']
+  return []
+}
+
+// Applies a status change through the existing administrator function.
+//
+// set_account_status does not check the account's current state, so the row is
+// re-read first: if another administrator changed it since this screen loaded,
+// the change is refused here rather than applied to a state nobody reviewed.
+// That check narrows the window; it does not replace the database's own
+// authorization, which runs again inside the function.
+export async function changeAccountStatus(
+  account: AdminAccountRow,
+  action: StatusAction,
+  reason: string
+): Promise<{ error: string | null }> {
+  const { data: current, error: readError } = await fetchAccount(account.user_id)
+  if (readError) return { error: readError }
+  if (!current) return { error: 'This account no longer exists.' }
+  if (current.account_type !== account.account_type || current.status !== account.status) {
+    return { error: 'This account changed since you opened it. Refresh and review it again.' }
+  }
+  if (action === 'approve' && !(current.account_type === 'organizer' && current.status === 'pending_approval')) {
+    return { error: 'Only a pending organizer can be approved.' }
+  }
+
+  const { error } = await supabase.rpc('set_account_status', {
+    target_user_id: account.user_id,
+    new_status: STATUS_ACTION_TARGET[action],
+    reason: reason.trim(),
+  })
+  if (error) return { error: readableError(error, 'The account could not be updated.') }
+  notifyAccountsChanged()
+  return { error: null }
+}
+
+// Lets the action-items menu and other open views refresh after a change made
+// elsewhere in the workspace, without a global store.
+export const ACCOUNTS_CHANGED_EVENT = 'rally:admin-accounts-changed'
+
+export function notifyAccountsChanged() {
+  window.dispatchEvent(new Event(ACCOUNTS_CHANGED_EVENT))
 }
 
 // Resolves display names for a set of accounts. A missing entry means the

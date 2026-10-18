@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { Bell, RefreshCw } from 'lucide-react'
 import { Spinner } from '@/components/ui/States'
 import { PersonCell } from '@/components/admin/PersonCell'
-import { fetchPendingOrganizers, fetchProfileNames, formatDateTime } from '@/lib/admin'
+import { ACCOUNTS_CHANGED_EVENT, fetchPendingOrganizers, fetchProfileNames, formatDateTime } from '@/lib/admin'
 import type { AdminAccountRow, ProfileName } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
@@ -38,6 +38,12 @@ export function ActionItemsMenu() {
 
   useEffect(() => {
     void load()
+    // An approval made anywhere in the workspace updates the count at once.
+    function onChanged() {
+      void load()
+    }
+    window.addEventListener(ACCOUNTS_CHANGED_EVENT, onChanged)
+    return () => window.removeEventListener(ACCOUNTS_CHANGED_EVENT, onChanged)
   }, [load])
 
   useEffect(() => {

@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { ErrorState, LoadingState } from '@/components/ui/States'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
 import { AccountStatusBadge, AccountTypeBadge } from '@/components/admin/AdminBadges'
-import { fetchOwnAccount, formatDateTime } from '@/lib/admin'
+import { fetchAccount, formatDateTime } from '@/lib/admin'
 import type { AdminAccountRow } from '@/lib/supabase'
 
 // Read-only by design. Nothing on this page changes configuration: auth
@@ -47,7 +47,7 @@ export default function AdminSettingsPage() {
   const load = useCallback(async () => {
     if (!userId) return
     setLoading(true)
-    const { data, error: loadError } = await fetchOwnAccount(userId)
+    const { data, error: loadError } = await fetchAccount(userId)
     setAccount(data)
     setError(loadError)
     setLoading(false)
