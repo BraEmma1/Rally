@@ -243,6 +243,47 @@ export const ACCOUNT_TYPE_LABELS: Record<AccountType, string> = {
   sponsor: 'Sponsor',
 }
 
+export const ACCOUNT_STATUS_LABELS: Record<AccountStatus, string> = {
+  pending_approval: 'Pending approval',
+  active: 'Active',
+  suspended: 'Suspended',
+}
+
+// ---------------------------------------------------------------------------
+// Platform administration
+// ---------------------------------------------------------------------------
+// A user_accounts row as a platform admin reads it. select_own_account lets an
+// active admin read every row; nobody else sees anyone's but their own. Email is
+// deliberately absent: it lives in auth.users, which no client role can read.
+export type AdminAccountRow = {
+  user_id: string
+  account_type: AccountType
+  status: AccountStatus
+  approved_by: string | null
+  approved_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+// One row of account_type_changes, the audit trail written by set_account_type,
+// set_account_status and operator bootstrap SQL. Readable by platform admins
+// only. changed_by is NULL for an operator action that no admin performed.
+export type AccountChange = {
+  id: string
+  user_id: string
+  changed_by: string | null
+  previous_type: AccountType | null
+  new_type: AccountType | null
+  previous_status: AccountStatus | null
+  new_status: AccountStatus | null
+  reason: string | null
+  created_at: string | null
+}
+
+// The public card fields an admin can resolve for any account through
+// get_public_profiles. No email or phone, by the same rule as PublicProfile.
+export type ProfileName = Pick<PublicProfile, 'id' | 'full_name' | 'photo_url'>
+
 // ---------------------------------------------------------------------------
 // Organizations
 // ---------------------------------------------------------------------------

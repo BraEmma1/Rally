@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import { Routes, Route, Navigate, useLocation, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import {
@@ -50,7 +51,6 @@ import ExhibitorDetailPage from '@/pages/eventmode/ExhibitorDetailPage'
 import EventComingSoonPage from '@/pages/eventmode/EventComingSoonPage'
 import OrganizationInvitationsPage from '@/pages/organizer/OrganizationInvitationsPage'
 import AccountStatusPage from '@/pages/account/AccountStatusPage'
-import AdminPlaceholderPage from '@/pages/admin/AdminPlaceholderPage'
 import OrganizerDashboardPage from '@/pages/organizer/OrganizerDashboardPage'
 import OrganizationSetupPage from '@/pages/organizer/OrganizationSetupPage'
 import OrganizationSettingsPage from '@/pages/organizer/OrganizationSettingsPage'
@@ -62,6 +62,17 @@ import OrganizerEventDetailPage from '@/pages/organizer/EventDetailPage'
 import PartnerDetailPage from '@/pages/organizer/PartnerDetailPage'
 import PeoplePage from '@/pages/organizer/PeoplePage'
 import MarketingHomePage from '@/pages/MarketingHomePage'
+
+// The admin workspace is its own chunk: only platform admins ever load it, so
+// it stays out of the bundle every attendee and organizer downloads.
+const AdminLayout = lazy(() => import('@/components/admin/AdminLayout'))
+const AdminOverviewPage = lazy(() => import('@/pages/admin/AdminOverviewPage'))
+const AdminAuditLogsPage = lazy(() => import('@/pages/admin/AdminAuditLogsPage'))
+const AdminSettingsPage = lazy(() => import('@/pages/admin/AdminSettingsPage'))
+const AdminComingNextPage = lazy(() => import('@/pages/admin/AdminComingNextPage'))
+const AdminApprovalsPage = lazy(() => import('@/pages/admin/AdminApprovalsPage'))
+const AdminUsersPage = lazy(() => import('@/pages/admin/AdminUsersPage'))
+const AdminUserDetailPage = lazy(() => import('@/pages/admin/AdminUserDetailPage'))
 
 function FullPageSpinner() {
   return (
@@ -242,16 +253,32 @@ export default function App() {
         }
       />
 
+      {/* Platform admin workspace. One guard covers every page beneath it; it is
+          a convenience, and RLS authorizes every read again. */}
       <Route
         path="/admin"
         element={
           <ProtectedRoute>
             <RequireAccount allow={isActivePlatformAdmin}>
-              <AdminPlaceholderPage />
+              <Suspense fallback={<FullPageSpinner />}>
+                <AdminLayout />
+              </Suspense>
             </RequireAccount>
           </ProtectedRoute>
         }
-      />
+      >
+        <Route index element={<AdminOverviewPage />} />
+        <Route path="approvals" element={<AdminApprovalsPage />} />
+        <Route path="users" element={<AdminUsersPage />} />
+        <Route path="users/:userId" element={<AdminUserDetailPage />} />
+        <Route path="organizations" element={<AdminComingNextPage page="organizations" />} />
+        <Route path="events" element={<AdminComingNextPage page="events" />} />
+        <Route path="partnerships" element={<AdminComingNextPage page="partnerships" />} />
+        <Route path="analytics" element={<AdminComingNextPage page="analytics" />} />
+        <Route path="audit-logs" element={<AdminAuditLogsPage />} />
+        <Route path="settings" element={<AdminSettingsPage />} />
+        <Route path="*" element={<Navigate to="/admin" replace />} />
+      </Route>
 
       {/* ------------------------------------------------------------------ */}
       {/* Organizer — entry by account type (organizer) OR by an active        */}
