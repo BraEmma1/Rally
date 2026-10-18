@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
-import { ChevronLeft, ChevronRight, Info, RefreshCw, ScrollText } from 'lucide-react'
+import { Info, RefreshCw, ScrollText } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/States'
 import { AdminPageHeader } from '@/components/admin/AdminPageHeader'
+import { AdminPagination } from '@/components/admin/AdminPagination'
 import { PersonCell } from '@/components/admin/PersonCell'
 import {
   changeTitle,
@@ -46,8 +47,6 @@ export default function AdminAuditLogsPage() {
   }, [load, page])
 
   const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const first = total === 0 ? 0 : page * PAGE_SIZE + 1
-  const last = Math.min(total, (page + 1) * PAGE_SIZE)
 
   return (
     <div>
@@ -136,37 +135,14 @@ export default function AdminAuditLogsPage() {
               ))}
             </ul>
 
-            <nav
-              className="flex items-center justify-between gap-3 border-t border-gray-200 px-4 py-3"
-              aria-label="Audit log pages"
-            >
-              <p className="text-sm text-gray-500" aria-live="polite">
-                {first}–{last} of {total}
-              </p>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  disabled={loading || page === 0}
-                  aria-label="Previous page"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </Button>
-                <span className="text-sm text-gray-600">
-                  Page {page + 1} of {pageCount}
-                </span>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
-                  disabled={loading || page >= pageCount - 1}
-                  aria-label="Next page"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </nav>
+            <AdminPagination
+              page={page}
+              pageSize={PAGE_SIZE}
+              total={total}
+              loading={loading}
+              label="Audit log pages"
+              onPageChange={setPage}
+            />
           </>
         )}
       </Card>

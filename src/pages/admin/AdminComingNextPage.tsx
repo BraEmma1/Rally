@@ -13,30 +13,9 @@ type ComingNextContent = {
   waitingOn: string
 }
 
-export type ComingNextPageKey = 'approvals' | 'users' | 'organizations' | 'events' | 'partnerships' | 'analytics'
+export type ComingNextPageKey = 'organizations' | 'events' | 'partnerships' | 'analytics'
 
 const COMING_NEXT: Record<ComingNextPageKey, ComingNextContent> = {
-  approvals: {
-    title: 'Approvals',
-    summary: 'Review organizer applications and approve them from here.',
-    planned: [
-      'Pending organizer applications with sign-up date and history',
-      'Approve with confirmation, through the existing set_account_status function',
-      'Every decision recorded in the audit log',
-    ],
-    waitingOn:
-      'Next phase (account administration). Declining needs a decision first: account status has no "rejected" value.',
-  },
-  users: {
-    title: 'Users',
-    summary: 'A searchable directory of every Rally account.',
-    planned: [
-      'Search and filter by account type and status',
-      'Account detail with audit history',
-      'Activate, suspend and permitted type changes, with confirmation',
-    ],
-    waitingOn: 'Next phase (account administration), using the existing administrator functions.',
-  },
   organizations: {
     title: 'Organizations',
     summary: 'Every organization on Rally, with members, events and approval status.',

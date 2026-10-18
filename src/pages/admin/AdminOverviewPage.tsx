@@ -169,9 +169,12 @@ export default function AdminOverviewPage() {
                 ))}
               </ul>
             )}
-            <p className="mt-3 text-xs text-gray-500">
-              Approving and declining from this workspace arrives with the Approvals page.
-            </p>
+            <Link
+              to="/admin/approvals"
+              className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700"
+            >
+              Review applications <ArrowRight className="h-4 w-4" aria-hidden="true" />
+            </Link>
           </CardContent>
         </Card>
 
