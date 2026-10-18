@@ -308,9 +308,11 @@ export default function AdminOrganizationDetailPage() {
                     {detail.pending_invitations}
                   </span>
                 </Field>
-                {org.org_type === 'sponsor' && <Field label="Event partnerships">{detail.sponsor_partnerships}</Field>}
               </dl>
-              <p className="mt-2 text-xs text-gray-500">Invitee addresses are private and not shown.</p>
+              <p className="mt-2 text-xs text-gray-500">
+                Invitee addresses are private and not shown. Partnership details belong to the organizations
+                involved and are not available to administrators.
+              </p>
             </CardContent>
           </Card>
         </div>

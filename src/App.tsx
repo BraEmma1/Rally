@@ -276,7 +276,9 @@ export default function App() {
         <Route path="organizations" element={<AdminOrganizationsPage />} />
         <Route path="organizations/:organizationId" element={<AdminOrganizationDetailPage />} />
         <Route path="events" element={<AdminComingNextPage page="events" />} />
-        <Route path="partnerships" element={<AdminComingNextPage page="partnerships" />} />
+        {/* Partnership records are organization-private; administrators see
+            platform-wide aggregates only. Old links land on analytics. */}
+        <Route path="partnerships" element={<Navigate to="/admin/analytics" replace />} />
         <Route path="analytics" element={<AdminComingNextPage page="analytics" />} />
         <Route path="audit-logs" element={<AdminAuditLogsPage />} />
         <Route path="settings" element={<AdminSettingsPage />} />

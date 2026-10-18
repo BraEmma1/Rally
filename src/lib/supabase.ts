@@ -359,7 +359,6 @@ export type AdminOrganizationDetail = {
   // At most 50, latest start date first.
   events: AdminOrganizationEvent[]
   pending_invitations: number
-  sponsor_partnerships: number
 }
 
 // ---------------------------------------------------------------------------
