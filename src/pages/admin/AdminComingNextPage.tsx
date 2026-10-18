@@ -13,16 +13,9 @@ type ComingNextContent = {
   waitingOn: string
 }
 
-export type ComingNextPageKey = 'organizations' | 'events' | 'partnerships' | 'analytics'
+export type ComingNextPageKey = 'events' | 'partnerships' | 'analytics'
 
 const COMING_NEXT: Record<ComingNextPageKey, ComingNextContent> = {
-  organizations: {
-    title: 'Organizations',
-    summary: 'Every organization on Rally, with members, events and approval status.',
-    planned: ['Organization directory and detail', 'Approval review once a secure approval function exists'],
-    waitingOn:
-      'Backend support. Administrators cannot read organizations today, and no organization-approval function exists yet.',
-  },
   events: {
     title: 'Events',
     summary: 'A platform-wide event directory.',

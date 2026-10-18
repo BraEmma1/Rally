@@ -284,12 +284,103 @@ export type AccountChange = {
 // get_public_profiles. No email or phone, by the same rule as PublicProfile.
 export type ProfileName = Pick<PublicProfile, 'id' | 'full_name' | 'photo_url'>
 
+// Shapes returned by the admin read functions (migration 20261020000000).
+// Every list is { total, limit, offset, rows }; total is counted separately, so
+// it stays right when a page is past the end. Fields mirror the functions
+// exactly — they never include email, phone or invitee addresses.
+export type AdminPage<T> = {
+  total: number
+  limit: number
+  offset: number
+  rows: T[]
+}
+
+export type AdminOrganizationRow = {
+  id: string
+  name: string
+  slug: string | null
+  logo_url: string | null
+  org_type: OrgType
+  approval_status: OrgApprovalStatus
+  approved_at: string | null
+  created_at: string | null
+  archived_at: string | null
+  created_by: string | null
+  created_by_name: string | null
+  member_count: number
+  event_count: number
+}
+
+export type AdminOrganizationMember = {
+  user_id: string
+  full_name: string | null
+  photo_url: string | null
+  role: OrgRole
+  account_type: AccountType | null
+  account_status: AccountStatus | null
+  joined_at: string | null
+}
+
+export type AdminOrganizationEvent = {
+  id: string
+  name: string
+  start_date: string | null
+  end_date: string | null
+  status: 'upcoming' | 'live' | 'past'
+  visibility: 'draft' | 'published' | 'unlisted'
+  published_at: string | null
+  archived_at: string | null
+  active_registrations: number
+}
+
+export type AdminOrganizationDetail = {
+  organization: {
+    id: string
+    name: string
+    slug: string | null
+    description: string | null
+    website: string | null
+    logo_url: string | null
+    org_type: OrgType
+    approval_status: OrgApprovalStatus
+    approved_at: string | null
+    approved_by: string | null
+    approved_by_name: string | null
+    created_at: string | null
+    updated_at: string | null
+    archived_at: string | null
+    created_by: string | null
+    created_by_name: string | null
+  }
+  member_count: number
+  // At most 200, ordered owner → admin → manager, then by join date.
+  members: AdminOrganizationMember[]
+  event_count: number
+  // At most 50, latest start date first.
+  events: AdminOrganizationEvent[]
+  pending_invitations: number
+  sponsor_partnerships: number
+}
+
 // ---------------------------------------------------------------------------
 // Organizations
 // ---------------------------------------------------------------------------
 export type OrgRole = 'owner' | 'admin' | 'manager'
 export type OrgType = 'organizer' | 'vendor' | 'sponsor'
 export type OrgApprovalStatus = 'pending' | 'approved' | 'rejected' | 'suspended'
+
+export const ORG_TYPE_LABELS: Record<OrgType, string> = {
+  organizer: 'Organizer',
+  vendor: 'Vendor',
+  sponsor: 'Sponsor',
+}
+
+export const ORG_APPROVAL_LABELS: Record<OrgApprovalStatus, string> = {
+  pending: 'Pending',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  suspended: 'Suspended',
+}
 
 export const ORG_ROLE_LABELS: Record<OrgRole, string> = {
   owner: 'Owner',
