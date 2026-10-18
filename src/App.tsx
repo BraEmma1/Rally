@@ -75,6 +75,8 @@ const AdminUsersPage = lazy(() => import('@/pages/admin/AdminUsersPage'))
 const AdminUserDetailPage = lazy(() => import('@/pages/admin/AdminUserDetailPage'))
 const AdminOrganizationsPage = lazy(() => import('@/pages/admin/AdminOrganizationsPage'))
 const AdminOrganizationDetailPage = lazy(() => import('@/pages/admin/AdminOrganizationDetailPage'))
+const AdminEventsPage = lazy(() => import('@/pages/admin/AdminEventsPage'))
+const AdminEventDetailPage = lazy(() => import('@/pages/admin/AdminEventDetailPage'))
 
 function FullPageSpinner() {
   return (
@@ -275,7 +277,8 @@ export default function App() {
         <Route path="users/:userId" element={<AdminUserDetailPage />} />
         <Route path="organizations" element={<AdminOrganizationsPage />} />
         <Route path="organizations/:organizationId" element={<AdminOrganizationDetailPage />} />
-        <Route path="events" element={<AdminComingNextPage page="events" />} />
+        <Route path="events" element={<AdminEventsPage />} />
+        <Route path="events/:eventId" element={<AdminEventDetailPage />} />
         <Route path="partnerships" element={<AdminComingNextPage page="partnerships" />} />
         <Route path="analytics" element={<AdminComingNextPage page="analytics" />} />
         <Route path="audit-logs" element={<AdminAuditLogsPage />} />
