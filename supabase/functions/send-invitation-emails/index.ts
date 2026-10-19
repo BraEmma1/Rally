@@ -66,7 +66,7 @@ type PartnershipQueueRow = {
 
 function db(path: string, init: RequestInit = {}) {
   return fetch(`${SUPABASE_URL}/rest/v1/${path}`, {
-    ...init,
+    ...init,~
     headers: {
       apikey: SERVICE_KEY,
       Authorization: `Bearer ${SERVICE_KEY}`,
