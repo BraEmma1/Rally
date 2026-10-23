@@ -41,12 +41,15 @@ In the rally-dev Supabase project: Authentication, URL Configuration. **Add** th
 ```
 https://rally-dev-ivory.vercel.app/**
 https://rally-dev-braemma1s-projects.vercel.app/**
+https://rally-dev-git-development-braemma1s-projects.vercel.app/**
 https://rally-*-braemma1s-projects.vercel.app/**
 ```
 
 The code redirects to `${origin}/auth/callback` (sign-up confirmation, OAuth, with an optional
 `?invitation=` query) and `${origin}/reset-password`. The `/**` form covers both and the query
-string. The third line covers per-deployment and per-branch preview URLs.
+string. The third line is the `development` branch URL (it stays the same on every push); the last covers
+per-deployment and other per-branch preview URLs (deployment hosts look like
+`rally-<id>-braemma1s-projects.vercel.app`).
 
 "Site URL" decides where confirmation emails link when no redirect is given; set it to
 `https://rally-dev-ivory.vercel.app` only if this project is the one place rally-dev is used,
