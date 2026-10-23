@@ -13,42 +13,57 @@ import {
   CalendarClock,
   AlertCircle,
   Target,
+  type LucideIcon,
 } from 'lucide-react'
 import { NOTIFICATION_TYPE_LABELS, type AppNotification, ORG_ROLE_LABELS } from '@/lib/supabase'
 import type { IncomingInvitation } from '@/lib/supabase'
 import { listMyPendingInvitations } from '@/lib/organizer'
 import { useNotifications } from '@/context/NotificationContext'
-import { Badge } from '@/components/ui/Badge'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { Button } from '@/components/ui/Button'
-import { Card, CardContent } from '@/components/ui/Card'
 import { LoadingState, EmptyState } from '@/components/ui/States'
-import { formatRelativeDate } from '@/lib/utils'
+import { cn, formatRelativeDate } from '@/lib/utils'
 
-const TYPE_ICONS: Record<string, React.ReactNode> = {
-  new_connection: <UserPlus className="h-4 w-4 text-primary-600" />,
-  event_invitation: <CalendarPlus className="h-4 w-4 text-warning-600" />,
-  invitation_accepted: <CalendarCheck className="h-4 w-4 text-success-600" />,
-  invitation_declined: <CalendarX className="h-4 w-4 text-error-600" />,
-  organization_invitation: <Building2 className="h-4 w-4 text-primary-600" />,
-  follow_up_due: <CalendarClock className="h-4 w-4 text-warning-600" />,
-  follow_up_overdue: <AlertCircle className="h-4 w-4 text-error-600" />,
-  opportunity_stage_changed: <Target className="h-4 w-4 text-primary-600" />,
-  event_registration: <CalendarCheck className="h-4 w-4 text-success-600" />,
-  upcoming_event: <CalendarClock className="h-4 w-4 text-primary-600" />,
+// One icon and one tone per notification type. The tile colour carries the
+// meaning (needs attention / good news / bad news / informational).
+type Tone = 'primary' | 'success' | 'warning' | 'error'
+
+const TYPE_META: Record<string, { icon: LucideIcon; tone: Tone }> = {
+  new_connection: { icon: UserPlus, tone: 'primary' },
+  event_invitation: { icon: CalendarPlus, tone: 'warning' },
+  invitation_accepted: { icon: CalendarCheck, tone: 'success' },
+  invitation_declined: { icon: CalendarX, tone: 'error' },
+  organization_invitation: { icon: Building2, tone: 'primary' },
+  follow_up_due: { icon: CalendarClock, tone: 'warning' },
+  follow_up_overdue: { icon: AlertCircle, tone: 'error' },
+  opportunity_stage_changed: { icon: Target, tone: 'primary' },
+  event_registration: { icon: CalendarCheck, tone: 'success' },
+  upcoming_event: { icon: CalendarClock, tone: 'primary' },
 }
 
-const TYPE_BADGE_VARIANTS: Record<string, 'primary' | 'success' | 'warning' | 'error' | 'gray'> = {
-  new_connection: 'primary',
-  event_invitation: 'warning',
-  invitation_accepted: 'success',
-  invitation_declined: 'error',
-  organization_invitation: 'primary',
-  follow_up_due: 'warning',
-  follow_up_overdue: 'error',
-  opportunity_stage_changed: 'primary',
-  event_registration: 'success',
-  upcoming_event: 'primary',
+const TONE_CLASSES: Record<Tone, string> = {
+  primary: 'bg-rally-tint text-primary-600',
+  success: 'bg-success-50 text-success-600',
+  warning: 'bg-warning-50 text-warning-600',
+  error: 'bg-error-50 text-error-600',
 }
+
+type Filter = 'all' | 'unread'
+
+function dayBucket(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return 'Earlier'
+  const startOfToday = new Date(new Date().toDateString()).getTime()
+  const day = 24 * 60 * 60 * 1000
+  const t = d.getTime()
+  if (t >= startOfToday) return 'Today'
+  if (t >= startOfToday - day) return 'Yesterday'
+  if (t >= startOfToday - 6 * day) return 'This week'
+  return 'Earlier'
+}
+
+const BUCKET_ORDER = ['Today', 'Yesterday', 'This week', 'Earlier']
 
 // Pending organization invitations rendered in the same stream as database
 // notifications. They are not stored: they come from the authorized invitations
@@ -85,6 +100,7 @@ function useOrganizationInvitationEntries(): AppNotification[] {
 export default function NotificationsPage() {
   const { notifications, unreadCount, loading, markAsRead, markAllAsRead } = useNotifications()
   const orgInvitationEntries = useOrganizationInvitationEntries()
+  const [filter, setFilter] = useState<Filter>('all')
   const all = useMemo(
     () =>
       [...notifications, ...orgInvitationEntries].sort(
@@ -92,82 +108,115 @@ export default function NotificationsPage() {
       ),
     [notifications, orgInvitationEntries]
   )
+  const visible = filter === 'unread' ? all.filter((n) => !n.read) : all
+  // Organization invitations are not stored rows, so they cannot be marked read.
+  const isStored = (n: AppNotification) => !n.id.startsWith('org-invitation-')
+
+  const groups = useMemo(() => {
+    const map = new Map<string, AppNotification[]>()
+    for (const n of visible) {
+      const key = dayBucket(n.created_at)
+      map.set(key, [...(map.get(key) ?? []), n])
+    }
+    return BUCKET_ORDER.filter((k) => map.has(k)).map((k) => ({ label: k, items: map.get(k)! }))
+  }, [visible])
 
   if (loading) return <LoadingState message="Loading notifications…" />
 
-  return (
-    <div>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Notifications</h1>
-          <p className="mt-1 text-sm text-gray-500">
-            {unreadCount > 0 ? `${unreadCount} unread notification${unreadCount === 1 ? '' : 's'}` : 'You are all caught up'}
-          </p>
-        </div>
-        {unreadCount > 0 && (
-          <Button variant="secondary" size="sm" onClick={markAllAsRead}>
-            <CheckCheck className="h-4 w-4" /> Mark all as read
-          </Button>
-        )}
-      </div>
-
-      <div className="mt-6">
-        {all.length === 0 ? (
-          <Card>
-            <CardContent>
-              <EmptyState
-                icon={<Bell className="h-10 w-10" />}
-                title="No notifications"
-                description="Updates about your connections, events, follow-ups, and opportunities will appear here."
-              />
-            </CardContent>
-          </Card>
+  function renderRow(n: AppNotification) {
+    const meta = TYPE_META[n.type]
+    const Icon = meta?.icon ?? Bell
+    const label = NOTIFICATION_TYPE_LABELS[n.type] || 'Notification'
+    const body = (
+      <>
+        <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl', TONE_CLASSES[meta?.tone ?? 'primary'])}>
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-2">
+            <span className="whitespace-nowrap text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
+            <span className="truncate text-xs text-slate-400">· {formatRelativeDate(n.created_at)}</span>
+          </span>
+          <span className={cn('mt-0.5 block text-[15px] text-rally-navy', n.read ? 'font-medium' : 'font-semibold')}>{n.title}</span>
+          {n.message && <span className="mt-0.5 line-clamp-2 block text-sm text-rally-muted">{n.message}</span>}
+        </span>
+      </>
+    )
+    const rowClass = 'flex min-w-0 flex-1 items-start gap-3 rounded-xl p-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600'
+    return (
+      <li key={n.id} className={cn('relative flex items-start transition-colors hover:bg-rally-tint/60', !n.read && 'bg-rally-tint/50')}>
+        {!n.read && <span className="absolute inset-y-3 left-0 w-1 rounded-r-full bg-primary-600" aria-hidden="true" />}
+        {n.link ? (
+          <Link to={n.link} onClick={() => { if (!n.read && isStored(n)) markAsRead(n.id) }} className={rowClass}>
+            {body}
+            <ArrowRight className="mt-3 hidden h-4 w-4 shrink-0 text-slate-300 sm:block" aria-hidden="true" />
+          </Link>
         ) : (
-          all.map((n) => {
-            const icon = TYPE_ICONS[n.type] || <Bell className="h-4 w-4 text-gray-500" />
-            const label = NOTIFICATION_TYPE_LABELS[n.type] || 'Notification'
-            const content = (
-              <Card
-                className={`mb-3 transition-colors ${n.read ? '' : 'border-primary-200 bg-primary-50/40 hover:bg-primary-50/60'}`}
-              >
-                <CardContent className="flex items-start gap-3 py-3">
-                  <div className={`mt-0.5 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md ${n.read ? 'bg-gray-100' : 'bg-white'}`}>
-                    {icon}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={TYPE_BADGE_VARIANTS[n.type] || 'gray'}>{label}</Badge>
-                      {!n.read && <span className="h-2 w-2 rounded-full bg-primary-600" aria-label="Unread" />}
-                      <span className="text-xs text-gray-400">{formatRelativeDate(n.created_at)}</span>
-                    </div>
-                    <p className={`mt-1 text-sm ${n.read ? 'font-medium text-gray-700' : 'font-semibold text-gray-900'}`}>
-                      {n.title}
-                    </p>
-                    {n.message && <p className="mt-0.5 text-sm text-gray-500">{n.message}</p>}
-                  </div>
-                  <div className="flex flex-shrink-0 items-center gap-2">
-                    {!n.read && (
-                      <button
-                        onClick={(e) => { e.preventDefault(); if (!n.id.startsWith('org-invitation-')) markAsRead(n.id) }}
-                        className="rounded-md p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
-                        aria-label="Mark as read"
-                      >
-                        <Check className="h-4 w-4" />
-                      </button>
-                    )}
-                    {n.link && <ArrowRight className="h-4 w-4 text-gray-300" />}
-                  </div>
-                </CardContent>
-              </Card>
-            )
-            return n.link ? (
-              <Link key={n.id} to={n.link} onClick={() => { if (!n.read && !n.id.startsWith('org-invitation-')) markAsRead(n.id) }}>
-                {content}
-              </Link>
-            ) : (
-              <div key={n.id}>{content}</div>
-            )
-          })
+          <div className={rowClass}>{body}</div>
+        )}
+        {!n.read && isStored(n) && (
+          <button
+            onClick={() => markAsRead(n.id)}
+            className="mr-2 mt-3.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-white hover:text-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            aria-label={`Mark "${n.title}" as read`}
+            title="Mark as read"
+          >
+            <Check className="h-5 w-5" aria-hidden="true" />
+          </button>
+        )}
+      </li>
+    )
+  }
+
+  return (
+    <div className="mx-auto w-full max-w-3xl">
+      <PageHeader
+        title="Notifications"
+        description={unreadCount > 0 ? `${unreadCount} unread ${unreadCount === 1 ? 'update' : 'updates'} waiting for you.` : 'You are all caught up.'}
+        actions={
+          unreadCount > 0 ? (
+            <Button variant="secondary" size="lg" className="rounded-xl" onClick={markAllAsRead}>
+              <CheckCheck className="h-4 w-4" /> Mark all as read
+            </Button>
+          ) : undefined
+        }
+      />
+
+      <SegmentedTabs
+        className="mt-5 w-fit"
+        label="Filter notifications"
+        value={filter}
+        onChange={setFilter}
+        tabs={[
+          { key: 'all', label: 'All' },
+          { key: 'unread', label: 'Unread', count: unreadCount },
+        ]}
+      />
+
+      <div className="mt-5">
+        {visible.length === 0 ? (
+          <div className="rounded-2xl border border-rally-line bg-white p-6 shadow-card">
+            <EmptyState
+              icon={<Bell className="h-10 w-10" />}
+              title={filter === 'unread' ? 'Nothing unread' : 'No notifications'}
+              description={
+                filter === 'unread'
+                  ? 'You have read everything. New updates will show up here.'
+                  : 'Updates about your connections, events, follow-ups, and opportunities will appear here.'
+              }
+            />
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {groups.map((g) => (
+              <section key={g.label} aria-label={g.label}>
+                <h2 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-slate-500">{g.label}</h2>
+                <ul className="divide-y divide-rally-line overflow-hidden rounded-2xl border border-rally-line bg-white shadow-card">
+                  {g.items.map(renderRow)}
+                </ul>
+              </section>
+            ))}
+          </div>
         )}
       </div>
     </div>

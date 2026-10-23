@@ -193,7 +193,7 @@ export default function OpportunityDetailPage() {
 
   return (
     <div>
-      <Link to="/opportunities" className="mb-4 flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
+      <Link to="/opportunities" className="mb-4 inline-flex min-h-[44px] items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
         <ArrowLeft className="h-4 w-4" /> Back to opportunities
       </Link>
 

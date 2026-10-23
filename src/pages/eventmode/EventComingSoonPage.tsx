@@ -15,7 +15,7 @@ export default function EventComingSoonPage() {
             title="Coming soon"
             description="This event feature is not available yet. The organizer needs to publish supporting content first."
             action={
-              <Link to=".." relative="path" className="text-sm font-medium text-primary-600 hover:text-primary-700">
+              <Link to=".." relative="path" className="inline-flex min-h-[44px] items-center text-sm font-medium text-primary-600 hover:text-primary-700">
                 Back to event home
               </Link>
             }

@@ -8,7 +8,6 @@ import {
   Trash2,
   Save,
   X,
-  ArrowRight,
   AlertCircle,
   CalendarDays,
 } from 'lucide-react'
@@ -18,9 +17,11 @@ import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Textarea } from '@/components/ui/Input'
-import { Card, CardContent } from '@/components/ui/Card'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
+import { ComingSoonButton } from '@/components/events/ComingSoon'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
-import { formatDate, formatRelativeDate } from '@/lib/utils'
+import { cn, formatDate, formatRelativeDate } from '@/lib/utils'
 
 interface FollowUpWithConnection extends FollowUp {
   connection?: Connection
@@ -203,192 +204,169 @@ export default function FollowUpsPage() {
     const conn = fu.connection
     const overdueFlag = !fu.completed && isOverdue(fu.due_date)
     const todayFlag = !fu.completed && isToday(fu.due_date)
+    const accent = fu.completed ? 'bg-slate-300' : overdueFlag ? 'bg-error-600' : todayFlag ? 'bg-warning-600' : 'bg-primary-600'
+    const actionBtn = 'min-h-[40px] rounded-xl'
 
     return (
-      <Card key={fu.id} className={fu.completed ? 'opacity-60' : ''}>
-        <CardContent className="py-4">
-          <div className="flex items-start gap-3">
-            {/* Complete toggle */}
-            <button
-              onClick={() => fu.completed ? handleUncomplete(fu) : handleComplete(fu)}
-              className="mt-0.5 flex-shrink-0"
-            >
-              {fu.completed ? (
-                <CheckCircle2 className="h-5 w-5 text-accent-600" />
-              ) : (
-                <Circle className="h-5 w-5 text-gray-300 hover:text-gray-400" />
-              )}
-            </button>
+      <article key={fu.id} className={cn('relative overflow-hidden rounded-2xl border border-rally-line bg-white shadow-card', fu.completed && 'opacity-70')}>
+        <span className={cn('absolute inset-y-0 left-0 w-1.5', accent)} aria-hidden="true" />
+        <div className="flex items-start gap-3 p-4 pl-5 md:p-5 md:pl-6">
+          <button
+            onClick={() => (fu.completed ? handleUncomplete(fu) : handleComplete(fu))}
+            aria-label={fu.completed ? `Mark "${fu.title}" as not done` : `Mark "${fu.title}" as done`}
+            className="-ml-2 -mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+          >
+            {fu.completed ? <CheckCircle2 className="h-6 w-6 text-accent-600" /> : <Circle className="h-6 w-6 text-slate-300 hover:text-primary-600" />}
+          </button>
 
-            {/* Content */}
-            <div className="min-w-0 flex-1">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                <div className="min-w-0 flex-1">
-                  <p className={`text-sm font-semibold ${fu.completed ? 'text-gray-400 line-through' : 'text-gray-900'}`}>
-                    {fu.title}
-                  </p>
-                  {fu.note && (
-                    <p className="mt-0.5 text-sm text-gray-600">{fu.note}</p>
-                  )}
-
-                  {/* Connection info */}
-                  {conn && (
-                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                      <Link
-                        to={`/connections/${conn.id}`}
-                        className="flex items-center gap-2 rounded-md bg-gray-50 px-2 py-1 text-xs hover:bg-gray-100"
-                      >
-                        <Avatar name={conn.full_name || '?'} src={conn.photo_url} size="xs" />
-                        <span className="font-medium text-gray-700">{conn.full_name}</span>
-                        {conn.company && <span className="text-gray-400">· {conn.company}</span>}
-                      </Link>
-                      <Badge variant="gray">{conn.relationship_type}</Badge>
-                      {conn.event_name && (
-                        <span className="text-xs text-gray-400">Met at {conn.event_name}</span>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                {/* Date badge */}
-                <div className="flex-shrink-0">
-                  {fu.completed ? (
-                    <Badge variant="success">Completed {fu.completed_at ? formatDate(fu.completed_at) : ''}</Badge>
-                  ) : overdueFlag ? (
-                    <Badge variant="error">Overdue · {formatRelativeDate(fu.due_date)}</Badge>
-                  ) : todayFlag ? (
-                    <Badge variant="warning">Today</Badge>
-                  ) : (
-                    <Badge variant="primary">{formatRelativeDate(fu.due_date)}</Badge>
-                  )}
-                </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <p className={cn('font-display text-base font-semibold', fu.completed ? 'text-slate-400 line-through' : 'text-rally-navy')}>{fu.title}</p>
+                {fu.note && <p className="mt-1 text-sm text-rally-muted">{fu.note}</p>}
               </div>
-
-              {/* Actions */}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {!fu.completed && (
-                  <>
-                    <Button size="sm" variant="ghost" onClick={() => handleComplete(fu)}>
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark complete
-                    </Button>
-                    <div className="relative inline-flex">
-                      <Input
-                        type="date"
-                        className="h-8 w-auto text-xs"
-                        defaultValue=""
-                        onChange={(e) => {
-                          if (e.target.value) handleReschedule(fu, e.target.value)
-                          e.target.value = ''
-                        }}
-                      />
-                      <Button size="sm" variant="ghost" className="pointer-events-none">
-                        <CalendarClock className="h-3.5 w-3.5" /> Reschedule
-                      </Button>
-                    </div>
-                    <Button size="sm" variant="ghost" onClick={() => startEdit(fu)}>
-                      <Pencil className="h-3.5 w-3.5" /> Edit
-                    </Button>
-                  </>
-                )}
-                {fu.completed && (
-                  <Button size="sm" variant="ghost" onClick={() => startEdit(fu)}>
-                    <Pencil className="h-3.5 w-3.5" /> Edit
-                  </Button>
-                )}
-                <Button size="sm" variant="ghost" className="text-error-600 hover:bg-error-50" onClick={() => handleDelete(fu)}>
-                  <Trash2 className="h-3.5 w-3.5" /> Delete
-                </Button>
-                {conn && (
-                  <Link to={`/connections/${conn.id}`}>
-                    <Button size="sm" variant="ghost">
-                      Open connection <ArrowRight className="h-3.5 w-3.5" />
-                    </Button>
-                  </Link>
+              <div className="shrink-0">
+                {fu.completed ? (
+                  <Badge variant="success">Completed {fu.completed_at ? formatDate(fu.completed_at) : ''}</Badge>
+                ) : overdueFlag ? (
+                  <Badge variant="error">Overdue · {formatRelativeDate(fu.due_date)}</Badge>
+                ) : todayFlag ? (
+                  <Badge variant="warning">Due today</Badge>
+                ) : (
+                  <Badge variant="primary">{formatRelativeDate(fu.due_date)}</Badge>
                 )}
               </div>
             </div>
+
+            {conn && (
+              <Link
+                to={`/connections/${conn.id}`}
+                className="mt-3 flex min-h-[56px] items-center gap-3 rounded-xl border border-rally-line bg-rally-canvas p-2.5 transition-colors hover:border-primary-300 hover:bg-rally-tint focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+              >
+                <Avatar name={conn.full_name || '?'} src={conn.photo_url} size="md" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-rally-navy">{conn.full_name}</span>
+                  <span className="block truncate text-xs text-slate-500">
+                    {[conn.job_title, conn.company].filter(Boolean).join(' · ') || conn.relationship_type}
+                    {conn.event_name ? ` · Met at ${conn.event_name}` : ''}
+                  </span>
+                </span>
+                <Badge variant="gray">{conn.relationship_type}</Badge>
+              </Link>
+            )}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              {!fu.completed && (
+                <>
+                  <Button size="sm" variant="secondary" className={actionBtn} onClick={() => handleComplete(fu)}>
+                    <CheckCircle2 className="h-4 w-4" /> Mark complete
+                  </Button>
+                  <label className="relative inline-flex">
+                    <span className="sr-only">Reschedule this follow-up</span>
+                    <Input
+                      type="date"
+                      className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                      defaultValue=""
+                      onChange={(e) => {
+                        if (e.target.value) handleReschedule(fu, e.target.value)
+                        e.target.value = ''
+                      }}
+                    />
+                    <span className="pointer-events-none inline-flex min-h-[40px] items-center gap-1.5 rounded-xl px-3 text-sm font-medium text-slate-600">
+                      <CalendarClock className="h-4 w-4" /> Reschedule
+                    </span>
+                  </label>
+                </>
+              )}
+              <Button size="sm" variant="ghost" className={actionBtn} onClick={() => startEdit(fu)}>
+                <Pencil className="h-4 w-4" /> Edit
+              </Button>
+              <Button size="sm" variant="ghost" className={cn(actionBtn, 'text-error-600 hover:bg-error-50')} onClick={() => handleDelete(fu)}>
+                <Trash2 className="h-4 w-4" /> Delete
+              </Button>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </article>
     )
   }
 
   function renderSection(title: string, items: FollowUpWithConnection[], icon: React.ReactNode) {
     if (items.length === 0) return null
     return (
-      <div className="mb-6">
+      <section className="mb-8" aria-label={title}>
         <div className="mb-3 flex items-center gap-2">
           {icon}
-          <h2 className="text-sm font-semibold text-gray-900">{title}</h2>
-          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">{items.length}</span>
+          <h2 className="font-display text-lg font-semibold text-rally-navy">{title}</h2>
+          <span className="rounded-full bg-rally-tint px-2 py-0.5 text-xs font-semibold text-primary-700">{items.length}</span>
         </div>
-        <div className="space-y-2">{items.map(renderFollowUp)}</div>
-      </div>
+        <div className="space-y-3">{items.map(renderFollowUp)}</div>
+      </section>
     )
   }
 
-  return (
-    <div>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-xl font-bold text-gray-900">Follow-ups</h1>
-          <p className="mt-1 text-sm text-gray-500">Stay on top of your networking tasks</p>
-        </div>
-        <div className="flex gap-1 border-b border-gray-200">
-          <button
-            onClick={() => setShowCompleted(false)}
-            className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-              !showCompleted ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Active ({pending.length})
-          </button>
-          <button
-            onClick={() => setShowCompleted(true)}
-            className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-              showCompleted ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Completed ({completed.length})
-          </button>
-        </div>
+  const stat = (label: string, value: number, tone: string, icon: React.ReactNode) => (
+    <div className="flex items-center gap-3 rounded-2xl border border-rally-line bg-white p-4 shadow-card">
+      <span className={cn('flex h-11 w-11 shrink-0 items-center justify-center rounded-xl', tone)}>{icon}</span>
+      <div>
+        <p className="font-display text-2xl font-bold leading-none text-rally-navy">{value}</p>
+        <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-500">{label}</p>
       </div>
+    </div>
+  )
+
+  return (
+    <div className="mx-auto w-full max-w-4xl">
+      <PageHeader
+        title="Follow-ups"
+        description="Stay on top of the people you promised to get back to. Keep the momentum from every event."
+        actions={
+          <ComingSoonButton size="lg" variant="secondary">
+            Sync calendar
+          </ComingSoonButton>
+        }
+      />
+
+      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {stat('Overdue', overdue.length, 'bg-error-50 text-error-600', <AlertCircle className="h-5 w-5" aria-hidden="true" />)}
+        {stat('Due today', today.length, 'bg-warning-50 text-warning-600', <CalendarDays className="h-5 w-5" aria-hidden="true" />)}
+        {stat('Upcoming', upcoming.length, 'bg-rally-tint text-primary-600', <CalendarClock className="h-5 w-5" aria-hidden="true" />)}
+        {stat('Completed', completed.length, 'bg-accent-50 text-accent-600', <CheckCircle2 className="h-5 w-5" aria-hidden="true" />)}
+      </div>
+
+      <SegmentedTabs
+        className="mt-6 w-fit"
+        label="Follow-up status"
+        value={showCompleted ? 'completed' : 'active'}
+        onChange={(k) => setShowCompleted(k === 'completed')}
+        tabs={[
+          { key: 'active', label: 'Active', count: pending.length },
+          { key: 'completed', label: 'Completed', count: completed.length },
+        ]}
+      />
 
       <div className="mt-6">
         {displayList.length === 0 ? (
-          <Card>
-            <CardContent>
-              <EmptyState
-                icon={showCompleted ? <CheckCircle2 className="h-10 w-10" /> : <CalendarClock className="h-10 w-10" />}
-                title={showCompleted ? 'No completed follow-ups' : 'No active follow-ups'}
-                description={
-                  showCompleted
-                    ? 'Completed follow-ups will appear here once you start marking them done.'
-                    : pending.length === 0 && completed.length > 0
-                      ? 'All your follow-ups are completed. Great work!'
-                      : 'Schedule follow-ups from a connection\'s detail page to stay in touch with your network.'
-                }
-              />
-            </CardContent>
-          </Card>
+          <div className="rounded-2xl border border-rally-line bg-white p-6 shadow-card">
+            <EmptyState
+              icon={showCompleted ? <CheckCircle2 className="h-10 w-10" /> : <CalendarClock className="h-10 w-10" />}
+              title={showCompleted ? 'No completed follow-ups' : 'No active follow-ups'}
+              description={
+                showCompleted
+                  ? 'Completed follow-ups will appear here once you start marking them done.'
+                  : pending.length === 0 && completed.length > 0
+                    ? 'All your follow-ups are completed. Great work!'
+                    : "Schedule follow-ups from a connection's detail page to stay in touch with your network."
+              }
+            />
+          </div>
         ) : showCompleted ? (
-          <div className="space-y-2">{displayList.map(renderFollowUp)}</div>
+          <div className="space-y-3">{displayList.map(renderFollowUp)}</div>
         ) : (
           <>
-            {renderSection('Overdue', overdue, <AlertCircle className="h-4 w-4 text-error-600" />)}
-            {renderSection('Today', today, <CalendarDays className="h-4 w-4 text-warning-600" />)}
-            {renderSection('Upcoming', upcoming, <CalendarClock className="h-4 w-4 text-primary-600" />)}
-            {overdue.length === 0 && today.length === 0 && upcoming.length === 0 && (
-              <Card>
-                <CardContent>
-                  <EmptyState
-                    icon={<CheckCircle2 className="h-10 w-10" />}
-                    title="All caught up!"
-                    description="You have no pending follow-ups. Schedule new ones from your connections."
-                  />
-                </CardContent>
-              </Card>
-            )}
+            {renderSection('Overdue', overdue, <AlertCircle className="h-5 w-5 text-error-600" />)}
+            {renderSection('Due today', today, <CalendarDays className="h-5 w-5 text-warning-600" />)}
+            {renderSection('Upcoming', upcoming, <CalendarClock className="h-5 w-5 text-primary-600" />)}
           </>
         )}
       </div>
@@ -396,10 +374,10 @@ export default function FollowUpsPage() {
       {/* Edit modal */}
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => setEditing(null)}>
-          <div className="relative w-full max-w-md rounded-lg bg-white p-6" onClick={(e) => e.stopPropagation()}>
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-float" role="dialog" aria-modal="true" aria-label="Edit follow-up" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-base font-semibold text-gray-900">Edit Follow-up</h3>
-              <button onClick={() => setEditing(null)} className="text-gray-400 hover:text-gray-600">
+              <h3 className="font-display text-lg font-semibold text-rally-navy">Edit Follow-up</h3>
+              <button onClick={() => setEditing(null)} aria-label="Close" className="flex h-11 w-11 items-center justify-center rounded-full text-gray-400 hover:bg-rally-tint hover:text-gray-600">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -418,7 +396,7 @@ export default function FollowUpsPage() {
               </div>
               {editError && <div className="rounded-md bg-error-50 px-3 py-2 text-sm text-error-700">{editError}</div>}
               <div className="flex justify-end gap-2">
-                <Button variant="secondary" onClick={() => setEditing(null)}>Cancel</Button>
+                <Button variant="secondary" type="button" onClick={() => setEditing(null)}>Cancel</Button>
                 <Button type="submit" disabled={saving}>
                   <Save className="h-4 w-4" /> {saving ? 'Saving…' : 'Save'}
                 </Button>

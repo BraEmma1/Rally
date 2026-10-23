@@ -42,8 +42,7 @@ import ConversationPage from '@/pages/messages/ConversationPage'
 import NotificationsPage from '@/pages/notifications/NotificationsPage'
 import EventHomePage from '@/pages/eventmode/EventHomePage'
 import EventNetworkPage from '@/pages/eventmode/EventNetworkPage'
-import EventAgendaPage from '@/pages/eventmode/EventAgendaPage'
-import EventMySchedulePage from '@/pages/eventmode/EventMySchedulePage'
+import EventProgramPage from '@/pages/eventmode/EventProgramPage'
 import EventSpeakersPage from '@/pages/eventmode/EventSpeakersPage'
 import SpeakerDetailPage from '@/pages/eventmode/SpeakerDetailPage'
 import EventExhibitorsPage from '@/pages/eventmode/EventExhibitorsPage'
@@ -423,8 +422,8 @@ export default function App() {
             connection opens without leaving the event shell. */}
         <Route path="/events/:eventId/connections/:connectionId" element={<ConnectionDetailPage />} />
         <Route path="/events/:eventId/info" element={<EventComingSoonPage />} />
-        <Route path="/events/:eventId/agenda" element={<EventAgendaPage />} />
-        <Route path="/events/:eventId/schedule" element={<EventMySchedulePage />} />
+        <Route path="/events/:eventId/agenda" element={<EventProgramPage />} />
+        <Route path="/events/:eventId/schedule" element={<EventProgramPage />} />
         <Route path="/events/:eventId/speakers" element={<EventSpeakersPage />} />
         <Route path="/events/:eventId/speakers/:speakerId" element={<SpeakerDetailPage />} />
         <Route path="/events/:eventId/exhibitors" element={<EventExhibitorsPage />} />

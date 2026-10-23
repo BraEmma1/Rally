@@ -2,9 +2,6 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
-  Calendar,
-  MapPin,
-  Clock,
   Users,
   UserPlus,
   QrCode,
@@ -22,20 +19,24 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
+import {
+  AboutEvent,
+  AgendaHighlights,
+  EventFaq,
+  EventHero,
+  ExhibitorsSponsors,
+  FeaturedSpeakers,
+  RallyAdvantage,
+  SecurePass,
+  VenueLogistics,
+  WhoYouCanMeet,
+} from '@/components/events/EventDetailParts'
+import { getEventAgenda, getEventHost, type EventHost, type OrganizerSession } from '@/lib/events'
+import { listEventSpeakers, type EventSpeaker } from '@/lib/speakers'
+import { listEventExhibitors, type EventExhibitor } from '@/lib/exhibitors'
 import { QRScanner } from '@/components/ui/QRScanner'
-import { formatDate, normalizeUrl } from '@/lib/utils'
-
-function formatTime(time: string | null): string {
-  if (!time) return ''
-  try {
-    const [h, m] = time.split(':').map(Number)
-    const date = new Date()
-    date.setHours(h, m, 0, 0)
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  } catch {
-    return time
-  }
-}
+import { normalizeUrl } from '@/lib/utils'
 
 function isEventPast(event: EventRow): boolean {
   if (!event.start_date) return false
@@ -70,6 +71,15 @@ export default function EventDetailPage() {
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<Tab>('about')
   const [registering, setRegistering] = useState(false)
+  // A failed register / unregister. Shown as a banner so the page stays on screen;
+  // `error` is reserved for the event failing to load.
+  const [actionError, setActionError] = useState<string | null>(null)
+  // Real rows from the event's public agenda / speaker / exhibitor lists. A list
+  // that fails to load is simply not shown.
+  const [agenda, setAgenda] = useState<OrganizerSession[]>([])
+  const [speakers, setSpeakers] = useState<EventSpeaker[]>([])
+  const [exhibitors, setExhibitors] = useState<EventExhibitor[]>([])
+  const [host, setHost] = useState<EventHost | null>(null)
 
   // QR scanning state
   const [showScanner, setShowScanner] = useState(false)
@@ -159,6 +169,29 @@ export default function EventDetailPage() {
   }, [id, user])
 
   useEffect(() => {
+    if (!id) return
+    let cancelled = false
+    void Promise.all([getEventAgenda(id), listEventSpeakers(id), listEventExhibitors(id), getEventHost(id)]).then(
+      ([a, sp, ex, h]) => {
+        if (cancelled) return
+        setAgenda(a.data)
+        setSpeakers(sp.data)
+        setExhibitors(ex.data)
+        setHost(h)
+      }
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [id])
+
+  // The Attendees / Networking tabs exist only while registered: leaving the
+  // event from one of them must not strand the page on an empty tab.
+  useEffect(() => {
+    if (!isRegistered && tab !== 'about') setTab('about')
+  }, [isRegistered, tab])
+
+  useEffect(() => {
     if (isRegistered && tab === 'attendees' && attendees.length === 0) {
       loadAttendees()
     }
@@ -168,18 +201,19 @@ export default function EventDetailPage() {
   }, [tab, isRegistered])
 
   async function handleRegister() {
-    if (!id || !user) return
+    if (!id || !user || registering) return
+    setActionError(null)
     setRegistering(true)
     const { error: regError } = await supabase
       .from('event_registrations')
       .insert({ event_id: id, user_id: user.id })
     if (regError) {
-      setError(regError.message)
+      setActionError(`Could not register: ${regError.message}`)
       setRegistering(false)
       return
     }
     setIsRegistered(true)
-    setAttendeeCount(attendeeCount + 1)
+    setAttendeeCount((n) => n + 1)
     setRegistering(false)
 
     await supabase.from('notifications').insert({
@@ -193,7 +227,8 @@ export default function EventDetailPage() {
   }
 
   async function handleUnregister() {
-    if (!id || !user) return
+    if (!id || !user || registering) return
+    setActionError(null)
     setRegistering(true)
     const { error: unregError } = await supabase
       .from('event_registrations')
@@ -201,12 +236,12 @@ export default function EventDetailPage() {
       .eq('event_id', id)
       .eq('user_id', user.id)
     if (unregError) {
-      setError(unregError.message)
+      setActionError(`Could not unregister: ${unregError.message}`)
       setRegistering(false)
       return
     }
     setIsRegistered(false)
-    setAttendeeCount(Math.max(0, attendeeCount - 1))
+    setAttendeeCount((n) => Math.max(0, n - 1))
     setRegistering(false)
   }
 
@@ -353,164 +388,137 @@ export default function EventDetailPage() {
     )
   })
 
+  const basePath = `/events/${event.id}`
+
+  // The pass options are for people who have not registered. A registered
+  // attendee's pass (badge QR) lives in Event Mode, not on this page.
+  const passCard = isRegistered ? null : (
+    <SecurePass event={event} past={past} registering={registering} onRegister={handleRegister} />
+  )
+
   return (
-    <div>
-      <Link to="/events" className="mb-4 flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700">
-        <ArrowLeft className="h-4 w-4" /> Back to events
-      </Link>
-
-      {/* Event header */}
-      <Card className="mb-6 overflow-hidden">
-        {event.image_url && (
-          <div className="h-40 w-full sm:h-56">
-            <img src={event.image_url} alt={event.name} className="h-full w-full object-cover" />
-          </div>
-        )}
-        <CardContent className="pt-5">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex-1">
-              <h1 className="text-xl font-bold text-gray-900">{event.name}</h1>
-              <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-600">
-                <span className="flex items-center gap-1">
-                  <Calendar className="h-3.5 w-3.5" /> {formatDate(event.start_date)}
-                  {event.end_date && event.end_date !== event.start_date ? ` – ${formatDate(event.end_date)}` : ''}
-                </span>
-                {event.start_time && (
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3.5 w-3.5" /> {formatTime(event.start_time)}
-                    {event.end_time ? ` – ${formatTime(event.end_time)}` : ''}
-                  </span>
-                )}
-              </div>
-              {event.location && (
-                <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
-                  <MapPin className="h-3.5 w-3.5" /> {event.location}
-                </p>
-              )}
-              <div className="mt-3 flex items-center gap-3">
-                <span className="flex items-center gap-1 text-sm text-gray-500">
-                  <Users className="h-4 w-4" /> {attendeeCount}{event.capacity ? ` / ${event.capacity}` : ''} registered
-                </span>
-                {isRegistered && <Badge variant="success">You're registered</Badge>}
-                {past && !isRegistered && <Badge variant="gray">Past event</Badge>}
-              </div>
-              {isRegistered && (
-                <Button
-                  size="sm"
-                  className="mt-3"
-                  onClick={() => navigate(`/events/${event.id}/home`)}
-                >
-                  Enter Event Mode <ArrowRight className="h-4 w-4" />
-                </Button>
-              )}
-            </div>
-            {!past && (
-              isRegistered ? (
-                <Button variant="outline" size="sm" onClick={handleUnregister} disabled={registering}>
-                  {registering ? '…' : 'Unregister'}
-                </Button>
-              ) : (
-                <Button size="sm" onClick={handleRegister} disabled={registering}>
-                  {registering ? 'Registering…' : 'Register'}
-                </Button>
-              )
-            )}
-          </div>
-          {event.description && (
-            <p className="mt-4 text-sm leading-relaxed text-gray-700">{event.description}</p>
+    <div className={`space-y-6 ${!isRegistered && !past ? 'pb-24 md:pb-0' : ''}`}>
+      {/* Breadcrumb + status */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm text-rally-muted">
+          <Link
+            to="/events"
+            className="inline-flex min-h-[44px] items-center gap-1.5 font-semibold hover:text-rally-navy focus:outline-none focus-visible:underline"
+          >
+            <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to Discover Events
+          </Link>
+          <span className="hidden text-slate-300 sm:inline" aria-hidden="true">/</span>
+          <Link to="/events" className="hidden min-h-[44px] items-center hover:text-rally-navy sm:inline-flex">Events</Link>
+          <span className="hidden text-slate-300 sm:inline" aria-hidden="true">/</span>
+          <span className="hidden max-w-[18rem] truncate font-semibold text-rally-navy sm:inline">{event.name}</span>
+        </nav>
+        <div className="flex flex-wrap items-center gap-2">
+          {isRegistered && (
+            <span className="inline-flex items-center rounded-full bg-accent-50 px-3 py-1 text-xs font-semibold text-accent-700">
+              Confirmed Attendee
+            </span>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Tabs */}
-      <div className="mb-4 flex gap-1 border-b border-gray-200">
-        <button
-          onClick={() => setTab('about')}
-          className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-            tab === 'about' ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          About
-        </button>
-        {isRegistered && (
-          <button
-            onClick={() => setTab('attendees')}
-            className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-              tab === 'attendees' ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Attendees ({attendeeCount})
-          </button>
-        )}
-        {isRegistered && (
-          <button
-            onClick={() => setTab('networking')}
-            className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-              tab === 'networking' ? 'border-primary-600 text-primary-700' : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            Networking
-          </button>
-        )}
+          {!isRegistered && !past && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-50 px-3 py-1 text-xs font-semibold text-accent-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-accent-500" aria-hidden="true" /> Registration open
+            </span>
+          )}
+          {past && (
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+              Past event
+            </span>
+          )}
+        </div>
       </div>
+
+      {actionError && (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-error-200 bg-error-50 p-4 text-sm text-error-800"
+        >
+          <p className="min-w-0">{actionError}</p>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="shrink-0 rounded-md px-2 py-1 font-semibold text-error-700 hover:bg-error-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-error-600"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* One header for both states. Registered people get Event Mode and a pass;
+          everyone else gets Register and the pass options. */}
+      <EventHero
+        event={event}
+        past={past}
+        registered={isRegistered}
+        registering={registering}
+        attendeeCount={attendeeCount}
+        host={host}
+        onRegister={handleRegister}
+        onUnregister={handleUnregister}
+        onEnter={() => navigate(`${basePath}/home`)}
+      />
+
+      {isRegistered && (
+        <SegmentedTabs
+          label="Event sections"
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { key: 'about', label: 'About' },
+            { key: 'attendees', label: 'Attendees', count: attendeeCount },
+            { key: 'networking', label: 'Networking' },
+          ]}
+        />
+      )}
 
       {/* About tab */}
       {tab === 'about' && (
-        <div className="space-y-4">
-          <Card>
-            <CardHeader><CardTitle>Event Details</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center gap-3">
-                <Calendar className="h-4 w-4 text-gray-400" />
-                <div>
-                  <p className="text-sm font-medium text-gray-900">{formatDate(event.start_date)}{event.end_date && event.end_date !== event.start_date ? ` – ${formatDate(event.end_date)}` : ''}</p>
-                  {event.start_time && (
-                    <p className="text-xs text-gray-500">{formatTime(event.start_time)}{event.end_time ? ` – ${formatTime(event.end_time)}` : ''}</p>
-                  )}
-                </div>
-              </div>
-              {event.location && (
-                <div className="flex items-center gap-3">
-                  <MapPin className="h-4 w-4 text-gray-400" />
-                  <p className="text-sm text-gray-900">{event.location}</p>
-                </div>
-              )}
-              <div className="flex items-center gap-3">
-                <Users className="h-4 w-4 text-gray-400" />
-                <p className="text-sm text-gray-900">{attendeeCount}{event.capacity ? ` / ${event.capacity}` : ''} registered</p>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="grid gap-6 lg:grid-cols-12">
+          <div className="min-w-0 space-y-6 lg:col-span-8">
+            {passCard && <div className="lg:hidden">{passCard}</div>}
+            <AboutEvent event={event} />
+            {!isRegistered && <RallyAdvantage />}
+            <AgendaHighlights
+              sessions={agenda}
+              registered={isRegistered}
+              registering={registering}
+              past={past}
+              onUnlock={handleRegister}
+              fullAgendaPath={`${basePath}/agenda`}
+            />
+            <FeaturedSpeakers speakers={speakers} registered={isRegistered} speakersPath={`${basePath}/speakers`} />
+            <ExhibitorsSponsors exhibitors={exhibitors} registered={isRegistered} exhibitorsPath={`${basePath}/exhibitors`} />
+            {!isRegistered && <EventFaq />}
 
-          {!isRegistered && !past && (
-            <Card>
-              <CardContent>
-                <EmptyState
-                  icon={<Users className="h-8 w-8" />}
-                  title="Register to network"
-                  description="Register for this event to see who's attending and start making connections."
-                  action={<Button size="sm" onClick={handleRegister} disabled={registering}>{registering ? 'Registering…' : 'Register now'}</Button>}
-                />
-              </CardContent>
-            </Card>
-          )}
-          {isRegistered && !past && (
-            <Card>
-              <CardContent>
+            {isRegistered && !past && (
+              <section className="rounded-2xl border border-rally-line bg-white shadow-card">
                 <EmptyState
                   icon={<QrCode className="h-8 w-8" />}
                   title="Ready to network"
-                  description="Check the Attendees tab to see who's coming, or the Networking tab to scan QR codes and connect."
+                  description="See who's coming, or scan QR codes and connect."
                   action={
-                    <div className="flex gap-2">
-                      <Button size="sm" variant="secondary" onClick={() => setTab('attendees')}>View attendees</Button>
-                      <Button size="sm" onClick={() => setTab('networking')}>Start networking</Button>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button size="lg" variant="secondary" className="rounded-xl" onClick={() => setTab('attendees')}>
+                        View attendees
+                      </Button>
+                      <Button size="lg" className="rounded-xl" onClick={() => setTab('networking')}>
+                        Start networking
+                      </Button>
                     </div>
                   }
                 />
-              </CardContent>
-            </Card>
-          )}
+              </section>
+            )}
+          </div>
+
+          <aside className="min-w-0 space-y-6 lg:col-span-4">
+            {passCard && <div className="hidden lg:block">{passCard}</div>}
+            <VenueLogistics event={event} />
+            <WhoYouCanMeet attendeeCount={attendeeCount} registered={isRegistered} networkPath={`${basePath}/network`} />
+          </aside>
         </div>
       )}
 
@@ -737,6 +745,21 @@ export default function EventDetailPage() {
                 <Button size="sm" variant="secondary" onClick={resetConnect}>Close</Button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Phones: keep the main action in reach while the long page scrolls. */}
+      {!isRegistered && !past && (
+        <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-rally-line bg-white/95 p-3 backdrop-blur md:hidden">
+          <div className="mx-auto flex max-w-xl items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-rally-navy">{event.name}</p>
+              <p className="text-xs text-rally-muted">{attendeeCount} registered</p>
+            </div>
+            <Button size="lg" className="shrink-0 rounded-xl" onClick={handleRegister} disabled={registering}>
+              {registering ? 'Registering…' : 'Register Now'}
+            </Button>
           </div>
         </div>
       )}

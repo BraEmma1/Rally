@@ -76,7 +76,7 @@ export function ErrorState({
       </div>
       <p className="text-sm text-gray-600">{message}</p>
       {onRetry && (
-        <button onClick={onRetry} className="text-sm font-medium text-primary-600 hover:text-primary-700">
+        <button onClick={onRetry} className="inline-flex min-h-[44px] items-center rounded-lg px-4 text-sm font-medium text-primary-600 hover:bg-rally-tint hover:text-primary-700">
           {retryLabel}
         </button>
       )}
