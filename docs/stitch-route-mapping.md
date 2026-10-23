@@ -389,6 +389,17 @@ Each needs a reviewed backend design first; none is started by Phase 1.
   registered attendee); it will need the same treatment before directory pagination ships.
 - Registration / invitation failures on `/events` are shown inline (`role="alert"`). Other attendee pages still
   replace the whole page on an action error; align them when each is restyled.
+- **Bundle size (follow-up, its own PR).** The main chunk is now 1,441 kB (364 kB gzip) in `npm run build`,
+  up from the 1.28 MB recorded in CLAUDE.md §10 before the attendee UI; the extra ~160 kB is the new pages
+  and shared components, all in the one entry chunk. Only the admin pages are split today. Suggested order:
+  1. `React.lazy` per persona surface in `src/App.tsx` (attendee shell, Event Mode, organizer, sponsor), each
+     behind a `Suspense` fallback that reuses the existing `LoadingState`;
+  2. load `qrcode` and `jsqr` only where they are used (Profile, Scan, the Event Mode pass);
+  3. `build.rollupOptions.output.manualChunks` for the stable vendor set (react, react-router,
+     `@supabase/supabase-js`, `lucide-react`) so app changes do not invalidate it in the browser cache;
+  4. re-measure; a sensible target is an entry chunk under 500 kB so the build warning goes away.
+  Not done in the attendee PR on purpose: lazy-loading changes how every route mounts and deserves its own
+  review and browser pass (`npm run test:browser` covers every route).
 
 ---
 
