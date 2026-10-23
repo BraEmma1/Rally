@@ -105,9 +105,12 @@ export async function fetchConversationReadState(conversationId: string) {
 export function subscribeToInbox(
   userId: string,
   onChange: () => void,
-  onStatus?: (status: string) => void
+  onStatus?: (status: string) => void,
+  // Distinct topic for a second listener (the nav badge runs alongside the
+  // inbox page); two channels on one topic would collide.
+  channelKey = 'inbox'
 ) {
-  const channel = supabase.channel(`inbox:${userId}`)
+  const channel = supabase.channel(`${channelKey}:${userId}`)
 
   // A new message changes the preview, the timestamp, the unread count and the
   // ordering. handle_new_message bumps conversations.updated_at in the same

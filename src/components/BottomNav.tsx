@@ -1,12 +1,14 @@
 import { NavLink } from 'react-router-dom'
 import { Home, Calendar, Users, MessagesSquare, Menu } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useUnreadMessages } from '@/lib/useUnreadMessages'
 
 // Fixed attendee bottom navigation. "More" is a button that opens the side
 // drawer rather than a route, so it is rendered separately from the NavLinks.
 // No CONNECT item here: QR connecting is an Event Mode action and lives in the
 // Event Mode navigation only.
 export default function BottomNav({ onMore }: { onMore: () => void }) {
+  const unread = useUnreadMessages()
   const itemClass = ({ isActive }: { isActive: boolean }) =>
     cn(
       'flex min-h-[44px] min-w-[44px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors motion-reduce:transition-none',
@@ -45,10 +47,21 @@ export default function BottomNav({ onMore }: { onMore: () => void }) {
         )}
       </NavLink>
 
-      <NavLink to="/messages" className={itemClass} aria-label="Messages">
+      <NavLink
+        to="/messages"
+        className={itemClass}
+        aria-label={`Messages${unread > 0 ? `, ${unread} unread` : ''}`}
+      >
         {({ isActive }) => (
           <>
-            <MessagesSquare className="h-5 w-5" aria-hidden="true" />
+            <span className="relative">
+              <MessagesSquare className="h-5 w-5" aria-hidden="true" />
+              {unread > 0 && (
+                <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-error-600 px-1 text-[10px] font-semibold leading-none text-white">
+                  {unread > 99 ? '99+' : unread}
+                </span>
+              )}
+            </span>
             <span className={isActive ? 'font-semibold' : undefined}>Messages</span>
           </>
         )}
