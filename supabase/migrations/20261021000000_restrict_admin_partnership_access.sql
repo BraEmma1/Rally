@@ -8,7 +8,8 @@ narrow enough to describe one organization's or one event's agreements.
 
 ## What changes
 1. admin_list_partnerships is disabled for every client role. EXECUTE is
-   revoked from PUBLIC, anon and authenticated, and not granted back. The
+   revoked from PUBLIC, anon, authenticated and service_role (Supabase grants
+   new functions to all three by default), and not granted back. The
    function is kept (not dropped) for compatibility and possible controlled
    future use; re-enabling it requires a reviewed migration. Without these
    grants the function cannot be called through PostgREST at all.
@@ -42,10 +43,10 @@ Forward-only. Reversal is a new migration restoring the M1 bodies
 -- 1. Disable admin_list_partnerships for all client roles
 -- ============================================================================
 REVOKE EXECUTE ON FUNCTION public.admin_list_partnerships(text, text, uuid, uuid, uuid, text, integer, integer)
-  FROM PUBLIC, anon, authenticated;
+  FROM PUBLIC, anon, authenticated, service_role;
 
 COMMENT ON FUNCTION public.admin_list_partnerships(text, text, uuid, uuid, uuid, text, integer, integer) IS
-  'DISABLED (20261021000000): not executable by PUBLIC, anon or authenticated. Partnership records and values are organization-private. Retained for compatibility; re-enable only through a reviewed migration.';
+  'DISABLED (20261021000000): not executable by PUBLIC, anon, authenticated or service_role. Partnership records and values are organization-private. Retained for compatibility; re-enable only through a reviewed migration.';
 
 -- ============================================================================
 -- 2. admin_platform_overview — adds draft and cancelled partnership counts
