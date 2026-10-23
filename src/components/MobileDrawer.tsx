@@ -151,15 +151,29 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
     navigate('/profile')
   }
 
+  const focusRing = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600'
+
   const rowClass = (subItem?: boolean) =>
     cn(
-      'flex w-full items-center gap-4 py-3.5 text-[15px] font-medium transition-colors',
-      subItem ? 'pl-11 pr-5' : 'px-5',
-      'text-gray-700 hover:bg-gray-50 hover:text-gray-900'
+      'group flex min-h-[52px] w-full items-center gap-3 rounded-xl px-3 py-2 text-[15px] font-medium text-rally-navy transition-colors hover:bg-rally-tint',
+      subItem && 'min-h-[46px] pl-6',
+      focusRing
     )
 
-  const activeRowClass =
-    'flex w-full items-center gap-4 px-5 py-3.5 text-[15px] font-medium bg-primary-50 text-primary-700 transition-colors'
+  const activeRowClass = (subItem?: boolean) =>
+    cn(
+      'group flex min-h-[52px] w-full items-center gap-3 rounded-xl bg-rally-tint px-3 py-2 text-[15px] font-semibold text-primary-700 transition-colors',
+      subItem && 'min-h-[46px] pl-6',
+      focusRing
+    )
+
+  const iconTile = (active: boolean) =>
+    cn(
+      'flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors',
+      active ? 'bg-primary-600 text-white' : 'bg-rally-tint text-primary-600 group-hover:bg-white'
+    )
+
+  const sectionLabel = 'px-4 pb-1.5 pt-4 text-[11px] font-semibold uppercase tracking-wider text-slate-400'
 
   function renderRows(items: DrawerItem[], subItems = false) {
     return items.map((item) => (
@@ -167,150 +181,146 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
         key={item.to}
         to={item.to}
         onClick={onClose}
-        className={({ isActive }) => (isActive ? activeRowClass : rowClass(subItems))}
+        className={({ isActive }) => (isActive ? activeRowClass(subItems) : rowClass(subItems))}
         end={!subItems}
       >
-        <item.icon className="h-5 w-5 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate">{item.label}</span>
-        {item.to === '/events?tab=upcoming' && upcomingCount > 0 && (
-          <span className="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-semibold text-primary-700">{upcomingCount}</span>
-        )}
-        {item.to === '/events?tab=invitations' && pendingInvites > 0 && (
-          <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">{pendingInvites}</span>
-        )}
-        {item.badge !== undefined && item.badge > 0 && (
-          <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">
-            {item.badge > 99 ? '99+' : item.badge}
-          </span>
+        {({ isActive }) => (
+          <>
+            <span className={iconTile(isActive)}>
+              <item.icon className="h-[18px] w-[18px]" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1 truncate">{item.label}</span>
+            {item.to === '/events?tab=upcoming' && upcomingCount > 0 && (
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-primary-700 ring-1 ring-rally-line">{upcomingCount}</span>
+            )}
+            {item.to === '/events?tab=invitations' && pendingInvites > 0 && (
+              <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">{pendingInvites}</span>
+            )}
+            {item.badge !== undefined && item.badge > 0 && (
+              <span className="rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">
+                {item.badge > 99 ? '99+' : item.badge}
+              </span>
+            )}
+          </>
         )}
       </NavLink>
     ))
   }
 
-  return (
-    <div
-      className="fixed inset-0 z-50 md:hidden"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Navigation menu"
+  const toggleButton = (expanded: boolean, label: string, onToggle: () => void) => (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-label={label}
+      className={cn('flex h-[52px] w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-rally-tint hover:text-rally-navy', focusRing)}
     >
+      <ChevronDown className={cn('h-5 w-5 transition-transform duration-200 motion-reduce:transition-none', expanded && 'rotate-180')} aria-hidden="true" />
+    </button>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Navigation menu">
       {/* Backdrop */}
       <div
         onClick={onClose}
-        className={cn(
-          'absolute inset-0 bg-gray-900/50 transition-opacity duration-300',
-          open ? 'opacity-100' : 'opacity-0'
-        )}
+        className={cn('absolute inset-0 bg-rally-ink/60 backdrop-blur-[2px] transition-opacity duration-300', open ? 'opacity-100' : 'opacity-0')}
         aria-hidden="true"
       />
 
       {/* Right-side panel */}
       <div
         className={cn(
-          'absolute inset-y-0 right-0 flex w-[85%] max-w-xs flex-col bg-white shadow-xl transition-transform duration-300 ease-out',
+          'absolute inset-y-0 right-0 flex w-[88%] max-w-sm flex-col overflow-hidden rounded-l-3xl bg-white shadow-float transition-transform duration-300 ease-out motion-reduce:transition-none',
           open ? 'translate-x-0' : 'translate-x-full'
         )}
         onTransitionEnd={() => {
           if (!open) setRendered(false)
         }}
       >
-        <button
-          ref={closeButtonRef}
-          onClick={onClose}
-          aria-label="Close menu"
-          className="absolute right-3 top-3 rounded-md p-2 text-white/90 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-        >
-          <X className="h-5 w-5" />
-        </button>
-
         {/* Profile header */}
-        <div className="bg-primary-700 px-5 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
-          <button onClick={goToProfile} className="flex w-full items-center gap-4 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white rounded-md">
-            <Avatar name={displayName} src={profile?.photo_url} size="lg" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-lg font-semibold text-white">{displayName}</p>
-              <span className="mt-0.5 inline-flex items-center gap-1.5 text-sm text-primary-100">
-                <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-                Edit Profile
+        <div className="relative bg-gradient-to-br from-primary-600 to-primary-700 px-5 pb-5 pt-[max(1.25rem,env(safe-area-inset-top))]">
+          <button
+            ref={closeButtonRef}
+            onClick={onClose}
+            aria-label="Close menu"
+            className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-white/60">Rally</p>
+          <button
+            onClick={goToProfile}
+            className="mt-3 flex w-full items-center gap-3.5 rounded-xl text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+          >
+            <Avatar name={displayName} src={profile?.photo_url} size="lg" className="ring-2 ring-white/30" />
+            <div className="min-w-0 flex-1 pr-10">
+              <p className="truncate font-display text-lg font-bold text-white">{displayName}</p>
+              {profile?.job_title && <p className="truncate text-sm text-white/70">{profile.job_title}</p>}
+              <span className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-xs font-semibold text-white">
+                <Pencil className="h-3 w-3" aria-hidden="true" />
+                Edit profile
               </span>
             </div>
           </button>
         </div>
 
         {/* Scrollable menu body */}
-        <nav className="flex-1 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <div className="py-2" role="group" aria-label="Personal">
-            {renderRows(personal)}
+        <nav className="flex-1 overflow-y-auto px-3 pb-2">
+          <div role="group" aria-label="Personal">
+            <p className={sectionLabel}>My Rally</p>
+            <div className="space-y-0.5">{renderRows(personal)}</div>
           </div>
 
-          <div className="mx-5 my-3 border-t border-gray-200" role="presentation" />
-
-          <div className="py-2" role="group" aria-label="Events">
-            {/* All Events with an attached dropdown toggle for its sub-items */}
-            <div className="flex items-stretch">
+          <div role="group" aria-label="Events">
+            <p className={sectionLabel}>Events</p>
+            <div className="flex items-stretch gap-1">
               <NavLink
                 to="/events"
                 onClick={onClose}
                 end
-                className="flex min-w-0 flex-1 items-center gap-4 px-5 py-3.5 text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                className={({ isActive }) => cn(isActive ? activeRowClass() : rowClass(), 'min-w-0 flex-1')}
               >
-                <Calendar className="h-5 w-5 shrink-0" aria-hidden="true" />
-                <span className="min-w-0 flex-1 truncate">All Events</span>
+                {({ isActive }) => (
+                  <>
+                    <span className={iconTile(isActive)}>
+                      <Calendar className="h-[18px] w-[18px]" aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1 truncate">All Events</span>
+                  </>
+                )}
               </NavLink>
-              <button
-                onClick={() => setEventsExpanded((v) => !v)}
-                aria-expanded={eventsExpanded}
-                aria-label={eventsExpanded ? 'Hide events submenu' : 'Show events submenu'}
-                className="flex w-12 shrink-0 items-center justify-center text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600"
-              >
-                <ChevronDown
-                  className={cn('h-5 w-5 transition-transform duration-200 motion-reduce:transition-none', eventsExpanded && 'rotate-180')}
-                  aria-hidden="true"
-                />
-              </button>
+              {toggleButton(eventsExpanded, eventsExpanded ? 'Hide events submenu' : 'Show events submenu', () => setEventsExpanded((v) => !v))}
             </div>
-
             {eventsExpanded && (
-              <div role="group" aria-label="Events submenu">
+              <div role="group" aria-label="Events submenu" className="mt-0.5 space-y-0.5">
                 {renderRows(eventSubItems, true)}
               </div>
             )}
           </div>
 
-          <div className="mx-5 my-3 border-t border-gray-200" role="presentation" />
-
-          {/* My Organizations as a collapsible group, matching the All Events
-              pattern: tapping the header expands to show each organization the
-              person can work in. Only shown once loaded and only for real
+          {/* My Organizations: only shown once loaded and only for real
               memberships, so a revoked or absent membership leaves no trace. */}
           {!orgLoading && memberships.length > 0 && (
-            <div className="py-2" role="group" aria-label="My organizations">
-              <div className="flex items-stretch">
+            <div role="group" aria-label="My organizations">
+              <p className={sectionLabel}>Organizations</p>
+              <div className="flex items-stretch gap-1">
                 <button
                   type="button"
                   onClick={() => setOrgsExpanded((v) => !v)}
                   aria-expanded={orgsExpanded}
-                  className="flex min-w-0 flex-1 items-center gap-4 px-5 py-3.5 text-left text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                  className={cn(rowClass(), 'min-w-0 flex-1 text-left')}
                 >
-                  <Building2 className="h-5 w-5 shrink-0" aria-hidden="true" />
+                  <span className={iconTile(false)}>
+                    <Building2 className="h-[18px] w-[18px]" aria-hidden="true" />
+                  </span>
                   <span className="min-w-0 flex-1 truncate">My Organizations</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setOrgsExpanded((v) => !v)}
-                  aria-expanded={orgsExpanded}
-                  aria-label={orgsExpanded ? 'Hide organizations submenu' : 'Show organizations submenu'}
-                  className="flex w-12 shrink-0 items-center justify-center text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600"
-                >
-                  <ChevronDown
-                    className={cn('h-5 w-5 transition-transform duration-200 motion-reduce:transition-none', orgsExpanded && 'rotate-180')}
-                    aria-hidden="true"
-                  />
-                </button>
+                {toggleButton(orgsExpanded, orgsExpanded ? 'Hide organizations submenu' : 'Show organizations submenu', () => setOrgsExpanded((v) => !v))}
               </div>
 
               {orgsExpanded && (
-                <div role="group" aria-label="Organizations submenu">
+                <div role="group" aria-label="Organizations submenu" className="mt-0.5 space-y-0.5">
                   {memberships.map((m) => (
                     <NavLink
                       key={m.organization.id}
@@ -319,18 +329,16 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
                         selectOrganization(m.organization.id)
                         onClose()
                       }}
-                      className="flex w-full items-center gap-3 pl-11 pr-5 py-3 text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
+                      className={cn(rowClass(true), 'gap-3 py-2')}
                     >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
-                        <Building2 className="h-4.5 w-4.5" aria-hidden="true" />
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-rally-tint text-primary-700">
+                        <Building2 className="h-[18px] w-[18px]" aria-hidden="true" />
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate">{m.organization.name}</span>
-                        <span className="block truncate text-xs font-normal text-gray-500">
-                          {ORG_ROLE_LABELS[m.role]}
-                        </span>
+                        <span className="block truncate text-xs font-normal text-slate-500">{ORG_ROLE_LABELS[m.role]}</span>
                       </span>
-                      <ArrowRight className="h-4 w-4 shrink-0 text-gray-400" aria-hidden="true" />
+                      <ArrowRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
                     </NavLink>
                   ))}
                 </div>
@@ -339,49 +347,48 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
           )}
 
           {/* Pending organization invitations, straight from the authorized
-              RPC — accepted, declined or revoked invitations disappear here
+              RPC: accepted, declined or revoked invitations disappear here
               without any local tracking. */}
           {!orgLoading && pendingOrgInvitations.length > 0 && (
-            <div className="py-2" role="group" aria-label="Pending invitations">
-              <p className="px-5 pb-1 pt-3 text-xs font-semibold uppercase tracking-wide text-gray-400">
-                {pendingOrgInvitations.length === 1 ? 'Pending Invitation' : 'Pending Invitations'}
+            <div role="group" aria-label="Pending invitations">
+              <p className={sectionLabel}>
+                {pendingOrgInvitations.length === 1 ? 'Pending invitation' : 'Pending invitations'}
               </p>
-              {pendingOrgInvitations.map((invitation) => (
-                <NavLink
-                  key={invitation.id}
-                  to="/invitations/organizations"
-                  onClick={onClose}
-                  className="flex w-full items-center gap-3 px-5 py-3 text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
-                >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-warning-50 text-warning-700">
-                    <Building2 className="h-4.5 w-4.5" aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{invitation.organization_name}</span>
-                    <span className="block truncate text-xs font-normal text-gray-500">
-                      You've been invited to join as {ORG_ROLE_LABELS[invitation.role]}
+              <div className="space-y-1.5">
+                {pendingOrgInvitations.map((invitation) => (
+                  <NavLink
+                    key={invitation.id}
+                    to="/invitations/organizations"
+                    onClick={onClose}
+                    className={cn('flex w-full items-center gap-3 rounded-xl border border-warning-200 bg-warning-50 px-3 py-2.5 text-[15px] font-medium text-rally-navy', focusRing)}
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-warning-700">
+                      <Building2 className="h-[18px] w-[18px]" aria-hidden="true" />
                     </span>
-                  </span>
-                  <span className="shrink-0 rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">
-                    Review
-                  </span>
-                </NavLink>
-              ))}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate">{invitation.organization_name}</span>
+                      <span className="block truncate text-xs font-normal text-slate-600">
+                        Invited as {ORG_ROLE_LABELS[invitation.role]}
+                      </span>
+                    </span>
+                    <span className="shrink-0 rounded-full bg-error-600 px-2 py-0.5 text-xs font-semibold text-white">Review</span>
+                  </NavLink>
+                ))}
+              </div>
             </div>
           )}
-
-          <div className="mx-5 my-3 border-t border-gray-200" role="presentation" />
-
-          <div className="py-2" role="group" aria-label="Account">
-            <button
-              onClick={handleSignOut}
-              className="flex w-full items-center gap-4 px-5 py-3.5 text-[15px] font-medium text-gray-700 transition-colors hover:bg-gray-50 hover:text-gray-900"
-            >
-              <LogOut className="h-5 w-5 shrink-0" aria-hidden="true" />
-              Sign Out
-            </button>
-          </div>
         </nav>
+
+        {/* Footer: sign out stays reachable without scrolling */}
+        <div className="border-t border-rally-line bg-rally-canvas px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
+          <button
+            onClick={handleSignOut}
+            className="flex min-h-[48px] w-full items-center justify-center gap-2 rounded-xl border border-rally-line bg-white text-[15px] font-semibold text-error-600 transition-colors hover:bg-error-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-error-600"
+          >
+            <LogOut className="h-[18px] w-[18px]" aria-hidden="true" />
+            Sign out
+          </button>
+        </div>
       </div>
     </div>
   )

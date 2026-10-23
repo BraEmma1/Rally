@@ -422,19 +422,18 @@ export default function ConnectionDetailPage() {
   ]
 
   return (
-    <div className="mx-auto max-w-md pb-10 md:max-w-2xl md:pb-0">
+    <div className="mx-auto w-full max-w-4xl pb-10 md:pb-0">
       {/* 1. Top header */}
-      <div className="relative flex items-center justify-between border-b border-gray-100 py-2.5">
-        <button onClick={() => navigate(backPath)} aria-label="Back to network" className="-ml-2 rounded-full p-2 text-gray-500 hover:text-gray-700">
-          <ArrowLeft className="h-5 w-5" />
+      <div className="relative flex items-center justify-between py-1">
+        <button onClick={() => navigate(backPath)} className="-ml-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-xl px-2 text-sm font-semibold text-rally-muted hover:text-rally-navy focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> {inEventMode ? 'Back to directory' : 'Back to network'}
         </button>
-        <span className="max-w-[55%] truncate text-base font-semibold text-gray-900 md:text-lg">{connection.full_name}</span>
         <div ref={menuRef} className="relative -mr-2">
-          <button onClick={() => setMenuOpen(!menuOpen)} aria-label="Connection options" className="rounded-full p-2 text-gray-500 hover:text-gray-700">
+          <button onClick={() => setMenuOpen(!menuOpen)} aria-label="Connection options" className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-500 hover:bg-rally-tint focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600">
             <MoreVertical className="h-5 w-5" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-md border border-gray-200 bg-white text-left shadow-lg">
+            <div className="absolute right-0 top-full z-20 mt-1 w-56 overflow-hidden rounded-md border border-rally-line bg-white text-left shadow-lg">
               <button
                 onClick={() => { setEditingRelationship(!editingRelationship); setMenuOpen(false) }}
                 className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
@@ -449,7 +448,7 @@ export default function ConnectionDetailPage() {
               </button>
               <button
                 onClick={() => { setMenuOpen(false); void handleDeleteConnection() }}
-                className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2.5 text-sm text-error-600 hover:bg-error-50"
+                className="flex w-full items-center gap-2 border-t border-rally-line px-3 py-2.5 text-sm text-error-600 hover:bg-error-50"
               >
                 <Trash2 className="h-4 w-4" /> Remove connection
               </button>
@@ -459,36 +458,42 @@ export default function ConnectionDetailPage() {
       </div>
 
       {/* 2. Tabs */}
-      <div className="flex items-center gap-1 border-b border-gray-100">
+      <div className="mt-2 grid grid-cols-4 gap-1 rounded-2xl bg-rally-canvas p-1 ring-1 ring-rally-line" role="tablist" aria-label="Connection sections">
         {TABS.map(({ key, label }) => (
           <button
             key={key}
+            role="tab"
+            aria-selected={tab === key}
             onClick={() => setTab(key)}
             className={cn(
-              'relative flex-1 px-2 py-2.5 text-sm font-medium transition-colors md:text-[15px]',
-              tab === key ? 'text-primary-600' : 'text-gray-500 hover:text-gray-700'
+              'min-h-[44px] rounded-xl px-2 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600',
+              tab === key ? 'bg-white text-primary-700 shadow-card ring-1 ring-rally-line' : 'text-rally-muted hover:bg-white/70 hover:text-rally-navy'
             )}
           >
             {label}
-            {tab === key && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-primary-600" />}
           </button>
         ))}
       </div>
 
       {tab === 'overview' && (
-        <div className="pt-3">
-          {/* 3. Compact profile row */}
-          <div className="flex items-center gap-3">
-            <Avatar name={connection.full_name} src={connection.photo_url} size="xl" className="h-20 w-20" />
+        <div className="pt-4">
+          {/* 3. Profile card */}
+          <div className="flex flex-col gap-4 rounded-2xl border border-rally-line bg-white p-5 shadow-card sm:flex-row sm:items-center md:p-6">
+            <Avatar name={connection.full_name} src={connection.photo_url} size="xl" className="h-24 w-24 shrink-0 text-2xl" />
             <div className="min-w-0 flex-1">
-              <h1 className="truncate text-lg font-bold text-gray-900 md:text-[22px]">{connection.full_name}</h1>
-              {connection.job_title && <p className="truncate text-[15px] text-gray-600 md:text-base">{connection.job_title}</p>}
-              {connection.company && <p className="truncate text-[15px] text-gray-600 md:text-base">{connection.company}</p>}
-              {connection.location && (
-                <p className="mt-1 flex items-center gap-1.5 truncate text-sm text-gray-500 md:text-[15px]">
-                  <MapPin className="h-4 w-4 flex-shrink-0 text-gray-400" /> {connection.location}
-                </p>
+              {connection.relationship_type && (
+                <span className="inline-flex rounded-md bg-rally-tint px-2 py-0.5 text-[11px] font-semibold text-primary-700">{connection.relationship_type}</span>
               )}
+              <h1 className="mt-1 font-display text-2xl font-bold tracking-tight text-rally-navy md:text-3xl">{connection.full_name}</h1>
+              {(connection.job_title || connection.company) && (
+                <p className="mt-0.5 text-base text-rally-muted">{[connection.job_title, connection.company].filter(Boolean).join(' · ')}</p>
+              )}
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-500">
+                {connection.location && (
+                  <span className="inline-flex items-center gap-1.5"><MapPin className="h-4 w-4 text-primary-600" aria-hidden="true" /> {connection.location}</span>
+                )}
+                {connection.event_name && <span>Met at {connection.event_name} · {formatDate(connection.created_at)}</span>}
+              </div>
             </div>
             {linkedinUrl && (
               <a
@@ -496,15 +501,17 @@ export default function ConnectionDetailPage() {
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={`${connection.full_name} on LinkedIn`}
-                className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-primary-600 text-white transition-colors hover:bg-primary-700"
+                title="LinkedIn"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-rally-tint text-primary-700 transition-colors hover:bg-primary-600 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
               >
-                <Linkedin className="h-4 w-4" />
+                <Linkedin className="h-5 w-5" aria-hidden="true" />
+                <span className="sr-only">(opens in a new tab)</span>
               </a>
             )}
           </div>
 
           {editingRelationship && (
-            <form onSubmit={handleSaveRelationship} className="mt-3 space-y-2 rounded-md border border-gray-200 p-3">
+            <form onSubmit={handleSaveRelationship} className="mt-3 space-y-2 rounded-md border border-rally-line p-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700">Relationship type</span>
                 <button type="button" onClick={() => setEditingRelationship(false)} aria-label="Close" className="text-gray-400 hover:text-gray-600">
@@ -514,7 +521,7 @@ export default function ConnectionDetailPage() {
               <select
                 value={relationshipType}
                 onChange={(e) => setRelationshipType(e.target.value)}
-                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-gray-900 focus:border-primary-600 focus:outline-none"
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-rally-navy focus:border-primary-600 focus:outline-none"
               >
                 {RELATIONSHIP_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
@@ -530,7 +537,7 @@ export default function ConnectionDetailPage() {
           )}
 
           {oppFormOpen && (
-            <form onSubmit={handleAddOpportunity} className="mt-3 space-y-2 rounded-md border border-gray-200 p-3">
+            <form onSubmit={handleAddOpportunity} className="mt-3 space-y-2 rounded-md border border-rally-line p-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700">New opportunity</span>
                 <button type="button" onClick={() => setOppFormOpen(false)} aria-label="Close" className="text-gray-400 hover:text-gray-600">
@@ -580,25 +587,25 @@ export default function ConnectionDetailPage() {
           )}
 
           {/* 4. Action row */}
-          <div className="mt-3 grid grid-cols-4 gap-2">
+          <div className="mt-4 grid grid-cols-4 gap-2 md:gap-3">
             {connection.connected_user_id ? (
               <button
                 onClick={() => void handleStartMessage()}
                 disabled={startingMessage}
-                className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50 disabled:opacity-60"
+                className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border border-rally-line bg-white py-2 text-slate-700 shadow-card transition-colors hover:border-primary-300 hover:bg-rally-tint disabled:opacity-60"
               >
                 <MessageCircle className="h-4 w-4 text-primary-600" />
                 <span className="text-[13px] font-medium leading-tight md:text-sm">Message</span>
               </button>
             ) : (
-              <div className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-300" title="Messaging unavailable for this connection">
+              <div className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border border-rally-line bg-slate-50 py-2 text-slate-300" title="Messaging unavailable for this connection">
                 <MessageCircle className="h-4 w-4" />
                 <span className="text-[13px] font-medium leading-tight md:text-sm">Message</span>
               </div>
             )}
             <button
               onClick={() => setFollowUpFormOpen(!followUpFormOpen)}
-              className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
+              className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border border-rally-line bg-white py-2 text-slate-700 shadow-card transition-colors hover:border-primary-300 hover:bg-rally-tint"
             >
               <CalendarPlus className="h-4 w-4 text-primary-600" />
               <span className="text-[13px] font-medium leading-tight md:text-sm">Schedule</span>
@@ -607,7 +614,7 @@ export default function ConnectionDetailPage() {
               <button
                 key={label}
                 onClick={onClick}
-                className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
+                className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border border-rally-line bg-white py-2 text-slate-700 shadow-card transition-colors hover:border-primary-300 hover:bg-rally-tint"
               >
                 <Icon className="h-4 w-4 text-primary-600" />
                 <span className="text-[13px] font-medium leading-tight md:text-sm">{label}</span>
@@ -615,7 +622,7 @@ export default function ConnectionDetailPage() {
             ))}
             <button
               onClick={() => setMenuOpen(true)}
-              className="flex flex-col items-center gap-1 rounded-md border border-gray-200 py-2 text-gray-700 transition-colors hover:border-primary-300 hover:bg-primary-50"
+              className="flex min-h-[64px] flex-col items-center justify-center gap-1 rounded-xl border border-rally-line bg-white py-2 text-slate-700 shadow-card transition-colors hover:border-primary-300 hover:bg-rally-tint"
             >
               <MoreVertical className="h-4 w-4 text-primary-600" />
               <span className="text-[13px] font-medium leading-tight md:text-sm">More</span>
@@ -625,7 +632,7 @@ export default function ConnectionDetailPage() {
           {messageError && <p className="mt-2 text-xs text-error-600">{messageError}</p>}
 
           {followUpFormOpen && (
-            <form onSubmit={handleAddFollowUp} className="mt-3 space-y-2 rounded-md border border-gray-200 p-3">
+            <form onSubmit={handleAddFollowUp} className="mt-3 space-y-2 rounded-md border border-rally-line p-3">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700">Schedule follow-up</span>
                 <button type="button" onClick={() => setFollowUpFormOpen(false)} aria-label="Close" className="text-gray-400 hover:text-gray-600">
@@ -644,7 +651,7 @@ export default function ConnectionDetailPage() {
                 required
                 value={newFollowUp.due_date}
                 onChange={(e) => setNewFollowUp({ ...newFollowUp, due_date: e.target.value })}
-                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-gray-900 focus:border-primary-600 focus:outline-none"
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-rally-navy focus:border-primary-600 focus:outline-none"
               />
               <button
                 type="submit"
@@ -656,20 +663,21 @@ export default function ConnectionDetailPage() {
             </form>
           )}
 
+          <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
           {/* 5. Your Notes */}
-          <div className="mt-4">
+          <div className="rounded-2xl border border-rally-line bg-white p-5 shadow-card">
             <div className="flex items-center justify-between">
-              <h2 className="text-base font-bold text-gray-900 md:text-[17px]">Your Notes</h2>
+              <h2 className="text-base font-bold text-rally-navy md:text-[17px]">Your Notes</h2>
               <button
                 onClick={() => setNoteFormOpen(!noteFormOpen)}
-                className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 md:text-sm hover:text-primary-700"
+                className="inline-flex min-h-[44px] items-center gap-1 text-xs font-medium text-primary-600 md:text-sm hover:text-primary-700"
               >
                 <Plus className="h-3.5 w-3.5" /> Add Note
               </button>
             </div>
 
             {noteFormOpen && (
-              <form onSubmit={handleAddNote} className="mt-2 space-y-2 rounded-md border border-gray-200 p-3">
+              <form onSubmit={handleAddNote} className="mt-2 space-y-2 rounded-md border border-rally-line p-3">
                 <textarea
                   rows={3}
                   value={newNote}
@@ -698,11 +706,11 @@ export default function ConnectionDetailPage() {
             )}
 
             {notes.length === 0 && !noteFormOpen ? (
-              <p className="mt-2 rounded-md border border-dashed border-gray-200 px-3 py-4 text-center text-xs text-gray-400 md:text-[13px]">
+              <p className="mt-2 rounded-md border border-dashed border-rally-line px-3 py-4 text-center text-xs text-gray-400 md:text-[13px]">
                 No notes yet. Use “Add Note” to record context from your conversations.
               </p>
             ) : (
-              <ul className="mt-1 divide-y divide-gray-100">
+              <ul className="mt-1 divide-y divide-rally-line">
                 {visibleNotes.map((note) => (
                   <li key={note.id} className="py-2.5">
                     {editingNoteId === note.id ? (
@@ -731,10 +739,10 @@ export default function ConnectionDetailPage() {
                           <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-gray-700 md:text-[15px]">{note.content}</p>
                         </div>
                         <div className="flex flex-shrink-0 items-start gap-2">
-                          <button onClick={() => { setEditingNoteId(note.id); setEditNoteContent(note.content) }} aria-label="Edit note" className="text-gray-300 hover:text-primary-600">
+                          <button onClick={() => { setEditingNoteId(note.id); setEditNoteContent(note.content) }} aria-label="Edit note" className="-m-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-400 hover:bg-rally-tint hover:text-primary-600">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
-                          <button onClick={() => handleDeleteNote(note.id)} aria-label="Delete note" className="text-gray-300 hover:text-error-600">
+                          <button onClick={() => handleDeleteNote(note.id)} aria-label="Delete note" className="-m-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-400 hover:bg-error-50 hover:text-error-600">
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </div>
@@ -757,24 +765,24 @@ export default function ConnectionDetailPage() {
           </div>
 
           {/* 6. Next Step */}
-          <div className="mt-4">
-            <h2 className="text-base font-bold text-gray-900 md:text-[17px]">Next Step</h2>
+          <div className="rounded-2xl border border-rally-line bg-white p-5 shadow-card">
+            <h2 className="text-base font-bold text-rally-navy md:text-[17px]">Next Step</h2>
             {nextStep ? (
-              <div className={cn('relative mt-2 flex items-center gap-2.5 rounded-md border p-3', nextOverdue ? 'border-warning-300 bg-warning-50' : 'border-gray-200 bg-white')}>
-                <button onClick={() => toggleFollowUp(nextStep)} aria-label="Mark as completed" className="flex-shrink-0">
+              <div className={cn('relative mt-2 flex items-center gap-2.5 rounded-md border p-3', nextOverdue ? 'border-warning-300 bg-warning-50' : 'border-rally-line bg-white')}>
+                <button onClick={() => toggleFollowUp(nextStep)} aria-label="Mark as completed" className="-m-2 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full hover:bg-rally-tint">
                   <Circle className="h-5 w-5 text-primary-600 hover:text-primary-700" />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-gray-900 md:text-[15px]">{nextStep.title}</p>
+                  <p className="truncate text-sm font-medium text-rally-navy md:text-[15px]">{nextStep.title}</p>
                   <p className={cn('mt-0.5 text-xs md:text-[13px]', nextOverdue ? 'text-warning-700' : 'text-gray-500')}>
                     {formatDate(nextStep.due_date)}
                   </p>
                 </div>
-                <button onClick={() => setStepMenuOpen(!stepMenuOpen)} aria-label="Step options" className="flex-shrink-0 p-1 text-gray-400 hover:text-gray-600">
+                <button onClick={() => setStepMenuOpen(!stepMenuOpen)} aria-label="Step options" className="-m-2 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-gray-400 hover:bg-rally-tint hover:text-gray-600">
                   <MoreVertical className="h-4 w-4" />
                 </button>
                 {stepMenuOpen && (
-                  <div className="absolute right-2 top-10 z-10 w-40 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg">
+                  <div className="absolute right-2 top-10 z-10 w-40 overflow-hidden rounded-md border border-rally-line bg-white shadow-lg">
                     <button
                       onClick={() => { setFollowUpFormOpen(true); setStepMenuOpen(false) }}
                       className="flex w-full items-center gap-2 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
@@ -783,7 +791,7 @@ export default function ConnectionDetailPage() {
                     </button>
                     <button
                       onClick={() => { deleteFollowUp(nextStep.id); setStepMenuOpen(false) }}
-                      className="flex w-full items-center gap-2 border-t border-gray-100 px-3 py-2 text-sm text-error-600 hover:bg-error-50"
+                      className="flex w-full items-center gap-2 border-t border-rally-line px-3 py-2 text-sm text-error-600 hover:bg-error-50"
                     >
                       <Trash2 className="h-3.5 w-3.5" /> Delete step
                     </button>
@@ -791,30 +799,31 @@ export default function ConnectionDetailPage() {
                 )}
               </div>
             ) : (
-              <div className="mt-2 flex items-center justify-between rounded-md border border-dashed border-gray-200 px-3 py-3">
+              <div className="mt-2 flex items-center justify-between rounded-md border border-dashed border-rally-line px-3 py-3">
                 <p className="text-xs text-gray-500 md:text-[13px]">No next step scheduled.</p>
                 <button
                   onClick={() => setFollowUpFormOpen(true)}
-                  className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 md:text-sm hover:text-primary-700"
+                  className="inline-flex min-h-[44px] items-center gap-1 text-xs font-medium text-primary-600 md:text-sm hover:text-primary-700"
                 >
                   <Plus className="h-3.5 w-3.5" /> Schedule
                 </button>
               </div>
             )}
           </div>
+          </div>
         </div>
       )}
 
       {tab === 'notes' && (
-        <div className="pt-3">
+        <div className="mt-4 rounded-2xl border border-rally-line bg-white p-5 shadow-card">
           <div className="flex items-center justify-between">
-            <h2 className="text-base font-bold text-gray-900 md:text-[17px]">All Notes</h2>
-            <button onClick={() => setNoteFormOpen(true)} className="inline-flex items-center gap-1 text-xs font-medium text-primary-600 md:text-sm hover:text-primary-700">
+            <h2 className="text-base font-bold text-rally-navy md:text-[17px]">All Notes</h2>
+            <button onClick={() => setNoteFormOpen(true)} className="inline-flex min-h-[44px] items-center gap-1 text-xs font-medium text-primary-600 md:text-sm hover:text-primary-700">
               <Plus className="h-3.5 w-3.5" /> Add Note
             </button>
           </div>
           {noteFormOpen && (
-            <form onSubmit={handleAddNote} className="mt-2 space-y-2 rounded-md border border-gray-200 p-3">
+            <form onSubmit={handleAddNote} className="mt-2 space-y-2 rounded-md border border-rally-line p-3">
               <textarea
                 rows={3}
                 value={newNote}
@@ -840,7 +849,7 @@ export default function ConnectionDetailPage() {
               description="Record context about this person and your conversations."
             />
           ) : (
-            <ul className="mt-1 divide-y divide-gray-100">
+            <ul className="mt-1 divide-y divide-rally-line">
               {notes.map((note) => (
                 <li key={note.id} className="py-2.5">
                   {editingNoteId === note.id ? (
@@ -869,10 +878,10 @@ export default function ConnectionDetailPage() {
                         <p className="mt-0.5 whitespace-pre-wrap text-sm leading-relaxed text-gray-700 md:text-[15px]">{note.content}</p>
                       </div>
                       <div className="flex flex-shrink-0 items-start gap-2">
-                        <button onClick={() => { setEditingNoteId(note.id); setEditNoteContent(note.content) }} aria-label="Edit note" className="text-gray-300 hover:text-primary-600">
+                        <button onClick={() => { setEditingNoteId(note.id); setEditNoteContent(note.content) }} aria-label="Edit note" className="-m-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-400 hover:bg-rally-tint hover:text-primary-600">
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
-                        <button onClick={() => handleDeleteNote(note.id)} aria-label="Delete note" className="text-gray-300 hover:text-error-600">
+                        <button onClick={() => handleDeleteNote(note.id)} aria-label="Delete note" className="-m-2 flex h-11 w-11 items-center justify-center rounded-full text-gray-400 hover:bg-error-50 hover:text-error-600">
                           <Trash2 className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -886,7 +895,7 @@ export default function ConnectionDetailPage() {
       )}
 
       {tab === 'meetings' && (
-        <div className="pt-3">
+        <div className="mt-4 rounded-2xl border border-rally-line bg-white p-5 shadow-card">
           <EmptyState
             icon={<CalendarClock className="h-8 w-8" />}
             title="No meetings tracked"
@@ -901,7 +910,7 @@ export default function ConnectionDetailPage() {
             }
           />
           {followUpFormOpen && (
-            <form onSubmit={handleAddFollowUp} className="mt-2 space-y-2 rounded-md border border-gray-200 p-3">
+            <form onSubmit={handleAddFollowUp} className="mt-2 space-y-2 rounded-md border border-rally-line p-3">
               <input
                 required
                 value={newFollowUp.title}
@@ -914,7 +923,7 @@ export default function ConnectionDetailPage() {
                 required
                 value={newFollowUp.due_date}
                 onChange={(e) => setNewFollowUp({ ...newFollowUp, due_date: e.target.value })}
-                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-gray-900 focus:border-primary-600 focus:outline-none"
+                className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm text-rally-navy focus:border-primary-600 focus:outline-none"
               />
               <div className="flex gap-2">
                 <button type="submit" disabled={savingFollowUp} className="inline-flex h-8 flex-1 items-center justify-center rounded-md bg-primary-600 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-50">
@@ -927,14 +936,14 @@ export default function ConnectionDetailPage() {
             </form>
           )}
           {followUps.length > 0 && (
-            <ul className="mt-3 divide-y divide-gray-100">
+            <ul className="mt-3 divide-y divide-rally-line">
               {followUps.map((fu) => (
                 <li key={fu.id} className="flex items-center gap-2.5 py-2.5">
-                  <button onClick={() => toggleFollowUp(fu)} aria-label={fu.completed ? 'Mark as open' : 'Mark as completed'} className="flex-shrink-0">
+                  <button onClick={() => toggleFollowUp(fu)} aria-label={fu.completed ? 'Mark as open' : 'Mark as completed'} className="-m-2 flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full hover:bg-rally-tint">
                     {fu.completed ? <Check className="h-4 w-4 text-accent-600" /> : <Circle className="h-4 w-4 text-gray-300 hover:text-gray-400" />}
                   </button>
                   <div className="min-w-0 flex-1">
-                    <p className={cn('truncate text-sm font-medium md:text-[15px]', fu.completed ? 'text-gray-400 line-through' : 'text-gray-900')}>{fu.title}</p>
+                    <p className={cn('truncate text-sm font-medium md:text-[15px]', fu.completed ? 'text-gray-400 line-through' : 'text-rally-navy')}>{fu.title}</p>
                     <p className="text-xs text-gray-500 md:text-[13px]">{formatDate(fu.due_date)}</p>
                   </div>
                   <button onClick={() => deleteFollowUp(fu.id)} aria-label="Delete" className="flex-shrink-0 text-gray-300 hover:text-error-600">
@@ -948,12 +957,12 @@ export default function ConnectionDetailPage() {
       )}
 
       {tab === 'history' && (
-        <div className="pt-3">
-          <h2 className="text-base font-bold text-gray-900 md:text-[17px]">History</h2>
+        <div className="mt-4 rounded-2xl border border-rally-line bg-white p-5 shadow-card">
+          <h2 className="text-base font-bold text-rally-navy md:text-[17px]">History</h2>
           {history.length === 0 ? (
             <EmptyState title="No history yet" description="Notes, follow-ups and opportunities will appear here." />
           ) : (
-            <ol className="relative mt-3 space-y-4 border-l border-gray-200 pl-5">
+            <ol className="relative mt-3 space-y-4 border-l border-rally-line pl-5">
               {history.map((item) => {
                 const Icon = TIMELINE_ICONS[item.type]
                 return (
@@ -962,7 +971,7 @@ export default function ConnectionDetailPage() {
                       <Icon className="h-2.5 w-2.5 text-white" />
                     </span>
                     <p className="text-[11px] font-medium uppercase tracking-wide text-gray-400 md:text-xs">{item.type}</p>
-                    <p className="mt-0.5 text-sm font-medium text-gray-900 md:text-[15px]">{item.title}</p>
+                    <p className="mt-0.5 text-sm font-medium text-rally-navy md:text-[15px]">{item.title}</p>
                     {item.detail && <p className="mt-0.5 text-xs text-gray-500 md:text-[13px]">{item.detail}</p>}
                     <p className="mt-0.5 text-xs text-gray-400 md:text-[13px]">{formatDate(item.when)}</p>
                   </li>

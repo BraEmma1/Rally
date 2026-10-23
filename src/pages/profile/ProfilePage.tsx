@@ -1,12 +1,13 @@
 import { useState, useEffect, type FormEvent } from 'react'
-import { QrCode, Share2, Pencil, Save, X, Globe, Linkedin, Mail, Phone, MapPin, Download, Maximize2 } from 'lucide-react'
+import { QrCode, Share2, Pencil, Save, X, Globe, Linkedin, Mail, Phone, MapPin, Download, Maximize2, Link2 } from 'lucide-react'
 import QRCode from 'qrcode'
 import { useAuth } from '@/context/AuthContext'
 import { supabase, type Profile } from '@/lib/supabase'
 import { Button } from '@/components/ui/Button'
 import { Input, Textarea, Label, Select } from '@/components/ui/Input'
 import { Avatar } from '@/components/ui/Avatar'
-import { Badge } from '@/components/ui/Badge'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { ComingSoonButton } from '@/components/events/ComingSoon'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
 import { PhotoUpload } from '@/components/ui/PhotoUpload'
@@ -118,9 +119,9 @@ export default function ProfilePage() {
 
   if (editing) {
     return (
-      <div>
+      <div className="mx-auto w-full max-w-3xl">
         <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-xl font-bold text-gray-900">Edit Profile</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-rally-navy">Edit Profile</h1>
           <Button variant="ghost" size="sm" onClick={() => { setEditing(false); setForm(profile) }}>
             <X className="h-4 w-4" /> Cancel
           </Button>
@@ -227,221 +228,207 @@ export default function ProfilePage() {
   const hasContact = profile.email || profile.phone || linkedinUrl || websiteUrl
   const hasNetworking = profile.looking_for || profile.can_offer
 
-  return (
-    <div>
-      {/* Completion indicator */}
-      <Card className="mb-6">
-        <CardContent className="pt-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-900">Profile completion</p>
-              <p className="text-xs text-gray-500">{filled} of {total} fields filled</p>
-            </div>
-            <span className="text-2xl font-bold text-primary-600">{completion}%</span>
-          </div>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
-            <div
-              className="h-full rounded-full bg-primary-600 transition-all duration-500"
-              style={{ width: `${completion}%` }}
-            />
-          </div>
-          {completion < 100 && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {ALL_PROFILE_FIELDS
-                .filter((f) => !isFieldFilled(profile, f))
-                .map((field) => (
-                  <span
-                    key={field}
-                    className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-400"
-                  >
-                    {FIELD_LABELS[field]}
-                  </span>
-                ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+  const section = 'rounded-2xl border border-rally-line bg-white p-5 shadow-card md:p-6'
+  const contactTile =
+    'flex min-h-[64px] items-center gap-3 rounded-xl border border-rally-line bg-rally-canvas p-3 text-left transition-colors hover:border-primary-300 hover:bg-rally-tint focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600'
+  const tileIcon = 'flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-primary-600 shadow-card'
 
-      {/* Profile header */}
-      <Card className="mb-6">
-        <CardContent className="pt-6">
-          <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-              <Avatar name={displayName} src={profile.photo_url} size="xl" />
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">{displayName}</h1>
-                <p className="mt-0.5 text-sm text-gray-600">
-                  {displayTitle}{displayCompany !== 'Add your company' ? ` at ${displayCompany}` : ''}
-                </p>
-                {profile.location && (
-                  <p className="mt-1 flex items-center gap-1 text-sm text-gray-500">
-                    <MapPin className="h-3.5 w-3.5" /> {profile.location}
+  return (
+    <div className="mx-auto w-full max-w-6xl">
+      <PageHeader
+        title="My Profile"
+        description="Your professional card and QR code. This is what people see when they scan or open your link."
+        actions={
+          <>
+            <ComingSoonButton size="lg" variant="secondary" className="hidden md:inline-flex">
+              Export contact (.vcf)
+            </ComingSoonButton>
+            <Button size="lg" variant="secondary" className="rounded-xl" onClick={handleShare}>
+              <Link2 className="h-4 w-4" aria-hidden="true" /> {shareCopied ? 'Link copied' : 'Copy link'}
+            </Button>
+            <Button size="lg" className="rounded-xl" onClick={() => setEditing(true)}>
+              <Pencil className="h-4 w-4" aria-hidden="true" /> Edit profile
+            </Button>
+          </>
+        }
+      />
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-12">
+        <div className="min-w-0 space-y-6 lg:col-span-8">
+          {/* The digital card: who you are on the left, your QR on the right */}
+          <section className="overflow-hidden rounded-2xl border border-rally-line bg-white shadow-card">
+            <div className="h-2 bg-gradient-to-r from-primary-700 to-primary-500" aria-hidden="true" />
+            <div className="grid gap-6 p-5 md:p-7 sm:grid-cols-[1fr_auto] sm:items-center">
+              <div className="flex min-w-0 items-start gap-4">
+                <Avatar name={displayName} src={profile.photo_url} size="xl" className="h-20 w-20 shrink-0 text-xl md:h-24 md:w-24" />
+                <div className="min-w-0">
+                  {profile.industry && <p className="text-xs font-semibold uppercase tracking-wider text-primary-700">{profile.industry}</p>}
+                  <h2 className="mt-0.5 font-display text-2xl font-bold tracking-tight text-rally-navy md:text-3xl">{displayName}</h2>
+                  <p className="mt-1 text-base text-rally-muted">
+                    {displayTitle}
+                    {displayCompany !== 'Add your company' ? ` · ${displayCompany}` : ''}
                   </p>
+                  {profile.location && (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-sm text-slate-500">
+                      <MapPin className="h-4 w-4 text-primary-600" aria-hidden="true" /> {profile.location}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-col items-center gap-2 sm:items-end">
+                {qrDataUrl ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowQRModal(true)}
+                    aria-label="Enlarge your QR code"
+                    className="rounded-2xl border border-rally-line bg-white p-2 shadow-card transition-shadow hover:shadow-float focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+                  >
+                    <img src={qrDataUrl} alt="Your Rally QR code" className="h-40 w-40 md:h-44 md:w-44" />
+                  </button>
+                ) : (
+                  <div className="flex h-40 w-40 items-center justify-center rounded-2xl border border-dashed border-slate-300 text-slate-300">
+                    <QrCode className="h-10 w-10" aria-hidden="true" />
+                  </div>
                 )}
-                {profile.industry && <Badge variant="primary" className="mt-2">{profile.industry}</Badge>}
+                <p className="text-xs text-slate-500">Scan to view your public profile</p>
               </div>
             </div>
-            <Button variant="secondary" size="sm" onClick={() => setEditing(true)}>
-              <Pencil className="h-4 w-4" /> Edit profile
-            </Button>
-          </div>
+            {profile.bio && <p className="border-t border-rally-line px-5 py-4 text-sm leading-relaxed text-slate-700 md:px-7 md:text-base">{profile.bio}</p>}
+          </section>
 
-          {profile.bio && (
-            <p className="mt-4 text-sm leading-relaxed text-gray-700">{profile.bio}</p>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Left column: networking + contact */}
-        <div className="space-y-6 lg:col-span-2">
-          {hasNetworking ? (
-            <Card>
-              <CardHeader><CardTitle>Networking</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                {profile.looking_for && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Looking for</p>
-                    <p className="mt-1 text-sm text-gray-700">{profile.looking_for}</p>
-                  </div>
-                )}
-                {profile.can_offer && (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Can offer</p>
-                    <p className="mt-1 text-sm text-gray-700">{profile.can_offer}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardContent>
-                <EmptyState
-                  title="Add your networking details"
-                  description="Tell people what you're looking for and what you can offer."
-                  action={<Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit profile</Button>}
-                />
-              </CardContent>
-            </Card>
-          )}
-
+          {/* Contact: shown to you here; others only see your public card */}
           {hasContact ? (
-            <Card>
-              <CardHeader><CardTitle>Contact & Links</CardTitle></CardHeader>
-              <CardContent className="space-y-3">
+            <section className={section}>
+              <h2 className="mb-4 font-display text-lg font-semibold text-rally-navy">Contact &amp; links</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
                 {profile.email && (
-                  <a href={`mailto:${profile.email}`} className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                    <Mail className="h-4 w-4 text-gray-400" /> {profile.email}
+                  <a href={`mailto:${profile.email}`} className={contactTile}>
+                    <span className={tileIcon}><Mail className="h-5 w-5" aria-hidden="true" /></span>
+                    <span className="min-w-0"><span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Email</span><span className="block truncate text-sm font-semibold text-rally-navy">{profile.email}</span></span>
                   </a>
                 )}
                 {profile.phone && (
-                  <a href={`tel:${profile.phone}`} className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                    <Phone className="h-4 w-4 text-gray-400" /> {profile.phone}
+                  <a href={`tel:${profile.phone}`} className={contactTile}>
+                    <span className={tileIcon}><Phone className="h-5 w-5" aria-hidden="true" /></span>
+                    <span className="min-w-0"><span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Phone</span><span className="block truncate text-sm font-semibold text-rally-navy">{profile.phone}</span></span>
                   </a>
                 )}
                 {linkedinUrl && (
-                  <a href={linkedinUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                    <Linkedin className="h-4 w-4 text-gray-400" /> {displayUrl(linkedinUrl)}
+                  <a href={linkedinUrl} target="_blank" rel="noopener noreferrer" className={contactTile}>
+                    <span className={tileIcon}><Linkedin className="h-5 w-5" aria-hidden="true" /></span>
+                    <span className="min-w-0"><span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500">LinkedIn</span><span className="block truncate text-sm font-semibold text-rally-navy">{displayUrl(linkedinUrl)}</span></span>
                   </a>
                 )}
                 {websiteUrl && (
-                  <a href={websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 text-sm text-gray-700 hover:text-primary-600">
-                    <Globe className="h-4 w-4 text-gray-400" /> {displayUrl(websiteUrl)}
+                  <a href={websiteUrl} target="_blank" rel="noopener noreferrer" className={contactTile}>
+                    <span className={tileIcon}><Globe className="h-5 w-5" aria-hidden="true" /></span>
+                    <span className="min-w-0"><span className="block text-[11px] font-semibold uppercase tracking-wider text-slate-500">Website</span><span className="block truncate text-sm font-semibold text-rally-navy">{displayUrl(websiteUrl)}</span></span>
                   </a>
                 )}
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           ) : (
-            <Card>
-              <CardContent>
-                <EmptyState
-                  title="Add your contact details"
-                  description="Let people reach you via email, phone, LinkedIn, or your website."
-                  action={<Button size="sm" variant="outline" onClick={() => setEditing(true)}>Edit profile</Button>}
-                />
-              </CardContent>
-            </Card>
+            <section className={section}>
+              <EmptyState
+                title="Add your contact details"
+                description="Let people reach you via email, phone, LinkedIn, or your website."
+                action={<Button variant="outline" className="rounded-xl" onClick={() => setEditing(true)}>Edit profile</Button>}
+              />
+            </section>
+          )}
+
+          {hasNetworking ? (
+            <section className={section}>
+              <h2 className="mb-4 font-display text-lg font-semibold text-rally-navy">Networking</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {profile.looking_for && (
+                  <div className="rounded-xl bg-rally-canvas p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-primary-700">Looking for</p>
+                    <p className="mt-1.5 text-sm text-slate-700">{profile.looking_for}</p>
+                  </div>
+                )}
+                {profile.can_offer && (
+                  <div className="rounded-xl bg-rally-canvas p-4">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-primary-700">Can offer</p>
+                    <p className="mt-1.5 text-sm text-slate-700">{profile.can_offer}</p>
+                  </div>
+                )}
+              </div>
+            </section>
+          ) : (
+            <section className={section}>
+              <EmptyState
+                title="Add your networking details"
+                description="Tell people what you're looking for and what you can offer."
+                action={<Button variant="outline" className="rounded-xl" onClick={() => setEditing(true)}>Edit profile</Button>}
+              />
+            </section>
           )}
         </div>
 
-        {/* Right column: QR + share */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <QrCode className="h-4 w-4 text-gray-400" />
-                <CardTitle>My QR Code</CardTitle>
+        <aside className="min-w-0 space-y-6 lg:col-span-4">
+          <section className={section}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-display text-lg font-semibold text-rally-navy">Profile completion</h2>
+              <span className="font-display text-2xl font-bold text-primary-600">{completion}%</span>
+            </div>
+            <p className="text-sm text-slate-500">{filled} of {total} fields filled</p>
+            <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={completion} aria-valuemin={0} aria-valuemax={100} aria-label="Profile completion">
+              <div className="h-full rounded-full bg-primary-600 transition-all duration-500" style={{ width: `${completion}%` }} />
+            </div>
+            {completion < 100 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {ALL_PROFILE_FIELDS.filter((f) => !isFieldFilled(profile, f)).map((field) => (
+                  <span key={field} className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
+                    {FIELD_LABELS[field]}
+                  </span>
+                ))}
               </div>
-            </CardHeader>
-            <CardContent>
-              {qrDataUrl ? (
-                <div className="flex flex-col items-center gap-3">
-                  <img src={qrDataUrl} alt="Profile QR code" className="rounded-md border border-gray-200" />
-                  <p className="text-center text-xs text-gray-500">
-                    Scan to view your public profile
-                  </p>
-                  <div className="flex w-full gap-2">
-                    <Button size="sm" variant="secondary" className="flex-1" onClick={() => setShowQRModal(true)}>
-                      <Maximize2 className="h-3.5 w-3.5" /> View
-                    </Button>
-                    <Button size="sm" variant="secondary" className="flex-1" onClick={handleDownloadQR}>
-                      <Download className="h-3.5 w-3.5" /> Download
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <EmptyState title="QR code unavailable" />
-              )}
-            </CardContent>
-          </Card>
+            )}
+          </section>
 
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2">
-                <Share2 className="h-4 w-4 text-gray-400" />
-                <CardTitle>Share Profile</CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-xs text-gray-500">Share your profile link with new contacts:</p>
-              <div className="flex items-center gap-2">
-                <Input readOnly value={shareUrl} className="text-xs" />
-                <Button size="sm" variant="secondary" onClick={handleShare} className="flex-shrink-0">
-                  {shareCopied ? 'Copied!' : 'Copy'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+          <section className={section}>
+            <h2 className="font-display text-lg font-semibold text-rally-navy">Your web pass link</h2>
+            <p className="mt-1 text-sm text-slate-500">Send this link in chats, messages or at events.</p>
+            <div className="mt-3 flex items-center gap-2">
+              <Input readOnly value={shareUrl} aria-label="Your profile link" className="h-11 rounded-xl text-xs" />
+              <Button variant="secondary" className="h-11 shrink-0 rounded-xl" onClick={handleShare}>
+                {shareCopied ? 'Copied!' : 'Copy'}
+              </Button>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <Button variant="secondary" className="h-11 flex-1 rounded-xl" onClick={() => setShowQRModal(true)} disabled={!qrDataUrl}>
+                <Maximize2 className="h-4 w-4" aria-hidden="true" /> View QR
+              </Button>
+              <Button variant="secondary" className="h-11 flex-1 rounded-xl" onClick={handleDownloadQR} disabled={!qrDataUrl}>
+                <Download className="h-4 w-4" aria-hidden="true" /> Download
+              </Button>
+            </div>
+          </section>
+        </aside>
       </div>
 
       {/* QR modal */}
       {showQRModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={() => setShowQRModal(false)}
-        >
-          <div className="relative rounded-lg bg-white p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-rally-ink/60 p-4" role="dialog" aria-modal="true" aria-label="Your Rally QR" onClick={() => setShowQRModal(false)}>
+          <div className="relative w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <button
               onClick={() => setShowQRModal(false)}
-              className="absolute -top-3 -right-3 flex h-8 w-8 items-center justify-center rounded-full bg-white shadow-md hover:bg-gray-50"
+              aria-label="Close"
+              className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full text-slate-500 hover:bg-rally-tint focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
             >
-              <X className="h-4 w-4 text-gray-600" />
+              <X className="h-5 w-5" />
             </button>
             <div className="flex flex-col items-center gap-4">
-              <h3 className="text-base font-semibold text-gray-900">Your Rally QR</h3>
-              {qrDataUrl && (
-                <img src={qrDataUrl} alt="Profile QR code" className="rounded-md border border-gray-200" />
-              )}
-              <p className="text-center text-sm text-gray-500">
-                Have someone scan this to instantly connect with you on Rally.
-              </p>
-              <div className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={handleDownloadQR}>
-                  <Download className="h-3.5 w-3.5" /> Download
+              <h3 className="font-display text-lg font-semibold text-rally-navy">Your Rally QR</h3>
+              {qrDataUrl && <img src={qrDataUrl} alt="Your Rally QR code" className="w-full max-w-[18rem] rounded-xl border border-rally-line" />}
+              <p className="text-center text-sm text-slate-500">Have someone scan this to instantly connect with you on Rally.</p>
+              <div className="flex w-full gap-2">
+                <Button variant="secondary" className="h-11 flex-1 rounded-xl" onClick={handleDownloadQR}>
+                  <Download className="h-4 w-4" aria-hidden="true" /> Download
                 </Button>
-                <Button size="sm" onClick={handleShare}>
-                  <Share2 className="h-3.5 w-3.5" /> {shareCopied ? 'Copied!' : 'Share link'}
+                <Button className="h-11 flex-1 rounded-xl" onClick={handleShare}>
+                  <Share2 className="h-4 w-4" aria-hidden="true" /> {shareCopied ? 'Copied!' : 'Share link'}
                 </Button>
               </div>
             </div>

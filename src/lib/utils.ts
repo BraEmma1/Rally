@@ -74,3 +74,35 @@ export function extractProfileId(raw: string): string | null {
   if (PROFILE_ID_RE.test(trimmed)) return trimmed
   return null
 }
+
+// Parses a date-only string (YYYY-MM-DD) as a local calendar date so it does
+// not slip a day in time zones behind UTC; anything else falls back to Date.
+function parseCalendarDate(value: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(value)
+  const d = m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value)
+  return isNaN(d.getTime()) ? null : d
+}
+
+// "Apr 14, 2027", "Apr 14–16, 2027" or "Apr 30 – May 2, 2027".
+export function formatDateRange(start: string | null | undefined, end?: string | null): string {
+  if (!start) return 'Dates to be announced'
+  const s = parseCalendarDate(start)
+  if (!s) return 'Dates to be announced'
+  const e = end ? parseCalendarDate(end) : null
+  const md = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const year = s.getFullYear()
+  if (!e || e.getTime() === s.getTime()) return `${md(s)}, ${year}`
+  if (e.getFullYear() !== year) return `${md(s)}, ${year} – ${md(e)}, ${e.getFullYear()}`
+  if (e.getMonth() === s.getMonth()) return `${md(s)}–${e.getDate()}, ${year}`
+  return `${md(s)} – ${md(e)}, ${year}`
+}
+
+// "10:30 AM" from an HH:MM[:SS] time string.
+export function formatClock(time: string | null | undefined): string {
+  if (!time) return ''
+  const [h, m] = time.split(':').map(Number)
+  if (Number.isNaN(h) || Number.isNaN(m)) return time
+  const d = new Date()
+  d.setHours(h, m, 0, 0)
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}

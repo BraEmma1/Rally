@@ -321,20 +321,20 @@ export default function ConversationPage() {
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Compact chat header */}
-      <div className="flex items-center gap-2 border-b border-gray-200 bg-white py-3 pl-1 pr-2 md:py-3.5">
+      <div className="flex items-center gap-2 border-b border-rally-line bg-white py-2 pl-1 pr-2 md:py-3.5">
         <button
           onClick={() => navigate(-1)}
           aria-label="Back to messages"
-          className="rounded-full p-2 text-gray-500 hover:text-gray-700"
+          className="flex h-11 w-11 items-center justify-center rounded-full text-gray-500 hover:bg-rally-tint hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
         >
           <ArrowLeft className="h-5 w-5" />
         </button>
         <Avatar name={headerName} src={summary?.other_photo_url} size="sm" className="h-9 w-9 flex-shrink-0" />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-semibold leading-tight text-gray-900">{headerName}</p>
+          <p className="truncate font-display text-[15px] font-semibold leading-tight text-rally-navy">{headerName}</p>
           {subtitle && <p className="truncate text-xs leading-tight text-gray-500">{subtitle}</p>}
         </div>
-        <button aria-label="Conversation options" className="rounded-full p-2 text-gray-500 hover:text-gray-700">
+        <button aria-label="Conversation options" className="flex h-11 w-11 items-center justify-center rounded-full text-gray-500 hover:bg-rally-tint hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600">
           <MoreVertical className="h-5 w-5" />
         </button>
       </div>
@@ -347,7 +347,7 @@ export default function ConversationPage() {
       )}
 
       {/* Messages — the only scrollable region on this screen */}
-      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[#f1f2f4] px-3 py-3">
+      <div ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-rally-canvas px-3 py-3">
         {loading ? (
           <ChatSkeleton />
         ) : (
@@ -430,7 +430,7 @@ export default function ConversationPage() {
       </div>
 
       {/* Composer */}
-      <div className="border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]">
+      <div className="border-t border-rally-line bg-white pb-[env(safe-area-inset-bottom)]">
         {sendError && <p className="px-3 pt-2 text-xs text-error-600">{sendError}</p>}
         <form onSubmit={handleSend} className="flex items-end gap-2 px-3 py-2">
           <textarea
@@ -445,13 +445,13 @@ export default function ConversationPage() {
             rows={1}
             aria-label="Type a message"
             placeholder="Type a message..."
-            className="max-h-28 min-h-[40px] flex-1 resize-none rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2.5 text-[15px] text-gray-900 placeholder:text-gray-400 focus:border-primary-600 focus:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            className="max-h-28 min-h-[40px] flex-1 resize-none rounded-2xl border border-rally-line bg-rally-canvas px-4 py-2.5 text-[15px] text-gray-900 placeholder:text-gray-400 focus:border-primary-600 focus:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
           />
           <button
             type="submit"
             disabled={!draft.trim() || sending}
             aria-label="Send message"
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 enabled:bg-primary-600 enabled:hover:bg-primary-700"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-gray-200 disabled:text-gray-400 enabled:bg-primary-600 enabled:hover:bg-primary-700"
           >
             {sending ? <Spinner size="sm" className="text-white" /> : <Send className="h-4 w-4" />}
           </button>

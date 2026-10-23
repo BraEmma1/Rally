@@ -17,6 +17,13 @@ export type EventExhibitor = {
   booth: string
   website: string
   linkedin: string
+  // Not columns yet: the organizer form and database will add them. Until then they
+  // are undefined and the detail page shows those icons as "not added".
+  facebook?: string
+  instagram?: string
+  tiktok?: string
+  x?: string
+  youtube?: string
   display_order: number
 }
 

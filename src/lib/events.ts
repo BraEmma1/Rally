@@ -280,6 +280,24 @@ export async function getEventAgenda(
   return { data: (data ?? []) as OrganizerSession[], error: null }
 }
 
+// The organization hosting an event, as attendees may see it: name, logo and
+// website only. Comes from get_event_host, which returns nothing unless the event
+// is published and its organization is approved.
+export type EventHost = {
+  organization_id: string
+  name: string
+  logo_url: string | null
+  website: string | null
+}
+
+// A failed lookup is the same as "no host to show": the event page stays usable.
+export async function getEventHost(eventId: string): Promise<EventHost | null> {
+  const { data, error } = await supabase.rpc('get_event_host', { target_event_id: eventId })
+  if (error) return null
+  const row = (data as EventHost[] | null)?.[0]
+  return row ?? null
+}
+
 export type SessionInput = {
   title: string
   description: string | null

@@ -19,13 +19,13 @@ export default function EventModeBottomNav({
   const itemClass = ({ isActive }: { isActive: boolean }) =>
     cn(
       'flex min-h-[44px] min-w-[44px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors motion-reduce:transition-none',
-      isActive ? 'text-primary-600' : 'text-gray-500 hover:text-gray-700'
+      isActive ? 'text-primary-600' : 'text-slate-500 hover:text-slate-700'
     )
 
   return (
     <nav
       aria-label="Event navigation"
-      className="fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-gray-200 bg-white pb-[env(safe-area-inset-bottom)]"
+      className="fixed inset-x-0 bottom-0 z-40 flex items-stretch border-t border-rally-line bg-white/95 pb-[env(safe-area-inset-bottom)] md:hidden"
     >
       <NavLink to={`${eventBasePath}/home`} className={itemClass} aria-label="Event home">
         {({ isActive }) => (

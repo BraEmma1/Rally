@@ -51,6 +51,7 @@ import { EventNetworkingPanel } from '@/components/organizer/EventNetworkingPane
 import { EventNetworkingAnalytics } from '@/components/organizer/EventNetworkingAnalytics'
 import { EventAgendaPanel } from '@/components/organizer/EventAgendaPanel'
 import { EventSpeakersPanel } from '@/components/organizer/EventSpeakersPanel'
+import { EventExhibitorsPanel } from '@/components/organizer/EventExhibitorsPanel'
 import { EventPartnersPanel } from '@/components/organizer/EventPartnersPanel'
 
 type Tab =
@@ -61,6 +62,7 @@ type Tab =
   | 'networking'
   | 'agenda'
   | 'speakers'
+  | 'exhibitors'
   | 'partners'
   | 'invitations'
 
@@ -72,8 +74,10 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'networking', label: 'Networking' },
   { key: 'agenda', label: 'Agenda' },
   { key: 'speakers', label: 'Speakers' },
-  // Private operational relationships. The attendee-facing Exhibitors
-  // directory is a different thing on a different table and is untouched.
+  // The public exhibitor directory attendees see (table: event_exhibitors).
+  { key: 'exhibitors', label: 'Exhibitors' },
+  // Private operational relationships (table: event_partnerships). A different
+  // thing from the exhibitor directory above; the two share nothing.
   { key: 'partners', label: 'Partners' },
   { key: 'invitations', label: 'Invitations' },
 ]
@@ -749,6 +753,8 @@ export default function EventDetailPage() {
       {tab === 'agenda' && <EventAgendaPanel event={event} manages={manages} />}
 
       {tab === 'speakers' && <EventSpeakersPanel event={event} manages={manages} />}
+
+      {tab === 'exhibitors' && <EventExhibitorsPanel event={event} manages={manages} />}
 
       {tab === 'partners' && <EventPartnersPanel event={event} manages={manages} />}
 

@@ -1,20 +1,22 @@
 import { useState, useEffect, type FormEvent } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { QrCode, Keyboard, ArrowRight, Check, Link2, AlertCircle, UserPlus } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
-import { supabase, type ConnectProfile, RELATIONSHIP_TYPES } from '@/lib/supabase'
-import { normalizeUrl, extractProfileId } from '@/lib/utils'
+import { supabase, type Connection, type ConnectProfile, RELATIONSHIP_TYPES } from '@/lib/supabase'
+import { normalizeUrl, extractProfileId, formatRelativeDate } from '@/lib/utils'
 import { QRScanner } from '@/components/ui/QRScanner'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { Card, CardContent } from '@/components/ui/Card'
-import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
+import { LoadingState, ErrorState } from '@/components/ui/States'
 
 type Step = 'choose' | 'scan' | 'manual' | 'loading' | 'profile' | 'context' | 'success' | 'error'
 
 export default function ScanQRPage() {
+  const [recent, setRecent] = useState<Connection[] | null>(null)
   const { user } = useAuth()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -23,6 +25,25 @@ export default function ScanQRPage() {
   const [errorMsg, setErrorMsg] = useState('')
 
   const [manualInput, setManualInput] = useState('')
+
+  // Your five most recent connections, for the start screen. A failed read just
+  // shows the empty message.
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    void supabase
+      .from('connections')
+      .select('*')
+      .eq('owner_id', user.id)
+      .order('created_at', { ascending: false })
+      .limit(5)
+      .then(({ data }) => {
+        if (!cancelled) setRecent((data as Connection[]) || [])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [user])
 
   const [context, setContext] = useState({
     note: '',
@@ -187,12 +208,12 @@ export default function ScanQRPage() {
 
   if (step === 'error') {
     return (
-      <div>
+      <div className="mx-auto w-full max-w-2xl">
         <div className="mb-4 flex items-center gap-2">
           <AlertCircle className="h-5 w-5 text-error-600" />
-          <h1 className="text-xl font-bold text-gray-900">Couldn't connect</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-rally-navy">Couldn't connect</h1>
         </div>
-        <Card>
+        <Card className="rounded-2xl shadow-card">
           <CardContent>
             <ErrorState message={errorMsg} />
             <div className="mt-4 flex flex-col gap-2">
@@ -211,23 +232,23 @@ export default function ScanQRPage() {
 
   if (step === 'success' && targetProfile) {
     return (
-      <div>
+      <div className="mx-auto w-full max-w-2xl">
         <div className="mb-6 flex flex-col items-center gap-3 py-6">
           <div className="flex h-16 w-16 items-center justify-center rounded-full bg-accent-50 text-accent-600">
             <Check className="h-8 w-8" />
           </div>
-          <h1 className="text-xl font-bold text-gray-900">Connection created!</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight text-rally-navy">Connection created!</h1>
           <p className="text-sm text-gray-500">
             You're now connected with {targetProfile.full_name || 'this contact'}.
           </p>
         </div>
 
-        <Card>
+        <Card className="rounded-2xl shadow-card">
           <CardContent>
             <div className="flex items-center gap-4 py-2">
               <Avatar name={targetProfile.full_name || '?'} src={targetProfile.photo_url} size="lg" />
               <div>
-                <p className="font-semibold text-gray-900">{targetProfile.full_name || 'Professional'}</p>
+                <p className="font-semibold text-rally-navy">{targetProfile.full_name || 'Professional'}</p>
                 <p className="text-sm text-gray-500">
                   {targetProfile.job_title}{targetProfile.company ? ` at ${targetProfile.company}` : ''}
                 </p>
@@ -250,16 +271,16 @@ export default function ScanQRPage() {
 
   if (step === 'profile' && targetProfile) {
     return (
-      <div>
-        <h1 className="text-xl font-bold text-gray-900">Profile Preview</h1>
+      <div className="mx-auto w-full max-w-2xl">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-rally-navy">Profile Preview</h1>
         <p className="mt-1 text-sm text-gray-500">Review this person's profile before connecting</p>
 
-        <Card className="mt-6">
+        <Card className="rounded-2xl shadow-card mt-6">
           <CardContent className="pt-6">
             <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
               <Avatar name={targetProfile.full_name || '?'} src={targetProfile.photo_url} size="xl" />
               <div>
-                <h2 className="text-lg font-bold text-gray-900">{targetProfile.full_name || 'Professional'}</h2>
+                <h2 className="font-display text-xl font-bold text-rally-navy">{targetProfile.full_name || 'Professional'}</h2>
                 {targetProfile.job_title && (
                   <p className="text-sm text-gray-600">{targetProfile.job_title}{targetProfile.company ? ` at ${targetProfile.company}` : ''}</p>
                 )}
@@ -276,7 +297,7 @@ export default function ScanQRPage() {
         </Card>
 
         {(targetProfile.looking_for || targetProfile.can_offer) && (
-          <Card className="mt-4">
+          <Card className="rounded-2xl shadow-card mt-4">
             <CardContent className="space-y-3 pt-5">
               {targetProfile.looking_for && (
                 <div>
@@ -308,12 +329,12 @@ export default function ScanQRPage() {
 
   if (step === 'context' && targetProfile) {
     return (
-      <div>
-        <h1 className="text-xl font-bold text-gray-900">Add Context</h1>
+      <div className="mx-auto w-full max-w-2xl">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-rally-navy">Add Context</h1>
         <p className="mt-1 text-sm text-gray-500">Optional details about your new connection with {targetProfile.full_name || 'this person'}</p>
 
         <form onSubmit={handleConnect} className="mt-6 space-y-4">
-          <Card>
+          <Card className="rounded-2xl shadow-card">
             <CardContent className="space-y-4 pt-5">
               <div>
                 <Label htmlFor="relationship_type">Relationship type</Label>
@@ -364,12 +385,12 @@ export default function ScanQRPage() {
 
   if (step === 'manual') {
     return (
-      <div>
-        <h1 className="text-xl font-bold text-gray-900">Enter Profile Link</h1>
+      <div className="mx-auto w-full max-w-2xl">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-rally-navy">Enter Profile Link</h1>
         <p className="mt-1 text-sm text-gray-500">Paste a Rally profile link or ID to connect</p>
 
         <form onSubmit={handleManualSubmit} className="mt-6">
-          <Card>
+          <Card className="rounded-2xl shadow-card">
             <CardContent className="space-y-4 pt-5">
               <div>
                 <Label htmlFor="manual">Profile link or ID</Label>
@@ -401,45 +422,81 @@ export default function ScanQRPage() {
 
   // Default: choose
   return (
-    <div>
-      <h1 className="text-xl font-bold text-gray-900">Scan QR</h1>
-      <p className="mt-1 text-sm text-gray-500">Connect with someone by scanning their Rally QR code</p>
+    <div className="mx-auto w-full max-w-5xl">
+      <PageHeader title="Scan QR" description="Connect with someone by scanning their Rally QR code, or enter their profile link." />
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Card className="cursor-pointer transition-colors hover:border-primary-300 hover:bg-primary-50/30" >
-          <button onClick={() => setStep('scan')} className="flex h-full w-full flex-col items-center gap-3 p-6 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-50 text-primary-600">
-              <QrCode className="h-7 w-7" />
-            </div>
-            <div>
-              <p className="font-semibold text-gray-900">Scan with camera</p>
-              <p className="mt-1 text-sm text-gray-500">Point your camera at a Rally QR code</p>
-            </div>
+      <div className="mt-6 grid gap-6 lg:grid-cols-12">
+        <div className="space-y-4 lg:col-span-7">
+          <button
+            onClick={() => setStep('scan')}
+            className="flex w-full items-center gap-5 rounded-2xl bg-gradient-to-br from-primary-700 to-rally-ink p-6 text-left text-white shadow-card transition-shadow hover:shadow-float focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2 md:p-8"
+          >
+            <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-white/15">
+              <QrCode className="h-8 w-8" aria-hidden="true" />
+            </span>
+            <span>
+              <span className="block font-display text-xl font-bold">Scan with camera</span>
+              <span className="mt-1 block text-sm text-white/80">Point your camera at a Rally QR code to connect instantly.</span>
+            </span>
           </button>
-        </Card>
 
-        <Card className="cursor-pointer transition-colors hover:border-primary-300 hover:bg-primary-50/30">
-          <button onClick={() => setStep('manual')} className="flex h-full w-full flex-col items-center gap-3 p-6 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-gray-100 text-gray-600">
-              <Keyboard className="h-7 w-7" />
-            </div>
-            <div>
-              <p className="font-semibold text-gray-900">Enter manually</p>
-              <p className="mt-1 text-sm text-gray-500">Paste a profile link or ID</p>
-            </div>
+          <button
+            onClick={() => setStep('manual')}
+            className="flex w-full items-center gap-4 rounded-2xl border border-rally-line bg-white p-5 text-left shadow-card transition-colors hover:border-primary-300 hover:bg-rally-tint focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+          >
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-rally-tint text-primary-600">
+              <Keyboard className="h-6 w-6" aria-hidden="true" />
+            </span>
+            <span>
+              <span className="block font-semibold text-rally-navy">Enter manually</span>
+              <span className="mt-0.5 block text-sm text-rally-muted">Paste a profile link or ID if the code will not scan.</span>
+            </span>
           </button>
-        </Card>
+
+          <div className="flex items-start gap-3 rounded-2xl border border-dashed border-slate-300 bg-slate-50/70 p-4">
+            <QrCode className="mt-0.5 h-5 w-5 shrink-0 text-slate-400" aria-hidden="true" />
+            <div>
+              <p className="text-sm font-semibold text-slate-600">How it works</p>
+              <p className="mt-0.5 text-sm text-slate-500">
+                Scan another person&apos;s Rally QR code to view their profile, then add them to your connections with a note and a follow-up date.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <aside className="lg:col-span-5">
+          <section className="rounded-2xl border border-rally-line bg-white p-5 shadow-card md:p-6">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h2 className="font-display text-lg font-semibold text-rally-navy">Recently connected</h2>
+              <Link to="/connections" className="inline-flex min-h-[44px] items-center gap-1 text-sm font-semibold text-primary-700 hover:text-primary-800 focus:outline-none focus-visible:underline">
+                View all <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </div>
+            {recent === null ? (
+              <div className="h-24 animate-pulse rounded-xl bg-slate-100" aria-hidden="true" />
+            ) : recent.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 p-4 text-sm text-slate-500">
+                People you connect with will appear here.
+              </p>
+            ) : (
+              <ul className="divide-y divide-rally-line">
+                {recent.map((c) => (
+                  <li key={c.id}>
+                    <Link to={`/connections/${c.id}`} className="flex min-h-[56px] items-center gap-3 py-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600">
+                      <Avatar name={c.full_name || '?'} src={c.photo_url} size="md" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-rally-navy">{c.full_name}</p>
+                        <p className="truncate text-xs text-slate-500">{[c.job_title, c.company].filter(Boolean).join(' · ') || c.relationship_type}</p>
+                      </div>
+                      <span className="shrink-0 text-xs text-slate-400">{formatRelativeDate(c.created_at)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </aside>
       </div>
-
-      <Card className="mt-4">
-        <CardContent>
-          <EmptyState
-            icon={<QrCode className="h-8 w-8" />}
-            title="How it works"
-            description="Scan another person's Rally QR code to instantly view their profile and add them to your connections with context."
-          />
-        </CardContent>
-      </Card>
     </div>
   )
 }
