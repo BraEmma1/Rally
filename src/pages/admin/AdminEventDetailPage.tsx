@@ -120,7 +120,6 @@ export default function AdminEventDetailPage() {
 
   const ev = detail.event
   const reg = detail.registrations
-  const p = detail.partnerships
   const image = normalizeUrl(ev.image_url)
   const time = formatEventTimes(ev.start_time, ev.end_time, null)
 
@@ -198,7 +197,7 @@ export default function AdminEventDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Programme and partners</CardTitle>
+              <CardTitle>Programme</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -207,27 +206,6 @@ export default function AdminEventDetailPage() {
                 <Stat label="Speakers" value={detail.speakers} />
                 <Stat label="Exhibitors" value={detail.exhibitors} />
               </div>
-              <h3 className="mb-2 mt-5 text-sm font-semibold text-gray-900">Partnerships · {p.total}</h3>
-              {p.total === 0 ? (
-                <p className="text-sm text-gray-500">No partnerships for this event.</p>
-              ) : (
-                <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-5">
-                  {(
-                    [
-                      ['Draft', p.draft],
-                      ['Invited', p.invited],
-                      ['Active', p.active],
-                      ['Completed', p.completed],
-                      ['Cancelled', p.cancelled],
-                    ] as const
-                  ).map(([label, value]) => (
-                    <div key={label} className="flex justify-between gap-2 sm:block">
-                      <dt className="text-gray-500">{label}</dt>
-                      <dd className="font-medium tabular-nums text-gray-900">{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
             </CardContent>
           </Card>
         </div>

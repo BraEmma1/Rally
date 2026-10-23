@@ -359,7 +359,6 @@ export type AdminOrganizationDetail = {
   // At most 50, latest start date first.
   events: AdminOrganizationEvent[]
   pending_invitations: number
-  sponsor_partnerships: number
 }
 
 export type AdminEventVisibility = 'draft' | 'published' | 'unlisted'
@@ -424,14 +423,6 @@ export type AdminEventDetail = {
   sessions: number
   speakers: number
   exhibitors: number
-  partnerships: {
-    total: number
-    draft: number
-    invited: number
-    active: number
-    completed: number
-    cancelled: number
-  }
 }
 
 // ---------------------------------------------------------------------------
