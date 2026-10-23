@@ -38,11 +38,38 @@ function escapeText(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n')
 }
 
-// Lines longer than 75 octets are folded, per RFC 5545.
+const encoder = new TextEncoder()
+
+// Descriptions are capped at 1000 characters. Counted in code points, not UTF-16
+// units, so the cut can never land between the halves of an emoji.
+function truncate(value: string, max = 1000): string {
+  const chars = Array.from(value)
+  return chars.length <= max ? value : chars.slice(0, max).join('')
+}
+
+// Lines longer than 75 octets are folded, per RFC 5545. The limit is in UTF-8
+// bytes, not characters: Japanese is 3 bytes a character and emoji are 4, so a
+// character count would let non-English text overshoot. Folding walks whole
+// code points, so a character (or a surrogate pair) is never split across
+// lines. A continuation line begins with one space, which counts toward its 75.
 function fold(line: string): string {
-  if (line.length <= 73) return line
+  if (encoder.encode(line).length <= 75) return line
   const parts: string[] = []
-  for (let i = 0; i < line.length; i += 73) parts.push(line.slice(i, i + 73))
+  let current = ''
+  let bytes = 0
+  let limit = 75
+  for (const ch of line) {
+    const size = encoder.encode(ch).length
+    if (bytes + size > limit) {
+      parts.push(current)
+      current = ''
+      bytes = 0
+      limit = 74
+    }
+    current += ch
+    bytes += size
+  }
+  parts.push(current)
   return parts.join('\r\n ')
 }
 
@@ -74,7 +101,7 @@ export function buildEventIcs(event: IcsEvent): string | null {
   }
 
   if (event.location) lines.push(`LOCATION:${escapeText(event.location)}`)
-  if (event.description) lines.push(`DESCRIPTION:${escapeText(event.description.slice(0, 1000))}`)
+  if (event.description) lines.push(`DESCRIPTION:${escapeText(truncate(event.description))}`)
   lines.push('END:VEVENT', 'END:VCALENDAR')
   return lines.map(fold).join('\r\n') + '\r\n'
 }
@@ -113,7 +140,7 @@ export function buildSessionsIcs(calendarName: string, sessions: IcsSession[]): 
     lines.push('BEGIN:VEVENT', `UID:${s.id}@rally`, `DTSTAMP:${stamp}`, `SUMMARY:${escapeText(s.title)}`, `DTSTART:${utcStamp(s.start_at)}`)
     lines.push(`DTEND:${utcStamp(s.end_at ?? s.start_at)}`)
     if (s.location) lines.push(`LOCATION:${escapeText(s.location)}`)
-    if (s.description) lines.push(`DESCRIPTION:${escapeText(s.description.slice(0, 1000))}`)
+    if (s.description) lines.push(`DESCRIPTION:${escapeText(truncate(s.description))}`)
     lines.push('END:VEVENT')
   }
   lines.push('END:VCALENDAR')
