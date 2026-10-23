@@ -1,12 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Building2, Check, MapPin, MessageSquare, ScanLine, Search, UserPlus, Users } from 'lucide-react'
+import { Building2, Check, Clock, MapPin, MessageSquare, ScanLine, Search, UserPlus, Users, X } from 'lucide-react'
 import { supabase, type Connection } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { useEventModeId } from '@/context/EventModeContext'
 import { useEventModeOutlet } from '@/components/eventmode/EventModeLayout'
 import EventModeConnectFlow from '@/components/eventmode/EventModeConnectFlow'
+import ConnectChoiceSheet from '@/components/eventmode/ConnectChoiceSheet'
+import ConnectionRequestsPanel from '@/components/connections/ConnectionRequestsPanel'
 import { listEventDirectory, type EventDirectoryEntry } from '@/lib/checkin'
+import {
+  cancelConnectionRequest,
+  fetchMyConnectionRequests,
+  friendlyRequestError,
+  respondToConnectionRequest,
+  sendConnectionRequest,
+  type ConnectionRequest,
+} from '@/lib/connectionRequests'
 import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
 import { PageHeader } from '@/components/ui/PageHeader'
@@ -17,10 +27,11 @@ import { cn } from '@/lib/utils'
 // Event Mode attendee directory: networking inside ONE event, not the global
 // Rally network. "All attendees" is the event's directory (public cards only, via
 // the event_attendee_directory RPC); "My connections" is who you connected with
-// here. Connect reuses the existing event connect flow so the connection keeps
-// the current event_id. The design's match scores, check-in counts and saved
+// here; "Requests" are open connection requests in both directions. Connect asks
+// how: scan their QR code (the existing event connect flow, so the connection keeps
+// the current event_id) or send a request they can accept. The design's match scores, check-in counts and saved
 // views have no data behind them and are not shown.
-type Scope = 'attendees' | 'connections'
+type Scope = 'attendees' | 'connections' | 'requests'
 const PAGE_SIZE = 9
 
 // One card shape for both lists.
@@ -70,13 +81,19 @@ export default function EventNetworkPage() {
   const [page, setPage] = useState(1)
   const [connectTarget, setConnectTarget] = useState<string | null>(null)
   const [messagingId, setMessagingId] = useState<string | null>(null)
+  const [requests, setRequests] = useState<ConnectionRequest[]>([])
+  const [busyRequestId, setBusyRequestId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [choiceTarget, setChoiceTarget] = useState<Person | null>(null)
+  const [choiceSending, setChoiceSending] = useState(false)
+  const [choiceError, setChoiceError] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     if (!user) return
     setLoading(true)
     setError(null)
 
-    const [connRes, dirRes] = await Promise.all([
+    const [connRes, dirRes, reqRes] = await Promise.all([
       supabase
         .from('connections')
         .select('*')
@@ -84,6 +101,7 @@ export default function EventNetworkPage() {
         .eq('event_id', eventId)
         .order('created_at', { ascending: false }),
       listEventDirectory(eventId),
+      fetchMyConnectionRequests(),
     ])
 
     if (connRes.error) setError('Could not load your connections for this event. Please try again.')
@@ -91,6 +109,8 @@ export default function EventNetworkPage() {
     // The directory is attendees-only; someone unregistered just gets an
     // empty list rather than an error.
     if (!dirRes.error) setDirectory(dirRes.data)
+    // Requests are an add-on: if they cannot be read, the directory still works.
+    setRequests(reqRes.error ? [] : reqRes.data)
     setLoading(false)
   }, [eventId, user])
 
@@ -98,7 +118,14 @@ export default function EventNetworkPage() {
     void load()
   }, [load])
 
+  const requestByUser = useMemo(() => {
+    const map = new Map<string, ConnectionRequest>()
+    for (const r of requests) map.set(r.other_user_id, r)
+    return map
+  }, [requests])
+
   const people: Person[] = useMemo(() => {
+    if (scope === 'requests') return []
     if (scope === 'connections') {
       return myConnections.map((c) => ({
         key: c.id,
@@ -171,6 +198,38 @@ export default function EventNetworkPage() {
     setPage(1)
   }
 
+  async function handleSendRequest() {
+    if (!choiceTarget?.userId) return
+    setChoiceSending(true)
+    setChoiceError(null)
+    const { error: sendError } = await sendConnectionRequest(eventId, choiceTarget.userId)
+    setChoiceSending(false)
+    if (sendError) {
+      setChoiceError(friendlyRequestError(sendError, 'Could not send the request. Please try again.'))
+      return
+    }
+    setChoiceTarget(null)
+    await load()
+  }
+
+  async function handleRespond(request: ConnectionRequest, accept: boolean) {
+    setBusyRequestId(request.id)
+    setActionError(null)
+    const { error: respondError } = await respondToConnectionRequest(request.id, accept)
+    setBusyRequestId(null)
+    if (respondError) setActionError(friendlyRequestError(respondError, 'Could not answer the request. Please try again.'))
+    await load()
+  }
+
+  async function handleCancel(request: ConnectionRequest) {
+    setBusyRequestId(request.id)
+    setActionError(null)
+    const { error: cancelError } = await cancelConnectionRequest(request.id)
+    setBusyRequestId(null)
+    if (cancelError) setActionError(friendlyRequestError(cancelError, 'Could not withdraw the request. Please try again.'))
+    await load()
+  }
+
   async function openConversation(otherUserId: string) {
     setMessagingId(otherUserId)
     const { data } = await supabase.rpc('create_direct_conversation', {
@@ -198,6 +257,25 @@ export default function EventNetworkPage() {
         userId={user?.id ?? ''}
       />
 
+      <ConnectChoiceSheet
+        open={choiceTarget !== null}
+        name={choiceTarget?.name ?? ''}
+        photo={choiceTarget?.photo ?? ''}
+        sending={choiceSending}
+        error={choiceError}
+        onClose={() => {
+          setChoiceTarget(null)
+          setChoiceError(null)
+        }}
+        onScan={() => {
+          const target = choiceTarget?.userId ?? null
+          setChoiceTarget(null)
+          setChoiceError(null)
+          setConnectTarget(target)
+        }}
+        onSendRequest={() => void handleSendRequest()}
+      />
+
       <PageHeader
         title="Attendee Directory"
         description={`Meet the people attending ${event.name}.`}
@@ -209,6 +287,7 @@ export default function EventNetworkPage() {
       />
 
       <div className="mt-5 space-y-3">
+        {scope !== 'requests' && (
         <label className="relative block">
           <span className="sr-only">Search attendees</span>
           <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
@@ -220,12 +299,14 @@ export default function EventNetworkPage() {
             className="h-11 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-rally-tint"
           />
         </label>
+        )}
 
         <div className="flex flex-wrap gap-2" role="tablist" aria-label="Directory scope">
           {(
             [
               ['attendees', 'All attendees', directory.length],
               ['connections', 'My connections', myConnections.length],
+              ['requests', 'Requests', requests.length],
             ] as [Scope, string, number][]
           ).map(([value, label, n]) => (
             <button
@@ -243,7 +324,7 @@ export default function EventNetworkPage() {
           ))}
         </div>
 
-        {(industries.length > 0 || locations.length > 0) && (
+        {scope !== 'requests' && (industries.length > 0 || locations.length > 0) && (
           <div className="grid grid-cols-2 gap-2 sm:flex">
             {industries.length > 0 && (
               <label className="block">
@@ -276,10 +357,20 @@ export default function EventNetworkPage() {
       </div>
 
       {error && <p className="mt-4 rounded-xl bg-error-50 px-4 py-3 text-sm text-error-700" role="alert">{error}</p>}
+      {actionError && (
+        <p className="mt-4 flex items-start justify-between gap-3 rounded-xl bg-error-50 px-4 py-3 text-sm text-error-700" role="alert">
+          <span>{actionError}</span>
+          <button type="button" onClick={() => setActionError(null)} className="shrink-0 font-semibold">
+            Dismiss
+          </button>
+        </p>
+      )}
 
       <div className="mt-5">
         {loading ? (
           <SkeletonCards />
+        ) : scope === 'requests' ? (
+          <ConnectionRequestsPanel requests={requests} busyId={busyRequestId} onRespond={(r, a) => void handleRespond(r, a)} onCancel={(r) => void handleCancel(r)} />
         ) : filtered.length === 0 ? (
           <div className="rounded-2xl border border-rally-line bg-white shadow-card">
             <EmptyState
@@ -312,6 +403,7 @@ export default function EventNetworkPage() {
             <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {shown.map((p) => {
                 const isSelf = p.userId === user?.id
+                const request = p.userId ? requestByUser.get(p.userId) : undefined
                 return (
                   <li key={p.key} className="flex flex-col gap-3 rounded-2xl border border-rally-line bg-white p-4 shadow-card sm:p-5">
                     <div className="flex items-start gap-4">
@@ -355,8 +447,26 @@ export default function EventNetworkPage() {
                             </Button>
                           )}
                         </>
+                      ) : request?.direction === 'incoming' ? (
+                        <>
+                          <Button size="lg" className="flex-1 rounded-xl" disabled={busyRequestId === request.id} onClick={() => void handleRespond(request, true)}>
+                            <Check className="h-4 w-4" aria-hidden="true" /> Accept
+                          </Button>
+                          <Button size="lg" variant="secondary" className="flex-1 rounded-xl" disabled={busyRequestId === request.id} onClick={() => void handleRespond(request, false)}>
+                            <X className="h-4 w-4" aria-hidden="true" /> Decline
+                          </Button>
+                        </>
+                      ) : request?.direction === 'outgoing' ? (
+                        <>
+                          <span className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-xl bg-slate-100 text-sm font-semibold text-slate-600">
+                            <Clock className="h-4 w-4" aria-hidden="true" /> Request sent
+                          </span>
+                          <Button size="lg" variant="ghost" className="rounded-xl" disabled={busyRequestId === request.id} onClick={() => void handleCancel(request)}>
+                            Cancel
+                          </Button>
+                        </>
                       ) : (
-                        <Button size="lg" className="flex-1 rounded-xl" onClick={() => setConnectTarget(p.userId)}>
+                        <Button size="lg" className="flex-1 rounded-xl" onClick={() => { setChoiceError(null); setChoiceTarget(p) }}>
                           <UserPlus className="h-4 w-4" aria-hidden="true" /> Connect
                         </Button>
                       )}

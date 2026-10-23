@@ -7,6 +7,7 @@ import {
   CheckCheck,
   ArrowRight,
   UserPlus,
+  UserCheck,
   CalendarPlus,
   CalendarCheck,
   CalendarX,
@@ -31,6 +32,8 @@ type Tone = 'primary' | 'success' | 'warning' | 'error'
 
 const TYPE_META: Record<string, { icon: LucideIcon; tone: Tone }> = {
   new_connection: { icon: UserPlus, tone: 'primary' },
+  connection_request: { icon: UserPlus, tone: 'warning' },
+  connection_accepted: { icon: UserCheck, tone: 'success' },
   event_invitation: { icon: CalendarPlus, tone: 'warning' },
   invitation_accepted: { icon: CalendarCheck, tone: 'success' },
   invitation_declined: { icon: CalendarX, tone: 'error' },
