@@ -135,3 +135,20 @@ emptying it also removed a fresh-environment failure, because the original
 inserted into `event_partnerships` at a point in this repository's ordering
 where that table does not yet exist. It is the one aligned version whose content
 intentionally differs from production. Do not restore it.
+
+## Development project (rally-dev) — recent migrations
+
+Migrations applied to the **rally-dev** project through the Supabase MCP are
+recorded under the wall-clock time they were applied, not the repository
+version. The content is identical; only the recorded version differs, in the
+same relative order. Production has **not** received either of these.
+
+| Repository version | rally-dev recorded version | Migration | Content | Production |
+| --- | --- | --- | --- | --- |
+| `20261021000000` | `20261023141059` | restrict_admin_partnership_access | applied from this file | not applied |
+| `20261022000000` | `20261023161508` | event_host_for_attendees | identical (verified by normalised-SQL comparison) | not applied |
+
+Do not rename the repository files to the recorded versions: the repository
+number is the one fresh environments use, and it keeps the intended order. Apply
+to production through the owner's own process, never with `supabase db push`
+(rule 1 above).
