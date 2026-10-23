@@ -251,7 +251,7 @@ export default function OrganizerLayout() {
         <div className="flex flex-1 justify-center">
           <button
             onClick={() => setSearchOpen(true)}
-            className="flex h-10 w-full max-w-xl items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 text-left text-sm text-gray-400 transition-colors hover:border-primary-300 hover:bg-gray-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            className="flex h-10 w-full max-w-xl items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 text-left text-sm text-gray-400 transition-colors hover:border-primary-300 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
             aria-label="Search people and events"
           >
             <Search className="h-4 w-4" aria-hidden="true" />
