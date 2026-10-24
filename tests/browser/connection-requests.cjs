@@ -232,12 +232,19 @@ function rec(group, name, pass, detail = '') {
     page.on('pageerror', (e) => errors.push(String(e)))
     page.on('console', (m) => { if (m.type() === 'error' && !/WebSocket|ERR_CONNECTION|Failed to load resource|randomuser|net::/.test(m.text())) errors.push('console: ' + m.text().slice(0, 140)) })
     await ctx.addInitScript(([uid]) => { const session = { access_token: btoa(JSON.stringify({ alg: 'none', typ: 'JWT' })) + '.' + btoa(JSON.stringify({ sub: uid, exp: 4102444800, role: 'authenticated' })) + '.fake', refresh_token: 'r', token_type: 'bearer', expires_in: 3600, expires_at: 4102444800, user: { id: uid, aud: 'authenticated', role: 'authenticated', email: 'f@example.test', app_metadata: {}, user_metadata: {}, created_at: '2026-01-01T00:00:00Z' } }; localStorage.setItem('sb-localhost-auth-token', JSON.stringify(session)) }, [UID])
+    await ctx.addInitScript(() => {
+      window.__cam = 0
+      const md = navigator.mediaDevices || {}
+      md.getUserMedia = async () => { window.__cam++; throw new DOMException('denied', 'NotAllowedError') }
+      Object.defineProperty(navigator, 'mediaDevices', { value: md, configurable: true })
+    })
     await wire(ctx)
     await page.goto(BASE + url, { waitUntil: 'networkidle' })
     await page.waitForSelector('h1, h2', { timeout: 8000 }).catch(() => {})
     await page.waitForTimeout(500)
     return { page, ctx, errors }
   }
+  const cam = (p) => p.evaluate(() => window.__cam)
   const vis = (p, sel) => p.locator(sel).first().isVisible().catch(() => false)
   const ov = (p) => p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
   const card = (p, name) => p.locator('main li').filter({ hasText: name })
@@ -278,13 +285,30 @@ function rec(group, name, pass, detail = '') {
     })
   }
 
+  await safe('camera', async () => {
+    reset()
+    const { page, ctx } = await open(390, 900, NET)
+    await page.waitForTimeout(400)
+    rec('camera', 'the directory page does not touch the camera', (await cam(page)) === 0)
+    await card(page, 'Maya Chen').locator('button:has-text("Connect")').click()
+    await page.waitForTimeout(700)
+    rec('camera', 'tapping Connect shows only the choice and does NOT start the camera', (await vis(page, '[role=dialog][aria-label="Connect with Maya Chen"]')) && (await cam(page)) === 0, 'camera requests: ' + (await cam(page)))
+    await page.click('[role=dialog] button:has-text("Send a request")')
+    await page.waitForTimeout(900)
+    rec('camera', 'Send a request does not start the camera either, and sends the request', (await cam(page)) === 0 && log.some((l) => l[0] === 'send'))
+    await ctx.close()
+  })
+
   await safe('scan', async () => {
     reset()
-    const { page, ctx } = await open(1440, 900, NET)
+    const { page, ctx } = await open(390, 900, NET)
     await card(page, 'Maya Chen').locator('button:has-text("Connect")').click()
+    await page.waitForTimeout(400)
+    rec('scan', 'before choosing, the camera has not been asked for', (await cam(page)) === 0)
     await page.click('[role=dialog] button:has-text("Scan QR code")')
-    await page.waitForTimeout(500)
-    rec('scan', 'Scan QR code closes the choice and opens the existing connect flow (no request sent)', !(await vis(page, '[role=dialog][aria-label="Connect with Maya Chen"]')) && !log.some((l) => l[0] === 'send'))
+    await page.waitForTimeout(1200)
+    rec('scan', 'choosing Scan QR code closes the choice and starts the camera scanner (no request sent)', !(await vis(page, '[role=dialog][aria-label="Connect with Maya Chen"]')) && (await cam(page)) >= 1 && !log.some((l) => l[0] === 'send'), 'camera requests: ' + (await cam(page)))
+    rec('scan', 'the scanner screen stays up: it is not replaced by a profile lookup or an error', (await vis(page, 'h2:has-text("Scan QR Code")')) && !(await vis(page, "text=Couldn't connect")) && !(await vis(page, 'text=Loading profile')))
     await ctx.close()
   })
 

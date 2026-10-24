@@ -79,7 +79,8 @@ export default function EventNetworkPage() {
   const [industry, setIndustry] = useState('all')
   const [location, setLocation] = useState('all')
   const [page, setPage] = useState(1)
-  const [connectTarget, setConnectTarget] = useState<string | null>(null)
+  // The camera scanner. Opened only by choosing "Scan QR code" in the Connect sheet.
+  const [scanOpen, setScanOpen] = useState(false)
   const [messagingId, setMessagingId] = useState<string | null>(null)
   const [requests, setRequests] = useState<ConnectionRequest[]>([])
   const [busyRequestId, setBusyRequestId] = useState<string | null>(null)
@@ -248,12 +249,12 @@ export default function EventNetworkPage() {
     <div className="mx-auto w-full max-w-6xl px-4 py-4 md:px-6 md:py-6">
       <EventModeConnectFlow
         event={event}
-        open={connectTarget !== null}
+        open={scanOpen}
         onClose={() => {
-          setConnectTarget(null)
+          setScanOpen(false)
           void load()
         }}
-        initialProfileId={connectTarget}
+        initialProfileId={null}
         userId={user?.id ?? ''}
       />
 
@@ -268,10 +269,9 @@ export default function EventNetworkPage() {
           setChoiceError(null)
         }}
         onScan={() => {
-          const target = choiceTarget?.userId ?? null
           setChoiceTarget(null)
           setChoiceError(null)
-          setConnectTarget(target)
+          setScanOpen(true)
         }}
         onSendRequest={() => void handleSendRequest()}
       />
