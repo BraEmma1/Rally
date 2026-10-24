@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
-import { ScanLine, QrCode, X, CheckCircle2 } from 'lucide-react'
+import { ScanLine, QrCode, Send, X, CheckCircle2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { formatDateRange } from '@/lib/utils'
 import { useAuth } from '@/context/AuthContext'
 import { Avatar } from '@/components/ui/Avatar'
 import type { EventRow } from '@/lib/supabase'
 
-// The CONNECT action sheet: exactly two options — Scan QR Code and My Event Pass.
+// The CONNECT action sheet: Scan QR Code, Send a request (opens the attendee
+// directory, where you pick the person) and My Event Pass.
 // Scanning hands off to the existing Event Mode connect flow (camera, lookup,
 // event-scoped connection). The pass shows this event's name, the attendee, their
 // registration reference and status, with the same profile-URL QR the profile
@@ -16,11 +17,13 @@ export default function EventConnectSheet({
   open,
   onClose,
   onScan,
+  onSendRequest,
   event,
 }: {
   open: boolean
   onClose: () => void
   onScan: () => void
+  onSendRequest: () => void
   event: EventRow
 }) {
   const { profile, user } = useAuth()
@@ -150,6 +153,18 @@ export default function EventConnectSheet({
               <span>
                 <span className="block text-sm font-semibold text-gray-900">Scan QR Code</span>
                 <span className="block text-xs text-gray-500">Connect with someone here at {event.name}</span>
+              </span>
+            </button>
+            <button
+              onClick={onSendRequest}
+              className="flex w-full items-center gap-3 rounded-xl border border-gray-200 bg-gray-50 px-4 py-4 text-left transition-colors hover:border-primary-300 hover:bg-primary-50/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            >
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-100 text-primary-700">
+                <Send className="h-5 w-5" />
+              </span>
+              <span>
+                <span className="block text-sm font-semibold text-gray-900">Send a request</span>
+                <span className="block text-xs text-gray-500">Pick someone in the attendee directory. They accept, you connect.</span>
               </span>
             </button>
             <button

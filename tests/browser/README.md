@@ -32,6 +32,7 @@ otherwise the stub will not see the traffic). `SHOTS_DIR` sets where screenshots
 | `events-and-invitations.cjs` | Events search / filter / sort / pagination / counts; invitation Accept and Decline including in-flight, failure and partial success |
 | `event-mode-shell.cjs` | Event Mode sidebar, bottom nav, More drawer, tablet layout, signed-out and wrong-account access |
 | `dashboard-and-event-mode-pages.cjs` | Dashboard, Event Home (phone), Agenda and Schedule, Speakers, Exhibitors, Directory |
+| `connection-requests.cjs` | Connection requests: Connect choice (scan or send a request), send / accept / decline / cancel, the Requests tab, Connections page, notifications, and the fallback when the backend feature is missing |
 | `attendee-sweep.cjs` | Every attendee route at 320 / 390 / 820 / 1440px, Event Detail flows, Messages regression, Follow-ups, Opportunities, Notifications, Profile, Scan, keyboard focus, role access |
 
 Each suite prints `PASS` / `FAIL` lines; `run.cjs` totals them and exits non-zero

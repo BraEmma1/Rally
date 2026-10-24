@@ -147,6 +147,7 @@ same relative order. Production has **not** received either of these.
 | --- | --- | --- | --- | --- |
 | `20261021000000` | `20261023141059` | restrict_admin_partnership_access | applied from this file | not applied |
 | `20261022000000` | `20261023161508` | event_host_for_attendees | identical (verified by normalised-SQL comparison) | not applied |
+| `20261024000000` | `20261023234941` | connection_requests | identical (verified by normalised-SQL hash) | not applied |
 
 Do not rename the repository files to the recorded versions: the repository
 number is the one fresh environments use, and it keeps the intended order. Apply
