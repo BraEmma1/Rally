@@ -28,6 +28,14 @@ export type ChatMessage = {
 
 export const MESSAGE_PAGE_SIZE = 30
 
+// supabase.channel(topic) returns the existing channel for a topic, and
+// removeChannel is asynchronous, so a quick unmount/remount (StrictMode, or
+// moving between chat screens) gets the half-closed channel back and .on()
+// then throws "cannot add postgres_changes callbacks after subscribe()". A
+// unique topic per subscription means a new channel is always a fresh one.
+let channelSeq = 0
+const uniqueTopic = (base: string) => `${base}#${++channelSeq}`
+
 // The messaging RPCs raise a small set of intentional, user-facing errors.
 // Anything else is shown as a generic failure so raw database text never
 // reaches the screen.
@@ -106,11 +114,10 @@ export function subscribeToInbox(
   userId: string,
   onChange: () => void,
   onStatus?: (status: string) => void,
-  // Distinct topic for a second listener (the nav badge runs alongside the
-  // inbox page); two channels on one topic would collide.
+  // Names the listener (the nav badge runs alongside the inbox page).
   channelKey = 'inbox'
 ) {
-  const channel = supabase.channel(`${channelKey}:${userId}`)
+  const channel = supabase.channel(uniqueTopic(`${channelKey}:${userId}`))
 
   // A new message changes the preview, the timestamp, the unread count and the
   // ordering. handle_new_message bumps conversations.updated_at in the same
@@ -144,7 +151,7 @@ export function subscribeToMessages(
   onMemberRead?: (readUserId: string, lastReadAt: string) => void
 ) {
   const channel = supabase
-    .channel(`messages:${conversationId}`)
+    .channel(uniqueTopic(`messages:${conversationId}`))
     .on(
       'postgres_changes',
       {
