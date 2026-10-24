@@ -204,7 +204,7 @@ export default function MessagesInboxPage() {
                     {c.other_company && <p className="truncate text-xs text-slate-500">{c.other_company}</p>}
                     <div className="mt-0.5 flex items-center justify-between gap-2">
                       <p className={cn('truncate text-sm', c.unread_count > 0 ? 'font-medium text-gray-700' : 'text-gray-500')}>
-                        {c.last_message_body || 'No messages yet'}
+                        {c.last_message_body || (c.last_message_at ? 'Message deleted' : 'No messages yet')}
                       </p>
                       {c.unread_count > 0 && (
                         <span className="flex h-5 min-w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary-600 px-1.5 text-[11px] font-semibold text-white">

@@ -19,9 +19,18 @@ export type ConversationSummary = {
 export type ChatMessage = {
   id: string
   sender_id: string
-  body: string
+  // null once the message has been deleted: the backend never returns the text.
+  body: string | null
   created_at: string
   is_mine: boolean
+  deleted_at?: string | null
+  // The message this one replies to. The quote fields come from
+  // get_conversation_thread; a live insert only carries the id, and the quote is
+  // filled from the messages already on screen.
+  reply_to_id?: string | null
+  reply_to_sender_id?: string | null
+  reply_to_body?: string | null
+  reply_to_deleted?: boolean | null
   pending?: boolean
   read_by_other?: boolean
 }
@@ -40,6 +49,12 @@ const FRIENDLY_ERRORS = [
   'Conversation not found',
   'You are not a member of this conversation',
   'Message body required',
+  'Write something before sending',
+  'That message is too long',
+  'You are not part of this conversation',
+  'You can only reply to a message in the same conversation',
+  'You cannot reply to a deleted message',
+  'That message cannot be deleted',
 ]
 
 export function toFriendlyMessageError(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
@@ -63,8 +78,10 @@ export async function createDirectConversation(otherUserId: string, eventId: str
   return { data: (data ?? null) as string | null, error }
 }
 
+// get_conversation_thread is get_conversation_messages plus the quoted message
+// for replies.
 export async function fetchMessages(conversationId: string, beforeCreatedAt?: string) {
-  const { data, error } = await supabase.rpc('get_conversation_messages', {
+  const { data, error } = await supabase.rpc('get_conversation_thread', {
     conversation_id: conversationId,
     before_created_at: beforeCreatedAt ?? null,
     page_size: MESSAGE_PAGE_SIZE,
@@ -72,8 +89,19 @@ export async function fetchMessages(conversationId: string, beforeCreatedAt?: st
   return { data: (data ?? []) as ChatMessage[], error }
 }
 
-export async function sendMessage(conversationId: string, body: string) {
-  const { error } = await supabase.rpc('send_message', { conversation_id: conversationId, body })
+export async function sendMessage(conversationId: string, body: string, replyToId?: string | null) {
+  const { error } = await supabase.rpc('send_message_reply', {
+    conversation_id: conversationId,
+    body,
+    reply_to_id: replyToId ?? null,
+  })
+  return { error }
+}
+
+// Removes the caller's own message for everyone. The backend keeps the row as a
+// tombstone and never returns its text again.
+export async function deleteMessage(messageId: string) {
+  const { error } = await supabase.rpc('delete_message', { message_id: messageId })
   return { error }
 }
 
@@ -141,7 +169,8 @@ export function subscribeToMessages(
   conversationId: string,
   onInsert: (message: Omit<ChatMessage, 'is_mine'>) => void,
   onStatus?: (status: string) => void,
-  onMemberRead?: (readUserId: string, lastReadAt: string) => void
+  onMemberRead?: (readUserId: string, lastReadAt: string) => void,
+  onDeleted?: (messageId: string) => void
 ) {
   const channel = supabase
     .channel(`messages:${conversationId}`)
@@ -154,8 +183,28 @@ export function subscribeToMessages(
         filter: `conversation_id=eq.${conversationId}`,
       },
       (payload) => {
-        const row = payload.new as { id: string; sender_id: string; body: string; created_at: string }
+        const row = payload.new as {
+          id: string
+          sender_id: string
+          body: string
+          created_at: string
+          reply_to_id?: string | null
+        }
         if (row && row.id) onInsert(row)
+      }
+    )
+    // A delete is an UPDATE that sets deleted_at (the row is never removed).
+    .on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'messages',
+        filter: `conversation_id=eq.${conversationId}`,
+      },
+      (payload) => {
+        const row = payload.new as { id: string; deleted_at: string | null }
+        if (row && row.id && row.deleted_at) onDeleted?.(row.id)
       }
     )
     .on(

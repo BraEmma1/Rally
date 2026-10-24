@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Check, CheckCheck, MoreVertical, Send } from 'lucide-react'
+import { ArrowLeft, MoreVertical, Send, X } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import {
   fetchConversations,
   fetchMessages,
   fetchConversationReadState,
   sendMessage,
+  deleteMessage,
   markConversationRead,
   subscribeToMessages,
   toFriendlyMessageError,
@@ -15,14 +16,9 @@ import {
   type ConversationSummary,
 } from '@/lib/messages'
 import { Avatar } from '@/components/ui/Avatar'
+import MessageBubble from '@/components/messages/MessageBubble'
 import { Spinner, ErrorState } from '@/components/ui/States'
 import { cn } from '@/lib/utils'
-
-function formatMessageTime(iso: string): string {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-}
 
 function formatDaySeparator(iso: string): string {
   const d = new Date(iso)
@@ -85,6 +81,11 @@ export default function ConversationPage() {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null)
+  // The message the next send will reply to, and the one just jumped to.
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  const draftRef = useRef<HTMLTextAreaElement>(null)
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // The other person's read marker. When a message of mine is older than this
   // timestamp, they have opened the conversation since it was sent: two ticks.
   const [otherReadAt, setOtherReadAt] = useState<string | null>(null)
@@ -141,6 +142,19 @@ export default function ConversationPage() {
   }, [requestMarkRead])
 
   const blocks = useMemo(() => buildBlocks(messages), [messages])
+
+  // A deleted message loses its text, and anything quoting it loses the quote.
+  const markDeletedLocally = useCallback((messageId: string) => {
+    const now = new Date().toISOString()
+    setMessages((prev) =>
+      prev.map((x) => {
+        if (x.id === messageId) return { ...x, body: null, deleted_at: x.deleted_at ?? now, reply_to_id: null }
+        if (x.reply_to_id === messageId) return { ...x, reply_to_body: null, reply_to_deleted: true }
+        return x
+      })
+    )
+    setReplyTo((current) => (current?.id === messageId ? null : current))
+  }, [])
 
   // Locate the conversation's header info from the user's conversation list.
   const loadSummary = useCallback(async () => {
@@ -217,7 +231,23 @@ export default function ConversationPage() {
         if (seenMessageIdsRef.current.has(row.id)) return
         seenMessageIdsRef.current.add(row.id)
         const mine = row.sender_id === user?.id
-        setMessages((prev) => [...prev, { ...row, is_mine: mine, pending: false }])
+        setMessages((prev) => {
+          // A live insert only carries reply_to_id; the quote comes from the
+          // original if it is on screen (it almost always is: it was just
+          // replied to). Otherwise the bubble falls back to "Original message".
+          const original = row.reply_to_id ? prev.find((x) => x.id === row.reply_to_id) : undefined
+          return [
+            ...prev,
+            {
+              ...row,
+              is_mine: mine,
+              pending: false,
+              reply_to_sender_id: original?.sender_id ?? null,
+              reply_to_body: original?.body ?? null,
+              reply_to_deleted: original ? !!original.deleted_at : null,
+            },
+          ]
+        })
         // Someone else's message landing in a thread I am looking at is a read.
         // Without this the marker stays frozen at whatever it was when the
         // conversation was opened, and the sender's ticks never move.
@@ -240,10 +270,11 @@ export default function ConversationPage() {
       (readUserId, lastReadAt) => {
         if (readUserId === user?.id) return
         applyOtherReadAt(lastReadAt)
-      }
+      },
+      (messageId) => markDeletedLocally(messageId)
     )
     return () => unsubscribe()
-  }, [conversationId, user?.id, applyOtherReadAt, loadReadState, requestMarkRead])
+  }, [conversationId, user?.id, applyOtherReadAt, loadReadState, requestMarkRead, markDeletedLocally])
 
   // Keep the view pinned to the newest message unless the reader has scrolled
   // up into history.
@@ -296,15 +327,45 @@ export default function ConversationPage() {
     setSending(true)
     setSendError(null)
     setDraft('')
-    const { error: sendErr } = await sendMessage(conversationId, body)
+    const replyingTo = replyTo
+    setReplyTo(null)
+    const { error: sendErr } = await sendMessage(conversationId, body, replyingTo?.id)
     if (sendErr) {
       setDraft(body) // restore so the user can retry without retyping
+      setReplyTo(replyingTo)
       setSendError(toFriendlyMessageError(sendErr, 'Your message could not be sent. Please try again.'))
     } else {
       // Replying is unambiguous proof of having read what came before.
       requestMarkRead()
     }
     setSending(false)
+  }
+
+  function startReply(message: ChatMessage) {
+    if (message.deleted_at) return
+    setReplyTo(message)
+    setSendError(null)
+    draftRef.current?.focus()
+  }
+
+  async function handleDelete(message: ChatMessage) {
+    setSendError(null)
+    const { error: delErr } = await deleteMessage(message.id)
+    if (delErr) {
+      setSendError(toFriendlyMessageError(delErr, 'Could not delete that message. Please try again.'))
+      return
+    }
+    markDeletedLocally(message.id)
+  }
+
+  function jumpTo(messageId: string) {
+    const el = document.getElementById(`msg-${messageId}`)
+    if (!el) return // quoted message is further back than what is loaded
+    pinnedToBottomRef.current = false
+    el.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    setHighlightId(messageId)
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+    highlightTimerRef.current = setTimeout(() => setHighlightId(null), 1600)
   }
 
   if (!conversationId || (pageError && !loading && !summary)) {
@@ -393,33 +454,16 @@ export default function ConversationPage() {
                         </span>
                       </div>
                     )}
-                    <div className={cn('flex', m.is_mine ? 'justify-end' : 'justify-start', startsBlock ? 'mt-2' : 'mt-0.5')}>
-                      <div
-                        className={cn(
-                          'max-w-[78%] px-3 py-1.5 shadow-sm',
-                          m.is_mine
-                            ? cn('rounded-2xl bg-primary-600 text-white', startsBlock ? 'rounded-br-md' : 'rounded-br-2xl')
-                            : cn('rounded-2xl border border-gray-200 bg-white text-gray-900', startsBlock ? 'rounded-bl-md' : 'rounded-bl-2xl'),
-                          m.pending && 'opacity-60'
-                        )}
-                      >
-                        <p className="whitespace-pre-wrap break-words text-[15px] leading-snug">{m.body}</p>
-                        <p
-                          className={cn(
-                            'mt-0.5 flex items-center justify-end gap-1 text-[10.5px]',
-                            m.is_mine ? 'text-primary-100' : 'text-gray-400'
-                          )}
-                        >
-                          {formatMessageTime(m.created_at)}
-                          {m.is_mine &&
-                            (otherReadAt && new Date(m.created_at) <= new Date(otherReadAt) ? (
-                              <CheckCheck className="h-3.5 w-3.5" aria-label="Read" />
-                            ) : (
-                              <Check className="h-3.5 w-3.5" aria-label="Sent" />
-                            ))}
-                        </p>
-                      </div>
-                    </div>
+                    <MessageBubble
+                      message={m}
+                      startsBlock={startsBlock}
+                      read={!!otherReadAt && new Date(m.created_at) <= new Date(otherReadAt)}
+                      otherName={headerName}
+                      highlighted={highlightId === m.id}
+                      onReply={startReply}
+                      onDelete={(msg) => void handleDelete(msg)}
+                      onJumpTo={jumpTo}
+                    />
                   </li>
                 ))}
               </ul>
@@ -432,11 +476,34 @@ export default function ConversationPage() {
       {/* Composer */}
       <div className="border-t border-rally-line bg-white pb-[env(safe-area-inset-bottom)]">
         {sendError && <p className="px-3 pt-2 text-xs text-error-600">{sendError}</p>}
+        {replyTo && (
+          <div className="flex items-center gap-2 border-b border-rally-line px-3 py-2">
+            <div className="min-w-0 flex-1 rounded-lg border-l-4 border-primary-500 bg-primary-50 px-2 py-1">
+              <p className="truncate text-xs font-semibold text-primary-700">
+                Replying to {replyTo.is_mine ? 'yourself' : headerName}
+              </p>
+              <p className="truncate text-xs text-gray-600">{replyTo.body}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setReplyTo(null)}
+              aria-label="Cancel reply"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-gray-500 hover:bg-rally-tint focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        )}
         <form onSubmit={handleSend} className="flex items-end gap-2 px-3 py-2">
           <textarea
+            ref={draftRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
+              if (e.key === 'Escape' && replyTo) {
+                setReplyTo(null)
+                return
+              }
               if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) {
                 e.preventDefault()
                 void handleSend(e)
