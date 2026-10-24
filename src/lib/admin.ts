@@ -61,6 +61,27 @@ export async function fetchAccountMetrics(): Promise<{ data: AccountMetrics | nu
   }
 }
 
+// Platform-wide partnership counts from admin_platform_overview. Aggregates
+// only: individual partnerships and their values are organization-private and
+// are not readable by administrators (admin_list_partnerships is disabled).
+export type PartnershipAggregates = {
+  total: number | null
+  active: number | null
+  completed: number | null
+  cancelled: number | null
+}
+
+export async function fetchPartnershipAggregates(): Promise<{ data: PartnershipAggregates | null; error: string | null }> {
+  const { data, error } = await supabase.rpc('admin_platform_overview')
+  if (error) return { data: null, error: readableError(error, 'Could not load partnership figures.') }
+  const p = ((data as { partnerships?: Record<string, unknown> } | null)?.partnerships ?? {}) as Record<string, unknown>
+  const num = (v: unknown) => (typeof v === 'number' ? v : null)
+  return {
+    data: { total: num(p.total), active: num(p.active), completed: num(p.completed), cancelled: num(p.cancelled) },
+    error: null,
+  }
+}
+
 export async function fetchRecentAccounts(limit: number): Promise<{ data: AdminAccountRow[]; error: string | null }> {
   const { data, error } = await supabase
     .from('user_accounts')

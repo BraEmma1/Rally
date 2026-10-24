@@ -13,22 +13,19 @@ type ComingNextContent = {
   waitingOn: string
 }
 
-export type ComingNextPageKey = 'partnerships' | 'analytics'
+export type ComingNextPageKey = 'analytics'
 
 const COMING_NEXT: Record<ComingNextPageKey, ComingNextContent> = {
-  partnerships: {
-    title: 'Partnerships',
-    summary: 'Sponsor organizations and event partnerships across the platform.',
-    planned: ['Partnership status by event', 'Sponsor organizations', 'Deliverable progress where permitted'],
-    waitingOn:
-      'Backend support. Partnership data is readable only by each event’s organizers; private notes and documents will stay excluded.',
-  },
   analytics: {
     title: 'Analytics',
     summary: 'Platform growth and activity over time, with stated date ranges and definitions.',
-    planned: ['User growth and account type distribution', 'Event, registration, organization and partnership trends'],
+    planned: [
+      'User growth and account type distribution',
+      'Event, registration and organization trends',
+      'Partnership activity: platform-wide totals by status, and weekly or monthly trends — never individual agreements or values',
+    ],
     waitingOn:
-      'Backend support for event, organization and partnership figures. Charts will only appear where the data supports them.',
+      'The analytics page itself. The aggregate data is available; charts will only appear where the data supports them.',
   },
 }
 

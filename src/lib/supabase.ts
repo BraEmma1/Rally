@@ -162,6 +162,8 @@ export type AppNotification = {
 
 export const NOTIFICATION_TYPE_LABELS: Record<string, string> = {
   new_connection: 'New connection',
+  connection_request: 'Connection request',
+  connection_accepted: 'Request accepted',
   event_invitation: 'Event invitation',
   invitation_accepted: 'Invitation accepted',
   invitation_declined: 'Invitation declined',

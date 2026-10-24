@@ -1,26 +1,38 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { Calendar, MapPin, Clock, Users, ArrowRight, CalendarCheck, MailOpen, Check, X } from 'lucide-react'
+import { Calendar, MapPin, Clock, ArrowRight, CalendarCheck, MailOpen, Check, X, SearchX } from 'lucide-react'
 import { supabase, type EventRow, type EventRegistration, type EventInvitation } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
-import { Card, CardContent } from '@/components/ui/Card'
 import { LoadingState, ErrorState, EmptyState } from '@/components/ui/States'
-import { formatDate } from '@/lib/utils'
+import { PageHeader } from '@/components/ui/PageHeader'
+import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
+import { SearchField } from '@/components/ui/SearchField'
+import { Pagination } from '@/components/ui/Pagination'
+import { ViewToggle, type ViewMode } from '@/components/ui/ViewToggle'
+import { EventCard, NextEventCard, RegisteredPill } from '@/components/events/EventCard'
+import { formatClock, formatDateRange } from '@/lib/utils'
 
-function formatTime(time: string | null): string {
-  if (!time) return ''
-  try {
-    const [h, m] = time.split(':').map(Number)
-    const date = new Date()
-    date.setHours(h, m, 0, 0)
-    return date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  } catch {
-    return time
+const PAGE_SIZE = 6
+
+// Supabase errors are objects with a `message`; not all of them are Error instances.
+function errorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string') {
+    return (err as { message: string }).message
   }
+  return 'Please try again.'
+}
+
+// Only a plain positive integer is a page number. Anything else (negative,
+// decimal, trailing text, empty) means page 1; a number past the end means the
+// last page. Never NaN, never an out-of-range slice.
+function parsePage(raw: string | null, pageCount: number): number {
+  if (!raw || !/^[0-9]{1,9}$/.test(raw)) return 1
+  const n = Number.parseInt(raw, 10)
+  return Math.min(Math.max(n, 1), pageCount)
 }
 
 function isEventPast(event: EventRow): boolean {
@@ -40,6 +52,10 @@ export default function EventsPage() {
   const { refresh: refreshNotifications } = useNotifications()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // A failed register / unregister / accept / decline. Shown as a banner above the
+  // content so the list the person was working in stays on screen; `error` is
+  // reserved for the initial load failing.
+  const [actionError, setActionError] = useState<string | null>(null)
   const [events, setEvents] = useState<EventRow[]>([])
   const [registrations, setRegistrations] = useState<Set<string>>(new Set())
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({})
@@ -62,9 +78,57 @@ export default function EventsPage() {
     const next = new URLSearchParams(searchParams)
     if (tab === 'upcoming') next.delete('tab')
     else next.set('tab', tab)
+    next.delete('page')
     setSearchParams(next, { replace: true })
   }
-  const [responding, setResponding] = useState<string | null>(null)
+
+  // The page number lives in the URL (?page=2) so Back and shared links work.
+  function goToPage(n: number) {
+    const next = new URLSearchParams(searchParams)
+    if (n <= 1) next.delete('page')
+    else next.set('page', String(n))
+    setSearchParams(next)
+    document.getElementById('events-list-heading')?.scrollIntoView({ block: 'start' })
+  }
+
+  // A new search or sort starts again from the first page.
+  function resetPage() {
+    if (!searchParams.has('page')) return
+    const next = new URLSearchParams(searchParams)
+    next.delete('page')
+    setSearchParams(next, { replace: true })
+  }
+  // The invitation being accepted or declined, and which of the two.
+  const [responding, setResponding] = useState<{ id: string; kind: 'accept' | 'decline' } | null>(null)
+  // The event whose register / unregister request is in flight.
+  const [busyEventId, setBusyEventId] = useState<string | null>(null)
+  const [query, setQueryState] = useState('')
+  const [sort, setSortState] = useState<'soonest' | 'latest'>('soonest')
+  function setQuery(value: string) {
+    setQueryState(value)
+    resetPage()
+  }
+  function setSort(value: 'soonest' | 'latest') {
+    setSortState(value)
+    resetPage()
+  }
+  // Grid or list is a per-person preference; storage can be unavailable
+  // (private windows), in which case it simply is not remembered.
+  const [view, setViewState] = useState<ViewMode>(() => {
+    try {
+      return localStorage.getItem('rally.eventsView') === 'list' ? 'list' : 'grid'
+    } catch {
+      return 'grid'
+    }
+  })
+  function setView(mode: ViewMode) {
+    setViewState(mode)
+    try {
+      localStorage.setItem('rally.eventsView', mode)
+    } catch {
+      /* not remembered */
+    }
+  }
 
   async function loadData() {
     if (!user) return
@@ -133,16 +197,19 @@ export default function EventsPage() {
   }, [user])
 
   async function handleRegister(eventId: string) {
-    if (!user) return
+    if (!user || busyEventId) return
+    setActionError(null)
+    setBusyEventId(eventId)
     const { error: regError } = await supabase
       .from('event_registrations')
       .insert({ event_id: eventId, user_id: user.id })
     if (regError) {
-      setError(regError.message)
+      setBusyEventId(null)
+      setActionError(`Could not register: ${regError.message}`)
       return
     }
-    setRegistrations(new Set([...registrations, eventId]))
-    setRegistrationCounts({ ...registrationCounts, [eventId]: (registrationCounts[eventId] || 0) + 1 })
+    setRegistrations((prev) => new Set(prev).add(eventId))
+    setRegistrationCounts((prev) => ({ ...prev, [eventId]: (prev[eventId] || 0) + 1 }))
 
     // Notify self: registration confirmation
     const event = events.find((e) => e.id === eventId)
@@ -154,28 +221,39 @@ export default function EventsPage() {
       link: `/events/${eventId}`,
     })
     refreshNotifications()
+    setBusyEventId(null)
   }
 
   async function handleUnregister(eventId: string) {
-    if (!user) return
+    if (!user || busyEventId) return
+    setActionError(null)
+    setBusyEventId(eventId)
     const { error: unregError } = await supabase
       .from('event_registrations')
       .delete()
       .eq('event_id', eventId)
       .eq('user_id', user.id)
     if (unregError) {
-      setError(unregError.message)
+      setBusyEventId(null)
+      setActionError(`Could not unregister: ${unregError.message}`)
       return
     }
-    const newRegs = new Set(registrations)
-    newRegs.delete(eventId)
-    setRegistrations(newRegs)
-    setRegistrationCounts({ ...registrationCounts, [eventId]: Math.max(0, (registrationCounts[eventId] || 0) - 1) })
+    setRegistrations((prev) => {
+      const next = new Set(prev)
+      next.delete(eventId)
+      return next
+    })
+    setRegistrationCounts((prev) => ({ ...prev, [eventId]: Math.max(0, (prev[eventId] || 0) - 1) }))
+    setBusyEventId(null)
   }
 
   async function handleAccept(inv: InvitationWithEvent) {
-    if (!user) return
-    setResponding(inv.id)
+    if (!user || responding) return
+    setActionError(null)
+    setResponding({ id: inv.id, kind: 'accept' })
+    // True once the invitation row itself is Accepted in the database. If a later
+    // step fails, the list is reloaded so the screen shows what is actually stored.
+    let statusSaved = false
     try {
       // Update invitation status
       const { error: updateError } = await supabase
@@ -184,6 +262,7 @@ export default function EventsPage() {
         .eq('id', inv.id)
         .eq('invited_user_id', user.id)
       if (updateError) throw updateError
+      statusSaved = true
 
       // Server reads the invitation's status and composes the message for the inviter.
       await supabase.rpc('notify_invitation_response', { invitation_id: inv.id })
@@ -195,21 +274,25 @@ export default function EventsPage() {
           .from('event_registrations')
           .insert({ event_id: inv.event_id, user_id: user.id })
         if (regError && !regError.message.includes('duplicate')) throw regError
-        setRegistrations(new Set([...registrations, inv.event_id]))
-        setRegistrationCounts({ ...registrationCounts, [inv.event_id]: (registrationCounts[inv.event_id] || 0) + 1 })
+        setRegistrations((prev) => new Set(prev).add(inv.event_id))
+        setRegistrationCounts((prev) => ({ ...prev, [inv.event_id]: (prev[inv.event_id] || 0) + 1 }))
       }
 
-      setInvitations(invitations.map((i) => i.id === inv.id ? { ...i, status: 'Accepted', responded_at: new Date().toISOString() } : i))
+      setInvitations((prev) =>
+        prev.map((i) => (i.id === inv.id ? { ...i, status: 'Accepted', responded_at: new Date().toISOString() } : i))
+      )
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to accept invitation.')
+      setActionError(`Could not accept the invitation: ${errorMessage(err)}`)
+      if (statusSaved) void loadData()
     } finally {
       setResponding(null)
     }
   }
 
   async function handleDecline(inv: InvitationWithEvent) {
-    if (!user) return
-    setResponding(inv.id)
+    if (!user || responding) return
+    setActionError(null)
+    setResponding({ id: inv.id, kind: 'decline' })
     try {
       const { error: updateError } = await supabase
         .from('event_invitations')
@@ -221,9 +304,11 @@ export default function EventsPage() {
       // Notify the inviter that their invitation was declined
       await supabase.rpc('notify_invitation_response', { invitation_id: inv.id })
       refreshNotifications()
-      setInvitations(invitations.map((i) => i.id === inv.id ? { ...i, status: 'Declined', responded_at: new Date().toISOString() } : i))
+      setInvitations((prev) =>
+        prev.map((i) => (i.id === inv.id ? { ...i, status: 'Declined', responded_at: new Date().toISOString() } : i))
+      )
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to decline invitation.')
+      setActionError(`Could not decline the invitation: ${errorMessage(err)}`)
     } finally {
       setResponding(null)
     }
@@ -234,77 +319,102 @@ export default function EventsPage() {
 
   const upcomingEvents = events.filter((e) => !isEventPast(e))
   const pastEvents = events.filter((e) => isEventPast(e))
-  const displayEvents = activeTab === 'upcoming' ? upcomingEvents : pastEvents
   const myUpcomingCount = upcomingEvents.filter((e) => registrations.has(e.id)).length
   const pendingInvites = invitations.filter((i) => i.status === 'Pending').length
 
+  // Search is name / location / description. Events arrive soonest-first from
+  // the query; "latest" simply reverses that order.
+  const needle = query.trim().toLowerCase()
+  const matches = (e: EventRow) =>
+    !needle ||
+    e.name.toLowerCase().includes(needle) ||
+    (e.location || '').toLowerCase().includes(needle) ||
+    (e.description || '').toLowerCase().includes(needle)
+  const source = activeTab === 'past' ? pastEvents : upcomingEvents
+  const filtered = source.filter(matches)
+  const ordered = sort === 'soonest' ? filtered : [...filtered].reverse()
+
+  // The earliest upcoming event the person is registered for, shown as a wide
+  // card above the grid. Only on the unfiltered upcoming list.
+  const nextEvent =
+    activeTab === 'upcoming' && !needle ? upcomingEvents.find((e) => registrations.has(e.id)) : undefined
+  const gridEvents = nextEvent ? ordered.filter((e) => e.id !== nextEvent.id) : ordered
+
+  // Six per page, as in the design. A ?page= past the end lands on the last page.
+  const pageCount = Math.max(1, Math.ceil(gridEvents.length / PAGE_SIZE))
+  const page = parsePage(searchParams.get('page'), pageCount)
+  const pageStart = (page - 1) * PAGE_SIZE
+  const pageEvents = gridEvents.slice(pageStart, pageStart + PAGE_SIZE)
+
   return (
-    <div>
-      <h1 className="text-xl font-bold text-gray-900">Events</h1>
-      <p className="mt-1 text-sm text-gray-500">Discover and register for professional networking events</p>
+    <div className="space-y-6">
+      <PageHeader
+        title="Discover Events"
+        description="Discover and register for professional networking events."
+      />
 
-      {/* Tabs */}
-      <div className="mt-6 flex gap-1 border-b border-gray-200">
-        <button
-          onClick={() => switchTab('upcoming')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'upcoming'
-              ? 'border-primary-600 text-primary-700'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
+      {actionError && (
+        <div
+          role="alert"
+          className="flex items-start justify-between gap-3 rounded-xl border border-error-200 bg-error-50 p-4 text-sm text-error-800"
         >
-          <Calendar className="h-4 w-4" />
-          Upcoming
-          {myUpcomingCount > 0 && (
-            <span className="rounded-full bg-primary-100 px-1.5 py-0.5 text-xs font-medium text-primary-700">
-              {myUpcomingCount}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => switchTab('past')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'past'
-              ? 'border-primary-600 text-primary-700'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <CalendarCheck className="h-4 w-4" />
-          Past
-        </button>
-        <button
-          onClick={() => switchTab('invitations')}
-          className={`flex items-center gap-2 border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
-            activeTab === 'invitations'
-              ? 'border-primary-600 text-primary-700'
-              : 'border-transparent text-gray-500 hover:text-gray-700'
-          }`}
-        >
-          <MailOpen className="h-4 w-4" />
-          Invitations
-          {pendingInvites > 0 && (
-            <span className="rounded-full bg-error-100 px-1.5 py-0.5 text-xs font-medium text-error-700">
-              {pendingInvites}
-            </span>
-          )}
-        </button>
-      </div>
+          <p className="min-w-0">{actionError}</p>
+          <button
+            type="button"
+            onClick={() => setActionError(null)}
+            className="shrink-0 rounded-md px-2 py-1 font-semibold text-error-700 hover:bg-error-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-error-600"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
-      {/* Content */}
-      <div className="mt-4 space-y-4">
-        {activeTab === 'invitations' ? (
-          invitations.length === 0 ? (
-            <Card>
-              <CardContent>
-                <EmptyState
-                  icon={<MailOpen className="h-10 w-10" />}
-                  title="No invitations"
-                  description="Event invitations from organizers will appear here."
-                />
-              </CardContent>
-            </Card>
-          ) : (
-            invitations.map((inv) => {
+      <SegmentedTabs
+        label="Event views"
+        value={activeTab}
+        onChange={switchTab}
+        tabs={[
+          { key: 'upcoming', label: 'Upcoming', icon: <Calendar className="h-4 w-4" aria-hidden="true" />, count: myUpcomingCount },
+          { key: 'past', label: 'Past', icon: <CalendarCheck className="h-4 w-4" aria-hidden="true" /> },
+          { key: 'invitations', label: 'Invitations', icon: <MailOpen className="h-4 w-4" aria-hidden="true" />, count: pendingInvites, countTone: 'alert' },
+        ]}
+      />
+
+      {activeTab !== 'invitations' && (
+        <div className="flex flex-col gap-3 rounded-2xl border border-rally-line bg-white p-4 shadow-card sm:flex-row sm:items-center">
+          <SearchField
+            className="flex-1"
+            label="Search events"
+            placeholder="Search by name or location…"
+            value={query}
+            onChange={setQuery}
+          />
+          <label className="flex items-center gap-2 text-sm text-rally-muted">
+            <span className="shrink-0">Sort</span>
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as 'soonest' | 'latest')}
+              className="h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-medium text-primary-700 focus:border-primary-600 focus:outline-none focus:ring-2 focus:ring-rally-tint sm:w-52"
+            >
+              <option value="soonest">Date: earliest first</option>
+              <option value="latest">Date: latest first</option>
+            </select>
+          </label>
+        </div>
+      )}
+
+      {activeTab === 'invitations' ? (
+        invitations.length === 0 ? (
+          <div className="rounded-2xl border border-rally-line bg-white shadow-card">
+            <EmptyState
+              icon={<MailOpen className="h-10 w-10" />}
+              title="No invitations"
+              description="Event invitations from organizers will appear here."
+            />
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {invitations.map((inv) => {
               const event = inv.event
               if (!event) return null
               const isPending = inv.status === 'Pending'
@@ -313,189 +423,171 @@ export default function EventsPage() {
               const isRegistered = registrations.has(event.id)
 
               return (
-                <Card key={inv.id} className="overflow-hidden">
-                  <div className="flex flex-col sm:flex-row">
-                    {/* Event image */}
-                    {event.image_url && (
-                      <div className="h-32 flex-shrink-0 sm:h-auto sm:w-40">
-                        <img
-                          src={event.image_url}
-                          alt={event.name}
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
-                    )}
-
-                    <CardContent className="flex-1 py-4">
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-sm font-semibold text-gray-900">{event.name}</h3>
-                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-                            <span className="flex items-center gap-1">
-                              <Calendar className="h-3 w-3" /> {formatDate(event.start_date)}
-                              {event.end_date && event.end_date !== event.start_date ? ` – ${formatDate(event.end_date)}` : ''}
-                            </span>
-                            {event.start_time && (
-                              <span className="flex items-center gap-1">
-                                <Clock className="h-3 w-3" /> {formatTime(event.start_time)}
-                                {event.end_time ? ` – ${formatTime(event.end_time)}` : ''}
-                              </span>
-                            )}
-                          </div>
-                          {event.location && (
-                            <p className="mt-1 flex items-center gap-1 text-xs text-gray-500">
-                              <MapPin className="h-3 w-3" /> {event.location}
-                            </p>
-                          )}
-                          {event.description && (
-                            <p className="mt-2 line-clamp-2 text-xs text-gray-600">{event.description}</p>
-                          )}
-
-                          {/* Organizer */}
-                          <div className="mt-2 flex items-center gap-2">
-                            {inv.inviter_name && (
-                              <div className="flex items-center gap-1.5">
-                                <Avatar name={inv.inviter_name} size="xs" />
-                                <span className="text-xs text-gray-500">Invited by {inv.inviter_name}</span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Status badge */}
-                          <div className="mt-2">
-                            {isPending && <Badge variant="warning">Pending</Badge>}
-                            {isAccepted && <Badge variant="success">Accepted</Badge>}
-                            {isDeclined && <Badge variant="error">Declined</Badge>}
-                          </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex flex-shrink-0 flex-col gap-2 sm:items-end">
-                          <Link to={`/events/${event.id}`}>
-                            <Button size="sm" variant="secondary" className="w-full sm:w-auto">
-                              View <ArrowRight className="h-3.5 w-3.5" />
-                            </Button>
-                          </Link>
-                          {isPending && (
-                            <div className="flex gap-2">
-                              <Button
-                                size="sm"
-                                onClick={() => handleAccept(inv)}
-                                disabled={responding === inv.id}
-                                className="bg-success-600 text-white hover:bg-success-700"
-                              >
-                                <Check className="h-3.5 w-3.5" /> Accept
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="secondary"
-                                onClick={() => handleDecline(inv)}
-                                disabled={responding === inv.id}
-                                className="text-error-600 hover:bg-error-50"
-                              >
-                                <X className="h-3.5 w-3.5" /> Decline
-                              </Button>
-                            </div>
-                          )}
-                          {isAccepted && isRegistered && (
-                            <Badge variant="success">Registered</Badge>
-                          )}
-                          {isAccepted && !isRegistered && (
-                            <Button size="sm" onClick={() => handleRegister(event.id)}>
-                              Register
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </div>
-                </Card>
-              )
-            })
-          )
-        ) : displayEvents.length === 0 ? (
-          <Card>
-            <CardContent>
-              <EmptyState
-                icon={<Calendar className="h-10 w-10" />}
-                title={activeTab === 'upcoming' ? 'No upcoming events' : 'No past events'}
-                description={activeTab === 'upcoming' ? 'Check back soon for new networking events.' : 'Events you attend will appear here after they end.'}
-              />
-            </CardContent>
-          </Card>
-        ) : (
-          displayEvents.map((event) => {
-            const isRegistered = registrations.has(event.id)
-            const count = registrationCounts[event.id] || 0
-            return (
-              <Card key={event.id} className="overflow-hidden">
-                <div className="flex flex-col sm:flex-row">
-                  {/* Event image */}
+                <article
+                  key={inv.id}
+                  className="flex flex-col overflow-hidden rounded-2xl border border-rally-line bg-white shadow-card sm:flex-row"
+                >
                   {event.image_url && (
-                    <div className="h-32 flex-shrink-0 sm:h-auto sm:w-40">
-                      <img
-                        src={event.image_url}
-                        alt={event.name}
-                        className="h-full w-full object-cover"
-                      />
+                    <div className="h-36 flex-shrink-0 sm:h-auto sm:w-48">
+                      <img src={event.image_url} alt="" className="h-full w-full object-cover" loading="lazy" />
                     </div>
                   )}
-
-                  <CardContent className="flex-1 py-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div className="min-w-0 flex-1">
-                        <h3 className="text-sm font-semibold text-gray-900">{event.name}</h3>
-                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" /> {formatDate(event.start_date)}
-                            {event.end_date && event.end_date !== event.start_date ? ` – ${formatDate(event.end_date)}` : ''}
+                  <div className="flex flex-1 flex-col gap-3 p-4 sm:flex-row sm:items-start sm:justify-between md:p-5">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-display text-lg font-semibold tracking-tight text-rally-navy">{event.name}</h3>
+                      <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-rally-muted">
+                        <span className="flex items-center gap-1.5">
+                          <Calendar className="h-4 w-4 text-primary-600" aria-hidden="true" />
+                          {formatDateRange(event.start_date, event.end_date)}
+                        </span>
+                        {event.start_time && (
+                          <span className="flex items-center gap-1.5">
+                            <Clock className="h-4 w-4 text-primary-600" aria-hidden="true" />
+                            {formatClock(event.start_time)}
+                            {event.end_time ? ` – ${formatClock(event.end_time)}` : ''}
                           </span>
-                          {event.start_time && (
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" /> {formatTime(event.start_time)}
-                              {event.end_time ? ` – ${formatTime(event.end_time)}` : ''}
-                            </span>
-                          )}
-                        </div>
-                        {event.location && (
-                          <p className="mt-1 flex items-center gap-1 text-xs text-gray-500">
-                            <MapPin className="h-3 w-3" /> {event.location}
-                          </p>
                         )}
-                        <div className="mt-2 flex items-center gap-3">
-                          <span className="flex items-center gap-1 text-xs text-gray-400">
-                            <Users className="h-3 w-3" /> {count}{event.capacity ? ` / ${event.capacity}` : ''} registered
-                          </span>
-                          {isRegistered && <Badge variant="success">Registered</Badge>}
-                        </div>
                       </div>
-
-                      <div className="flex flex-shrink-0 gap-2">
-                        <Link to={`/events/${event.id}`}>
-                          <Button size="sm" variant="secondary">
-                            View <ArrowRight className="h-3.5 w-3.5" />
-                          </Button>
-                        </Link>
-                        {activeTab === 'upcoming' && (
-                          isRegistered ? (
-                            <Button size="sm" variant="outline" onClick={() => handleUnregister(event.id)}>
-                              Unregister
-                            </Button>
-                          ) : (
-                            <Button size="sm" onClick={() => handleRegister(event.id)}>
-                              Register
-                            </Button>
-                          )
-                        )}
+                      {event.location && (
+                        <p className="mt-1 flex items-center gap-1.5 text-sm text-rally-muted">
+                          <MapPin className="h-4 w-4 text-primary-600" aria-hidden="true" /> {event.location}
+                        </p>
+                      )}
+                      {event.description && <p className="mt-2 line-clamp-2 text-sm text-slate-600">{event.description}</p>}
+                      {inv.inviter_name && (
+                        <div className="mt-3 flex items-center gap-1.5">
+                          <Avatar name={inv.inviter_name} size="xs" />
+                          <span className="text-sm text-rally-muted">Invited by {inv.inviter_name}</span>
+                        </div>
+                      )}
+                      <div className="mt-3">
+                        {isPending && <Badge variant="warning">Pending</Badge>}
+                        {isAccepted && <Badge variant="success">Accepted</Badge>}
+                        {isDeclined && <Badge variant="error">Declined</Badge>}
                       </div>
                     </div>
-                  </CardContent>
+
+                    <div className="flex flex-shrink-0 flex-col gap-2 sm:items-end">
+                      <Link to={`/events/${event.id}`}>
+                        <Button size="lg" variant="secondary" className="w-full rounded-xl sm:w-auto">
+                          View <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                        </Button>
+                      </Link>
+                      {isPending && (
+                        <div className="flex gap-2">
+                          <Button
+                            size="lg"
+                            onClick={() => handleAccept(inv)}
+                            disabled={responding !== null}
+                            className="rounded-xl bg-success-600 text-white hover:bg-success-700"
+                          >
+                            <Check className="h-4 w-4" aria-hidden="true" />
+                            {responding?.id === inv.id && responding.kind === 'accept' ? 'Accepting…' : 'Accept'}
+                          </Button>
+                          <Button
+                            size="lg"
+                            variant="secondary"
+                            onClick={() => handleDecline(inv)}
+                            disabled={responding !== null}
+                            className="rounded-xl text-error-600 hover:bg-error-50"
+                          >
+                            <X className="h-4 w-4" aria-hidden="true" />
+                            {responding?.id === inv.id && responding.kind === 'decline' ? 'Declining…' : 'Decline'}
+                          </Button>
+                        </div>
+                      )}
+                      {isAccepted && isRegistered && <RegisteredPill />}
+                      {isAccepted && !isRegistered && (
+                        <Button
+                          size="lg"
+                          className="rounded-xl"
+                          onClick={() => handleRegister(event.id)}
+                          disabled={busyEventId === event.id}
+                        >
+                          Register
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        )
+      ) : source.length === 0 ? (
+        <div className="rounded-2xl border border-rally-line bg-white shadow-card">
+          <EmptyState
+            icon={<Calendar className="h-10 w-10" />}
+            title={activeTab === 'upcoming' ? 'No upcoming events' : 'No past events'}
+            description={
+              activeTab === 'upcoming'
+                ? 'Check back soon for new networking events.'
+                : 'Events you attend will appear here after they end.'
+            }
+          />
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="rounded-2xl border border-rally-line bg-white shadow-card">
+          <EmptyState
+            icon={<SearchX className="h-10 w-10" />}
+            title="No events match your search"
+            description="Try a different name or location."
+            action={
+              <Button variant="secondary" className="rounded-xl" onClick={() => setQuery('')}>
+                Clear search
+              </Button>
+            }
+          />
+        </div>
+      ) : (
+        <>
+          {nextEvent && <NextEventCard event={nextEvent} registeredCount={registrationCounts[nextEvent.id] || 0} />}
+
+          {gridEvents.length > 0 && (
+            <section aria-labelledby="events-list-heading">
+              <div className="mb-4 flex items-center gap-3">
+                <h2 id="events-list-heading" className="font-display text-xl font-semibold tracking-tight text-rally-navy">
+                  {activeTab === 'upcoming' ? 'Upcoming events' : 'Past events'}
+                </h2>
+                <span className="rounded-full bg-rally-tint px-2.5 py-0.5 text-xs font-semibold text-primary-700">
+                  {gridEvents.length} listed
+                </span>
+              </div>
+              <div className={view === 'list' ? 'flex flex-col gap-4' : 'grid gap-5 sm:grid-cols-2 xl:grid-cols-3'}>
+                {pageEvents.map((event) => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    layout={view}
+                    registered={registrations.has(event.id)}
+                    registeredCount={registrationCounts[event.id] || 0}
+                    past={activeTab === 'past'}
+                    busy={busyEventId === event.id}
+                    onRegister={() => handleRegister(event.id)}
+                    onUnregister={() => handleUnregister(event.id)}
+                  />
+                ))}
+              </div>
+
+              <div className="mt-6 flex flex-col items-center gap-4 rounded-2xl border border-rally-line bg-white p-4 shadow-card md:flex-row md:justify-between">
+                <p className="text-sm text-rally-muted" aria-live="polite">
+                  Showing{' '}
+                  <span className="font-semibold text-rally-navy">
+                    {pageStart + 1}–{pageStart + pageEvents.length}
+                  </span>{' '}
+                  of <span className="font-semibold text-rally-navy">{gridEvents.length}</span>{' '}
+                  {gridEvents.length === 1 ? 'event' : 'events'}
+                </p>
+                <Pagination page={page} pageCount={pageCount} onChange={goToPage} label="Events pages" />
+                <div className="flex items-center gap-2 text-sm text-rally-muted">
+                  <span>View</span>
+                  <ViewToggle value={view} onChange={setView} />
                 </div>
-              </Card>
-            )
-          })
-        )}
-      </div>
+              </div>
+            </section>
+          )}
+        </>
+      )}
     </div>
   )
 }

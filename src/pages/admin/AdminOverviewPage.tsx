@@ -12,18 +12,21 @@ import {
   describeChange,
   fetchAccountChanges,
   fetchAccountMetrics,
+  fetchPartnershipAggregates,
   fetchPendingOrganizers,
   fetchProfileNames,
   fetchRecentAccounts,
   formatDateTime,
   type AccountMetrics,
+  type PartnershipAggregates,
 } from '@/lib/admin'
 import type { AccountChange, AdminAccountRow, ProfileName } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
-// Admins have no read policy on organizations, private events, registrations or
-// partnerships, so those metrics are shown as unavailable with the reason,
-// never as 0.
+// Organization and event figures are shown as unavailable with the reason,
+// never as 0, until the overview reads them from admin_platform_overview.
+// Partnerships are platform-wide aggregates only: individual agreements and
+// their values are organization-private.
 const NO_ADMIN_READ = 'Admins cannot read this data yet. It needs an admin-only read function.'
 const EVENTS_PRIVATE =
   'Draft, unlisted and archived events are private to each organization, so a platform-wide count is not readable yet.'
@@ -35,6 +38,7 @@ type Section<T> = { data: T; error: string | null }
 export default function AdminOverviewPage() {
   const [loading, setLoading] = useState(true)
   const [metrics, setMetrics] = useState<Section<AccountMetrics | null>>({ data: null, error: null })
+  const [partnerships, setPartnerships] = useState<Section<PartnershipAggregates | null>>({ data: null, error: null })
   const [pending, setPending] = useState<Section<AdminAccountRow[]>>({ data: [], error: null })
   const [pendingTotal, setPendingTotal] = useState(0)
   const [recent, setRecent] = useState<Section<AdminAccountRow[]>>({ data: [], error: null })
@@ -44,13 +48,15 @@ export default function AdminOverviewPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [m, p, r, a] = await Promise.all([
+    const [m, p, r, a, pa] = await Promise.all([
       fetchAccountMetrics(),
       fetchPendingOrganizers(5),
       fetchRecentAccounts(8),
       fetchAccountChanges(0, 5),
+      fetchPartnershipAggregates(),
     ])
     setMetrics(m)
+    setPartnerships(pa)
     setPending({ data: p.data, error: p.error })
     setPendingTotal(p.total)
     setRecent({ data: r.data, error: r.error })
@@ -129,15 +135,56 @@ export default function AdminOverviewPage() {
 
       <section aria-labelledby="platform-heading" className="mb-8">
         <h2 id="platform-heading" className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
-          Organizations, events and partnerships
+          Organizations and events
         </h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard label="Total organizations" definition="" unavailable={NO_ADMIN_READ} />
           <StatCard label="Pending organization approvals" definition="" unavailable={NO_ADMIN_READ} />
           <StatCard label="Total events" definition="" unavailable={EVENTS_PRIVATE} />
           <StatCard label="Published events" definition="" unavailable={PUBLISHED_HELD} />
-          <StatCard label="Active partnerships" definition="" unavailable={NO_ADMIN_READ} />
         </div>
+      </section>
+
+      <section aria-labelledby="partnerships-heading" className="mb-8">
+        <h2 id="partnerships-heading" className="mb-1 text-sm font-semibold uppercase tracking-wide text-gray-500">
+          Partnerships, platform-wide
+        </h2>
+        <p className="mb-3 text-xs text-gray-500">
+          Aggregate counts only. Individual partnerships and their values belong to each organization and are not
+          visible to administrators.
+        </p>
+        {partnerships.error ? (
+          <Card>
+            <ErrorState message={partnerships.error} onRetry={() => void load()} />
+          </Card>
+        ) : (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard
+              label="Total partnerships"
+              definition="Every partnership on Rally, in any status."
+              value={partnerships.data?.total}
+              loading={loading && !partnerships.data}
+            />
+            <StatCard
+              label="Active"
+              definition="Accepted partnerships that are under way."
+              value={partnerships.data?.active}
+              loading={loading && !partnerships.data}
+            />
+            <StatCard
+              label="Completed"
+              definition="Partnerships their organization has marked complete."
+              value={partnerships.data?.completed}
+              loading={loading && !partnerships.data}
+            />
+            <StatCard
+              label="Cancelled"
+              definition="Partnerships ended before completion."
+              value={partnerships.data?.cancelled}
+              loading={loading && !partnerships.data}
+            />
+          </div>
+        )}
       </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

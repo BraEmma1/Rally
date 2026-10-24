@@ -55,6 +55,17 @@ export default {
           800: '#92400e',
           900: '#78350f',
         },
+        // Rally Event UI design system (design-reference/stitch/rally-event-ui/design-system.md).
+        // Namespaced so existing pages keep their current colours until they adopt it.
+        rally: {
+          canvas: '#f8f9ff', // surface / background
+          ink: '#0b1c30', // on-background; app sidebar
+          navy: '#0B2554', // headings
+          tint: '#EDF6FD', // selected / hover fill
+          line: '#E2E8F0', // card borders
+          muted: '#475569', // secondary text
+          'sidebar-text': '#cbdbf5', // surface-dim
+        },
         error: {
           50: '#fef2f2',
           100: '#fee2e2',
@@ -70,6 +81,13 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        // Headings in the Rally Event UI design system.
+        display: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif'],
+      },
+      boxShadow: {
+        // design-system "Standard Surfaces": shadow-sm tinted with the navy ink.
+        card: '0 1px 2px 0 rgba(11, 37, 84, 0.04)',
+        float: '0 4px 12px -1px rgba(11, 37, 84, 0.08), 0 2px 4px -2px rgba(11, 37, 84, 0.04)',
       },
     },
   },

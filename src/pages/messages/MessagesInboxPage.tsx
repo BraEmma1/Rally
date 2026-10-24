@@ -10,6 +10,7 @@ import {
 } from '@/lib/messages'
 import { Avatar } from '@/components/ui/Avatar'
 import { LoadingState, EmptyState, ErrorState } from '@/components/ui/States'
+import { PageHeader } from '@/components/ui/PageHeader'
 import { cn } from '@/lib/utils'
 
 function formatConversationTime(iso: string | null): string {
@@ -47,6 +48,9 @@ export default function MessagesInboxPage() {
   // Stamps each fetch so a slow earlier one cannot land after a newer one and
   // put stale rows back on screen.
   const requestSeqRef = useRef(0)
+  // True once any fetch has delivered rows, so a later failure can be told
+  // apart from "nothing has ever loaded".
+  const hasLoadedRef = useRef(false)
 
   // The list is always re-read whole from get_my_conversations rather than
   // patched row by row. That RPC is the only thing that knows what a row should
@@ -66,14 +70,21 @@ export default function MessagesInboxPage() {
       // Only the first load may replace the list with an error screen. A
       // background refresh that fails leaves the last good rows up; the next
       // event, reconnect or tab focus reconciles.
-      if (initial) {
+      if (initial || !hasLoadedRef.current) {
         setError(toFriendlyMessageError(loadError, 'Could not load your conversations. Please try again.'))
       }
     } else {
+      hasLoadedRef.current = true
       setConversations(data)
       setError(null)
     }
-    if (initial) setLoading(false)
+    // Whichever fetch is newest ends the loading state, not only the first one.
+    // A realtime refresh that starts while the first fetch is still in flight
+    // makes the first result stale and discards it; if only "initial" could
+    // clear the spinner, the page would then load forever. This is exactly what
+    // happens after leaving a chat, because marking it read fires an event as
+    // the inbox mounts.
+    setLoading(false)
   }, [])
 
   // Three messages arriving together are one refresh, not three.
@@ -130,21 +141,21 @@ export default function MessagesInboxPage() {
     )
   }
 
-  return (
-    <div className="mx-auto max-w-md md:max-w-2xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-gray-900">Messages</h1>
-      </div>
+  const unreadTotal = conversations.reduce((n, c) => n + (c.unread_count > 0 ? 1 : 0), 0)
 
-      <div className="relative mt-3">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
+  return (
+    <div className="mx-auto w-full max-w-3xl">
+      <PageHeader title="Messages" description="Direct conversations with the people you have connected with." />
+
+      <div className="relative mt-5">
+        <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" aria-hidden="true" />
         <input
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search messages..."
+          placeholder="Search by name or company…"
           aria-label="Search conversations"
-          className="h-10 w-full rounded-lg border border-gray-200 bg-gray-50 pl-9 pr-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary-600 focus:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+          className="h-12 w-full rounded-xl border border-rally-line bg-white pl-10 pr-3 text-sm text-rally-navy shadow-card placeholder:text-gray-400 focus:border-primary-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
         />
       </div>
 
@@ -153,52 +164,61 @@ export default function MessagesInboxPage() {
       ) : error ? (
         <ErrorState message={error} />
       ) : conversations.length === 0 ? (
-        <EmptyState
-          icon={<MessageSquare className="h-8 w-8" />}
-          title="No conversations yet."
-          description="Connect with someone at an event to start a conversation."
-        />
+        <div className="mt-5 rounded-2xl border border-rally-line bg-white p-6 shadow-card">
+          <EmptyState
+            icon={<MessageSquare className="h-8 w-8" />}
+            title="No conversations yet."
+            description="Connect with someone at an event to start a conversation."
+          />
+        </div>
       ) : filtered.length === 0 ? (
-        <p className="mt-6 rounded-md border border-dashed border-gray-200 px-3 py-4 text-center text-sm text-gray-400">
+        <p className="mt-5 rounded-2xl border border-dashed border-gray-300 bg-white px-3 py-6 text-center text-sm text-gray-500">
           No conversations match “{search.trim()}”.
         </p>
       ) : (
-        <ul className="mt-2 divide-y divide-gray-100">
-          {filtered.map((c) => (
-            <li key={c.conversation_id}>
-              <button
-                onClick={() => void openConversation(c)}
-                className={cn(
-                  'flex w-full items-center gap-3 py-3 text-left transition-colors hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600',
-                  c.unread_count > 0 && 'bg-primary-50/50'
-                )}
-              >
-                <Avatar name={c.other_full_name} src={c.other_photo_url} size="md" className="h-12 w-12 flex-shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline justify-between gap-2">
-                    <p className={cn('truncate text-[15px] text-gray-900', c.unread_count > 0 ? 'font-semibold' : 'font-medium')}>
-                      {c.other_full_name || 'Rally member'}
-                    </p>
-                    <span className="flex-shrink-0 text-xs text-gray-400">{formatConversationTime(c.last_message_at)}</span>
-                  </div>
-                  <div className="mt-0.5 flex items-center justify-between gap-2">
-                    <p className={cn('truncate text-sm', c.unread_count > 0 ? 'font-medium text-gray-700' : 'text-gray-500')}>
-                      {c.last_message_body || 'No messages yet'}
-                    </p>
-                    {c.unread_count > 0 && (
-                      <span className="flex h-5 min-w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary-600 px-1.5 text-[11px] font-semibold text-white">
-                        {c.unread_count > 9 ? '9+' : c.unread_count}
-                      </span>
-                    )}
-                  </div>
-                  {c.event_name && (
-                    <p className="mt-0.5 truncate text-xs text-gray-400">Met at {c.event_name}</p>
+        <>
+          <p className="mt-4 text-xs font-semibold uppercase tracking-wider text-slate-500">
+            {conversations.length} {conversations.length === 1 ? 'conversation' : 'conversations'}
+            {unreadTotal > 0 ? ` · ${unreadTotal} unread` : ''}
+          </p>
+          <ul className="mt-2 divide-y divide-rally-line overflow-hidden rounded-2xl border border-rally-line bg-white shadow-card">
+            {filtered.map((c) => (
+              <li key={c.conversation_id}>
+                <button
+                  onClick={() => void openConversation(c)}
+                  className={cn(
+                    'flex min-h-[72px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-rally-tint focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600',
+                    c.unread_count > 0 && 'bg-rally-tint/60'
                   )}
-                </div>
-              </button>
-            </li>
-          ))}
-        </ul>
+                >
+                  <Avatar name={c.other_full_name} src={c.other_photo_url} size="md" className="h-12 w-12 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className={cn('truncate text-[15px] text-rally-navy', c.unread_count > 0 ? 'font-semibold' : 'font-medium')}>
+                        {c.other_full_name || 'Rally member'}
+                      </p>
+                      <span className={cn('flex-shrink-0 text-xs', c.unread_count > 0 ? 'font-semibold text-primary-700' : 'text-gray-400')}>
+                        {formatConversationTime(c.last_message_at)}
+                      </span>
+                    </div>
+                    {c.other_company && <p className="truncate text-xs text-slate-500">{c.other_company}</p>}
+                    <div className="mt-0.5 flex items-center justify-between gap-2">
+                      <p className={cn('truncate text-sm', c.unread_count > 0 ? 'font-medium text-gray-700' : 'text-gray-500')}>
+                        {c.last_message_body || 'No messages yet'}
+                      </p>
+                      {c.unread_count > 0 && (
+                        <span className="flex h-5 min-w-5 flex-shrink-0 items-center justify-center rounded-full bg-primary-600 px-1.5 text-[11px] font-semibold text-white">
+                          {c.unread_count > 9 ? '9+' : c.unread_count}
+                        </span>
+                      )}
+                    </div>
+                    {c.event_name && <p className="mt-0.5 truncate text-xs text-gray-400">Met at {c.event_name}</p>}
+                  </div>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   )
