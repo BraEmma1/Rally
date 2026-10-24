@@ -232,7 +232,7 @@ function rec(group, name, pass, detail = '') {
       await page.click('nav[aria-label="Event navigation"] a[aria-label="Event network"]')
       await page.waitForURL('**/events/e-next/network')
       rec(`shell-${tag}`, 'bottom nav Network -> /network', true)
-      await page.click('nav[aria-label="Event navigation"] a[aria-label="Messages"]')
+      await page.click('nav[aria-label="Event navigation"] a[aria-label^="Messages"]')
       await page.waitForURL('**/events/e-next/messages')
       await page.click('nav[aria-label="Event navigation"] a[aria-label="Event home"]')
       await page.waitForURL('**/events/e-next/home')
