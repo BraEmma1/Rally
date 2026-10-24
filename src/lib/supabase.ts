@@ -363,6 +363,70 @@ export type AdminOrganizationDetail = {
   pending_invitations: number
 }
 
+export type AdminEventVisibility = 'draft' | 'published' | 'unlisted'
+export type AdminEventStatus = 'upcoming' | 'live' | 'past'
+
+// "active" excludes cancelled and waitlisted. "checked_in" counts
+// checked_in_at, which the check-in function always sets.
+export type AdminRegistrationCounts = {
+  active: number
+  checked_in: number
+  waitlisted: number
+  cancelled: number
+}
+
+// admin_list_events row. Drafts and unlisted events are included; the
+// description is deliberately left to admin_get_event.
+export type AdminEventRow = {
+  id: string
+  name: string
+  location: string | null
+  organization_id: string | null
+  organization_name: string | null
+  start_date: string | null
+  end_date: string | null
+  start_time: string | null
+  end_time: string | null
+  timezone: string | null
+  status: AdminEventStatus
+  visibility: AdminEventVisibility
+  published_at: string | null
+  archived_at: string | null
+  created_at: string | null
+  capacity: number | null
+  registrations: AdminRegistrationCounts
+}
+
+// admin_get_event. Counts only: no attendee identities or contact details.
+export type AdminEventDetail = {
+  event: {
+    id: string
+    name: string
+    description: string | null
+    location: string | null
+    image_url: string | null
+    start_date: string | null
+    end_date: string | null
+    start_time: string | null
+    end_time: string | null
+    timezone: string | null
+    status: AdminEventStatus
+    visibility: AdminEventVisibility
+    capacity: number | null
+    published_at: string | null
+    archived_at: string | null
+    created_at: string | null
+    created_by: string | null
+    created_by_name: string | null
+  }
+  organization: { id: string; name: string; org_type: OrgType; approval_status: OrgApprovalStatus } | null
+  registrations: AdminRegistrationCounts & { total: number }
+  team_size: number
+  sessions: number
+  speakers: number
+  exhibitors: number
+}
+
 // ---------------------------------------------------------------------------
 // Organizations
 // ---------------------------------------------------------------------------

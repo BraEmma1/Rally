@@ -221,19 +221,25 @@ export default function AdminOrganizationDetailPage() {
               ) : (
                 <ul className="divide-y divide-gray-100">
                   {detail.events.map((e) => (
-                    <li key={e.id} className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-gray-900">{e.name}</p>
-                        <p className="text-xs text-gray-500">{eventDates(e.start_date, e.end_date)}</p>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <EventVisibilityBadge visibility={e.visibility} />
-                        <EventStatusBadge status={e.status} />
-                        {e.archived_at && <ArchivedBadge />}
-                        <span className="text-xs text-gray-500">
-                          {e.active_registrations} {e.active_registrations === 1 ? 'registration' : 'registrations'}
-                        </span>
-                      </div>
+                    <li key={e.id}>
+                      <Link
+                        to={`/admin/events/${e.id}`}
+                        state={{ from: location.pathname }}
+                        className="-mx-2 flex flex-col gap-2 rounded-md px-2 py-3 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-primary-700">{e.name}</p>
+                          <p className="text-xs text-gray-500">{eventDates(e.start_date, e.end_date)}</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <EventVisibilityBadge visibility={e.visibility} />
+                          <EventStatusBadge status={e.status} />
+                          {e.archived_at && <ArchivedBadge />}
+                          <span className="text-xs text-gray-500">
+                            {e.active_registrations} {e.active_registrations === 1 ? 'registration' : 'registrations'}
+                          </span>
+                        </div>
+                      </Link>
                     </li>
                   ))}
                 </ul>
@@ -243,10 +249,15 @@ export default function AdminOrganizationDetailPage() {
                   Showing the {eventsShown} latest of {detail.event_count} events.
                 </p>
               )}
-              <p className="mt-2 text-xs text-gray-500">
-                Registrations exclude cancelled and waitlisted. Event pages for administrators arrive with event
-                management.
-              </p>
+              {detail.event_count > 0 && (
+                <Link
+                  to={`/admin/events?org=${org.id}&archived=1`}
+                  className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary-600 hover:text-primary-700"
+                >
+                  View all {detail.event_count} in Events
+                </Link>
+              )}
+              <p className="mt-2 text-xs text-gray-500">Registrations exclude cancelled and waitlisted.</p>
             </CardContent>
           </Card>
         </div>
