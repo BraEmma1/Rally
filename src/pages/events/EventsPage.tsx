@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { Calendar, MapPin, Clock, ArrowRight, CalendarCheck, MailOpen, Check, X, SearchX } from 'lucide-react'
-import { supabase, type EventRow, type EventRegistration, type EventInvitation } from '@/lib/supabase'
+import { supabase, type EventRow, type EventInvitation } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import { Avatar } from '@/components/ui/Avatar'
@@ -13,7 +13,14 @@ import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { SearchField } from '@/components/ui/SearchField'
 import { Pagination } from '@/components/ui/Pagination'
 import { ViewToggle, type ViewMode } from '@/components/ui/ViewToggle'
-import { EventCard, NextEventCard, RegisteredPill } from '@/components/events/EventCard'
+import { EventCard, NextEventCard, RegisteredPill, WaitlistPill } from '@/components/events/EventCard'
+import { CancelRegistrationDialog, RegistrationDialog } from '@/components/events/RegistrationDialog'
+import {
+  fetchMyRegistrationStatuses,
+  isAttending,
+  type RegistrationResult,
+  type RegistrationStatus,
+} from '@/lib/registrations'
 import { formatClock, formatDateRange } from '@/lib/utils'
 
 const PAGE_SIZE = 6
@@ -57,7 +64,15 @@ export default function EventsPage() {
   // reserved for the initial load failing.
   const [actionError, setActionError] = useState<string | null>(null)
   const [events, setEvents] = useState<EventRow[]>([])
-  const [registrations, setRegistrations] = useState<Set<string>>(new Set())
+  // My registration status per event (cancelled ones are not kept). Waitlisted is
+  // not attending: no seat yet.
+  const [registrations, setRegistrations] = useState<Map<string, RegistrationStatus>>(new Map())
+  const attending = (eventId: string) => isAttending(registrations.get(eventId))
+  const waitlistedFor = (eventId: string) => registrations.get(eventId) === 'waitlisted'
+  const isFull = (e: EventRow) => !!e.capacity && (registrationCounts[e.id] || 0) >= e.capacity
+  // The event whose registration / cancel dialog is open.
+  const [registerEventId, setRegisterEventId] = useState<string | null>(null)
+  const [cancelEventId, setCancelEventId] = useState<string | null>(null)
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({})
   const [invitations, setInvitations] = useState<InvitationWithEvent[]>([])
   const [searchParams, setSearchParams] = useSearchParams()
@@ -100,8 +115,6 @@ export default function EventsPage() {
   }
   // The invitation being accepted or declined, and which of the two.
   const [responding, setResponding] = useState<{ id: string; kind: 'accept' | 'decline' } | null>(null)
-  // The event whose register / unregister request is in flight.
-  const [busyEventId, setBusyEventId] = useState<string | null>(null)
   const [query, setQueryState] = useState('')
   const [sort, setSortState] = useState<'soonest' | 'latest'>('soonest')
   function setQuery(value: string) {
@@ -137,7 +150,7 @@ export default function EventsPage() {
     try {
       const [eventsRes, regRes, inviteRes] = await Promise.all([
         supabase.from('events').select('*').order('start_date', { ascending: true }),
-        supabase.from('event_registrations').select('event_id').eq('user_id', user.id),
+        fetchMyRegistrationStatuses(user.id),
         supabase.from('event_invitations').select('*').eq('invited_user_id', user.id).order('created_at', { ascending: false }),
       ])
 
@@ -147,7 +160,7 @@ export default function EventsPage() {
 
       const eventList = eventsRes.data as EventRow[]
       setEvents(eventList)
-      setRegistrations(new Set((regRes.data as EventRegistration[]).map((r) => r.event_id)))
+      setRegistrations(regRes.data)
 
       // Aggregate counts come from an RPC: registration rows are now visible
       // only to fellow attendees, and this is one call instead of one per event.
@@ -196,55 +209,38 @@ export default function EventsPage() {
     loadData()
   }, [user])
 
-  async function handleRegister(eventId: string) {
-    if (!user || busyEventId) return
+  // Registering opens the dialog (registration form, waitlist notice, confirmation);
+  // the register / cancel calls themselves live in the dialogs.
+  function handleRegister(eventId: string) {
+    if (!user || registrations.has(eventId)) return
     setActionError(null)
-    setBusyEventId(eventId)
-    const { error: regError } = await supabase
-      .from('event_registrations')
-      .insert({ event_id: eventId, user_id: user.id })
-    if (regError) {
-      setBusyEventId(null)
-      setActionError(`Could not register: ${regError.message}`)
-      return
-    }
-    setRegistrations((prev) => new Set(prev).add(eventId))
-    setRegistrationCounts((prev) => ({ ...prev, [eventId]: (prev[eventId] || 0) + 1 }))
-
-    // Notify self: registration confirmation
-    const event = events.find((e) => e.id === eventId)
-    await supabase.from('notifications').insert({
-      user_id: user.id,
-      type: 'event_registration',
-      title: 'Registration confirmed',
-      message: `You are registered for ${event?.name || 'the event'}.`,
-      link: `/events/${eventId}`,
-    })
-    refreshNotifications()
-    setBusyEventId(null)
+    setRegisterEventId(eventId)
   }
 
-  async function handleUnregister(eventId: string) {
-    if (!user || busyEventId) return
+  function handleUnregister(eventId: string) {
+    if (!user || !registrations.has(eventId)) return
     setActionError(null)
-    setBusyEventId(eventId)
-    const { error: unregError } = await supabase
-      .from('event_registrations')
-      .delete()
-      .eq('event_id', eventId)
-      .eq('user_id', user.id)
-    if (unregError) {
-      setBusyEventId(null)
-      setActionError(`Could not unregister: ${unregError.message}`)
-      return
+    setCancelEventId(eventId)
+  }
+
+  function onRegistered(eventId: string, result: RegistrationResult) {
+    setRegistrations((prev) => new Map(prev).set(eventId, result.registration_status))
+    if (result.registration_status === 'registered') {
+      setRegistrationCounts((prev) => ({ ...prev, [eventId]: (prev[eventId] || 0) + 1 }))
     }
+    refreshNotifications()
+  }
+
+  function onCancelled(eventId: string, previous: RegistrationStatus | null) {
+    setCancelEventId(null)
     setRegistrations((prev) => {
-      const next = new Set(prev)
+      const next = new Map(prev)
       next.delete(eventId)
       return next
     })
-    setRegistrationCounts((prev) => ({ ...prev, [eventId]: Math.max(0, (prev[eventId] || 0) - 1) }))
-    setBusyEventId(null)
+    if (isAttending(previous)) {
+      setRegistrationCounts((prev) => ({ ...prev, [eventId]: Math.max(0, (prev[eventId] || 0) - 1) }))
+    }
   }
 
   async function handleAccept(inv: InvitationWithEvent) {
@@ -268,15 +264,9 @@ export default function EventsPage() {
       await supabase.rpc('notify_invitation_response', { invitation_id: inv.id })
       refreshNotifications()
 
-      // Register for event (prevent duplicate)
-      if (!registrations.has(inv.event_id)) {
-        const { error: regError } = await supabase
-          .from('event_registrations')
-          .insert({ event_id: inv.event_id, user_id: user.id })
-        if (regError && !regError.message.includes('duplicate')) throw regError
-        setRegistrations((prev) => new Set(prev).add(inv.event_id))
-        setRegistrationCounts((prev) => ({ ...prev, [inv.event_id]: (prev[inv.event_id] || 0) + 1 }))
-      }
+      // Accepting an invitation is not a registration: registering has a form and
+      // may land on the waitlist, so hand over to the same dialog everyone else uses.
+      if (!registrations.has(inv.event_id)) setRegisterEventId(inv.event_id)
 
       setInvitations((prev) =>
         prev.map((i) => (i.id === inv.id ? { ...i, status: 'Accepted', responded_at: new Date().toISOString() } : i))
@@ -319,7 +309,7 @@ export default function EventsPage() {
 
   const upcomingEvents = events.filter((e) => !isEventPast(e))
   const pastEvents = events.filter((e) => isEventPast(e))
-  const myUpcomingCount = upcomingEvents.filter((e) => registrations.has(e.id)).length
+  const myUpcomingCount = upcomingEvents.filter((e) => attending(e.id)).length
   const pendingInvites = invitations.filter((i) => i.status === 'Pending').length
 
   // Search is name / location / description. Events arrive soonest-first from
@@ -337,7 +327,7 @@ export default function EventsPage() {
   // The earliest upcoming event the person is registered for, shown as a wide
   // card above the grid. Only on the unfiltered upcoming list.
   const nextEvent =
-    activeTab === 'upcoming' && !needle ? upcomingEvents.find((e) => registrations.has(e.id)) : undefined
+    activeTab === 'upcoming' && !needle ? upcomingEvents.find((e) => attending(e.id)) : undefined
   const gridEvents = nextEvent ? ordered.filter((e) => e.id !== nextEvent.id) : ordered
 
   // Six per page, as in the design. A ?page= past the end lands on the last page.
@@ -420,7 +410,8 @@ export default function EventsPage() {
               const isPending = inv.status === 'Pending'
               const isAccepted = inv.status === 'Accepted'
               const isDeclined = inv.status === 'Declined'
-              const isRegistered = registrations.has(event.id)
+              const isRegistered = attending(event.id)
+              const isWaitlisted = waitlistedFor(event.id)
 
               return (
                 <article
@@ -497,14 +488,10 @@ export default function EventsPage() {
                         </div>
                       )}
                       {isAccepted && isRegistered && <RegisteredPill />}
-                      {isAccepted && !isRegistered && (
-                        <Button
-                          size="lg"
-                          className="rounded-xl"
-                          onClick={() => handleRegister(event.id)}
-                          disabled={busyEventId === event.id}
-                        >
-                          Register
+                      {isAccepted && isWaitlisted && <WaitlistPill />}
+                      {isAccepted && !isRegistered && !isWaitlisted && (
+                        <Button size="lg" className="rounded-xl" onClick={() => handleRegister(event.id)}>
+                          {isFull(event) ? 'Join waitlist' : 'Register'}
                         </Button>
                       )}
                     </div>
@@ -559,10 +546,12 @@ export default function EventsPage() {
                     key={event.id}
                     event={event}
                     layout={view}
-                    registered={registrations.has(event.id)}
+                    registered={attending(event.id)}
+                    waitlisted={waitlistedFor(event.id)}
+                    full={isFull(event)}
                     registeredCount={registrationCounts[event.id] || 0}
                     past={activeTab === 'past'}
-                    busy={busyEventId === event.id}
+                    busy={false}
                     onRegister={() => handleRegister(event.id)}
                     onUnregister={() => handleUnregister(event.id)}
                   />
@@ -588,6 +577,32 @@ export default function EventsPage() {
           )}
         </>
       )}
+
+      {registerEventId &&
+        (() => {
+          const target = events.find((e) => e.id === registerEventId)
+          return target ? (
+            <RegistrationDialog
+              event={target}
+              full={isFull(target)}
+              onClose={() => setRegisterEventId(null)}
+              onRegistered={(result) => onRegistered(target.id, result)}
+            />
+          ) : null
+        })()}
+      {cancelEventId &&
+        (() => {
+          const target = events.find((e) => e.id === cancelEventId)
+          const status = registrations.get(cancelEventId)
+          return target && status ? (
+            <CancelRegistrationDialog
+              event={target}
+              status={status}
+              onClose={() => setCancelEventId(null)}
+              onCancelled={(previous) => onCancelled(target.id, previous)}
+            />
+          ) : null
+        })()}
     </div>
   )
 }

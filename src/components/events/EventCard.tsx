@@ -7,6 +7,10 @@ import { formatClock, formatDateRange } from '@/lib/utils'
 interface EventCardProps {
   event: EventRow
   registered: boolean
+  // On the waitlist: no seat yet.
+  waitlisted?: boolean
+  // At capacity: registering joins the waitlist.
+  full?: boolean
   registeredCount: number
   // Past events cannot be registered for or left.
   past: boolean
@@ -65,6 +69,14 @@ export function RegisteredCount({ count, capacity }: { count: number; capacity: 
   )
 }
 
+export function WaitlistPill() {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">
+      On the waitlist
+    </span>
+  )
+}
+
 export function RegisteredPill() {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-50 px-2.5 py-1 text-xs font-semibold text-accent-700">
@@ -79,6 +91,8 @@ export function RegisteredPill() {
 export function EventCard({
   event,
   registered,
+  waitlisted = false,
+  full = false,
   registeredCount,
   past,
   busy,
@@ -119,6 +133,7 @@ export function EventCard({
           <div className="flex flex-col items-start gap-1.5">
             <RegisteredCount count={registeredCount} capacity={event.capacity} />
             {registered && <RegisteredPill />}
+            {waitlisted && <WaitlistPill />}
           </div>
           <div className="flex items-center gap-2">
             <Link to={`/events/${event.id}`}>
@@ -127,13 +142,13 @@ export function EventCard({
               </Button>
             </Link>
             {!past &&
-              (registered ? (
+              (registered || waitlisted ? (
                 <Button size="lg" variant="ghost" className="rounded-xl" onClick={onUnregister} disabled={busy}>
-                  Unregister
+                  {waitlisted ? 'Leave waitlist' : 'Unregister'}
                 </Button>
               ) : (
                 <Button size="lg" className="rounded-xl" onClick={onRegister} disabled={busy}>
-                  {busy ? 'Registering…' : 'Register'}
+                  {full ? 'Join waitlist' : 'Register'}
                 </Button>
               ))}
           </div>

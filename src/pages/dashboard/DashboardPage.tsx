@@ -149,7 +149,8 @@ export default function DashboardPage() {
         supabase
           .from('event_registrations')
           .select('event_id')
-          .eq('user_id', user.id),
+          .eq('user_id', user.id)
+          .in('status', ['registered', 'checked_in']),
         supabase
           .from('opportunities')
           .select('*')

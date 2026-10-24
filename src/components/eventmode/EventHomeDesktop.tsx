@@ -105,7 +105,7 @@ export default function EventHomeDesktop() {
       getEventAgenda(event.id),
       listMyEventSchedule(event.id),
       listSessionSpeakers(event.id),
-      supabase.from('event_registrations').select('id, checked_in_at').eq('event_id', event.id).eq('user_id', user.id).maybeSingle(),
+      supabase.from('event_registrations').select('id, checked_in_at').eq('event_id', event.id).eq('user_id', user.id).in('status', ['registered', 'checked_in']).maybeSingle(),
       supabase.rpc('get_event_registration_counts', { event_ids: [event.id] }),
       supabase.from('connections').select('created_at').eq('owner_id', user.id).eq('event_id', event.id),
     ]).then(([agenda, mine, spk, reg, counts, conns]) => {
