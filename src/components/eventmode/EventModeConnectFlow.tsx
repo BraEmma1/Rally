@@ -30,6 +30,9 @@ export default function EventModeConnectFlow({
 }) {
   const navigate = useNavigate()
   const [step, setStep] = useState<Step>('scan')
+  // "Scan again" after a failed lookup that started from a known person: only then
+  // is the camera wanted even though initialProfileId is set.
+  const [rescan, setRescan] = useState(false)
   const [targetProfile, setTargetProfile] = useState<ConnectProfile | null>(null)
   const [connectionId, setConnectionId] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState('')
@@ -52,6 +55,7 @@ export default function EventModeConnectFlow({
     }
     if (!open) {
       setStep('scan')
+      setRescan(false)
       setTargetProfile(null)
       setConnectionId(null)
       setErrorMsg('')
@@ -204,7 +208,12 @@ export default function EventModeConnectFlow({
 
   if (!open) return null
 
-  if (step === 'scan') {
+  // The camera starts the moment the scanner mounts. When the flow was opened onto
+  // a known person, the first render still has step 'scan' (the lookup only begins in
+  // an effect), so mounting the scanner there switched the camera on behind the
+  // loading screen. Only show the scanner when scanning is really what was asked for.
+  const lookingUpKnownPerson = step === 'scan' && !!initialProfileId && !rescan
+  if (step === 'scan' && !lookingUpKnownPerson) {
     return <QRScanner onScan={handleScan} onClose={onClose} />
   }
 
@@ -212,7 +221,7 @@ export default function EventModeConnectFlow({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/50 p-4 md:p-8" role="dialog" aria-modal="true">
       <div className="fixed inset-0 overflow-y-auto bg-white md:relative md:h-auto md:max-h-[90vh] md:w-[28rem] md:rounded-xl md:shadow-xl">
         <div className="mx-auto w-full max-w-md px-4 py-6">
-          {step === 'loading' && <p className="text-center text-sm text-gray-500">Loading profile…</p>}
+          {(step === 'loading' || lookingUpKnownPerson) && <p className="text-center text-sm text-gray-500">Loading profile…</p>}
 
           {step === 'error' && (
             <div className="flex flex-col items-center gap-3 py-4 text-center">
@@ -222,7 +231,7 @@ export default function EventModeConnectFlow({
               <h2 className="text-lg font-bold text-gray-900">Couldn't connect</h2>
               <p className="text-sm text-gray-500">{errorMsg}</p>
               <div className="mt-2 flex flex-col gap-2">
-                <Button variant="secondary" onClick={() => setStep('scan')}>Scan again</Button>
+                <Button variant="secondary" onClick={() => { setRescan(true); setStep('scan') }}>Scan again</Button>
                 <Button variant="ghost" onClick={onClose}>Close</Button>
               </div>
             </div>

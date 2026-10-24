@@ -141,6 +141,10 @@ export default function EventModeLayout() {
           setSheetOpen(false)
           setScanOpen(true)
         }}
+        onSendRequest={() => {
+          setSheetOpen(false)
+          navigate(`${eventBasePath}/network`)
+        }}
         event={event}
       />
       <EventModeConnectFlow

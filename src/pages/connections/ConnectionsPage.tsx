@@ -10,6 +10,14 @@ import { Card, CardContent } from '@/components/ui/Card'
 import { ErrorState, EmptyState } from '@/components/ui/States'
 import { PageHeader } from '@/components/ui/PageHeader'
 import { Pagination } from '@/components/ui/Pagination'
+import ConnectionRequestsPanel from '@/components/connections/ConnectionRequestsPanel'
+import {
+  cancelConnectionRequest,
+  fetchMyConnectionRequests,
+  friendlyRequestError,
+  respondToConnectionRequest,
+  type ConnectionRequest,
+} from '@/lib/connectionRequests'
 import { normalizeUrl } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 
@@ -159,6 +167,35 @@ export default function ConnectionsPage() {
     notes: '',
   })
 
+  // Open connection requests, both directions. If they cannot be read (for example
+  // before the backend feature is installed) the page simply shows none.
+  const [requests, setRequests] = useState<ConnectionRequest[]>([])
+  const [busyRequestId, setBusyRequestId] = useState<string | null>(null)
+  const [requestError, setRequestError] = useState<string | null>(null)
+
+  async function loadRequests() {
+    const { data, error: reqError } = await fetchMyConnectionRequests()
+    setRequests(reqError ? [] : data)
+  }
+
+  async function handleRespond(request: ConnectionRequest, accept: boolean) {
+    setBusyRequestId(request.id)
+    setRequestError(null)
+    const { error: respondError } = await respondToConnectionRequest(request.id, accept)
+    setBusyRequestId(null)
+    if (respondError) setRequestError(friendlyRequestError(respondError, 'Could not answer the request. Please try again.'))
+    await Promise.all([loadRequests(), loadConnections()])
+  }
+
+  async function handleCancelRequest(request: ConnectionRequest) {
+    setBusyRequestId(request.id)
+    setRequestError(null)
+    const { error: cancelError } = await cancelConnectionRequest(request.id)
+    setBusyRequestId(null)
+    if (cancelError) setRequestError(friendlyRequestError(cancelError, 'Could not withdraw the request. Please try again.'))
+    await loadRequests()
+  }
+
   async function loadConnections() {
     if (!user) return
     setLoading(true)
@@ -193,6 +230,7 @@ export default function ConnectionsPage() {
 
   useEffect(() => {
     loadConnections()
+    void loadRequests()
   }, [user])
 
   async function handleAdd(e: React.FormEvent) {
@@ -385,6 +423,17 @@ export default function ConnectionsPage() {
           </Button>
         }
       />
+
+      {requests.length > 0 && (
+        <section id="requests" className="mt-5 scroll-mt-20" aria-label="Connection requests">
+          {requestError && (
+            <p role="alert" className="mb-3 rounded-xl bg-error-50 px-4 py-3 text-sm text-error-700">
+              {requestError}
+            </p>
+          )}
+          <ConnectionRequestsPanel requests={requests} busyId={busyRequestId} onRespond={(r, a) => void handleRespond(r, a)} onCancel={(r) => void handleCancelRequest(r)} />
+        </section>
+      )}
 
       {/* Real counts only */}
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
