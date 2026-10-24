@@ -53,6 +53,8 @@ import { EventAgendaPanel } from '@/components/organizer/EventAgendaPanel'
 import { EventSpeakersPanel } from '@/components/organizer/EventSpeakersPanel'
 import { EventExhibitorsPanel } from '@/components/organizer/EventExhibitorsPanel'
 import { EventPartnersPanel } from '@/components/organizer/EventPartnersPanel'
+import { RegistrationFormPanel } from '@/components/organizer/RegistrationFormPanel'
+import { RegistrationAnswersPanel } from '@/components/organizer/RegistrationAnswersPanel'
 
 type Tab =
   | 'overview'
@@ -690,47 +692,51 @@ export default function EventDetailPage() {
       )}
 
       {tab === 'registrations' && (
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-2">
-            <CardTitle>Registrations</CardTitle>
-            <Users className="h-4 w-4 text-gray-400" aria-hidden="true" />
-          </CardHeader>
-          <CardContent>
-            {attendees.length === 0 ? (
-              <EmptyState
-                icon={<Users className="h-8 w-8" />}
-                title="No registrations yet"
-                description={
-                  lifecycle === 'draft'
-                    ? 'Publish this event so attendees can find and register for it.'
-                    : 'Registrations appear here as people sign up.'
-                }
-              />
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {attendees.map((a) => (
-                  <li key={a.user_id} className="flex flex-wrap items-center gap-3 py-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-gray-900">
-                        {a.full_name || 'Rally member'}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Registered {formatDateTime(a.registered_at)}
-                      </p>
-                    </div>
-                    <Badge
-                      variant={
-                        a.status === 'cancelled' ? 'gray' : a.status === 'checked_in' ? 'success' : 'default'
-                      }
-                    >
-                      {a.status.replace(/_/g, ' ')}
-                    </Badge>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </CardContent>
-        </Card>
+        <div className="space-y-6">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-2">
+              <CardTitle>Registrations</CardTitle>
+              <Users className="h-4 w-4 text-gray-400" aria-hidden="true" />
+            </CardHeader>
+            <CardContent>
+              {attendees.length === 0 ? (
+                <EmptyState
+                  icon={<Users className="h-8 w-8" />}
+                  title="No registrations yet"
+                  description={
+                    lifecycle === 'draft'
+                      ? 'Publish this event so attendees can find and register for it.'
+                      : 'Registrations appear here as people sign up.'
+                  }
+                />
+              ) : (
+                <ul className="divide-y divide-gray-100">
+                  {attendees.map((a) => (
+                    <li key={a.user_id} className="flex flex-wrap items-center gap-3 py-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-gray-900">
+                          {a.full_name || 'Rally member'}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Registered {formatDateTime(a.registered_at)}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={
+                          a.status === 'cancelled' ? 'gray' : a.status === 'checked_in' ? 'success' : a.status === 'waitlisted' ? 'warning' : 'default'
+                        }
+                      >
+                        {a.status.replace(/_/g, ' ')}
+                      </Badge>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </CardContent>
+          </Card>
+          <RegistrationFormPanel event={event} manages={manages} />
+          <RegistrationAnswersPanel eventId={event.id} />
+        </div>
       )}
 
       {tab === 'checkin' && <CheckInPanel eventId={event.id} />}
