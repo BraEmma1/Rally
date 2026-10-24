@@ -140,7 +140,8 @@ export function EventHero({
   event,
   past,
   registered,
-  registering,
+  waitlisted,
+  full,
   attendeeCount,
   host,
   onRegister,
@@ -150,7 +151,10 @@ export function EventHero({
   event: EventRow
   past: boolean
   registered: boolean
-  registering: boolean
+  // On the waitlist: no seat yet.
+  waitlisted: boolean
+  // At capacity: registering joins the waitlist.
+  full: boolean
   attendeeCount: number
   // null until loaded, and when the event has no public host to show.
   host: EventHost | null
@@ -276,9 +280,14 @@ export function EventHero({
               </>
             ) : (
               <>
-                {!past && (
-                  <Button size="lg" className="rounded-xl" onClick={onRegister} disabled={registering}>
-                    {registering ? 'Registering…' : 'Register for Event'} <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                {!past && waitlisted && (
+                  <p className="inline-flex min-h-[44px] items-center rounded-xl bg-amber-50 px-4 text-sm font-semibold text-amber-900" role="status">
+                    You’re on the waitlist. We’ll register you if a place opens.
+                  </p>
+                )}
+                {!past && !waitlisted && (
+                  <Button size="lg" className="rounded-xl" onClick={onRegister}>
+                    {full ? 'Join waitlist' : 'Register for Event'} <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 )}
                 <ComingSoonButton size="lg" variant="secondary">
@@ -310,9 +319,9 @@ export function EventHero({
               <Share2 className="h-5 w-5 md:h-4 md:w-4" aria-hidden="true" />
               <span className="hidden md:inline">Share Event</span>
             </Button>
-            {registered && !past && (
-              <Button size="lg" variant="ghost" className="rounded-xl text-slate-600" onClick={onUnregister} disabled={registering}>
-                {registering ? 'Working…' : 'Unregister'}
+            {(registered || waitlisted) && !past && (
+              <Button size="lg" variant="ghost" className="rounded-xl text-slate-600" onClick={onUnregister}>
+                {waitlisted ? 'Leave waitlist' : 'Unregister'}
               </Button>
             )}
           </div>
@@ -618,12 +627,12 @@ export function EventFaq() {
 export function SecurePass({
   event,
   past,
-  registering,
+  full,
   onRegister,
 }: {
   event: EventRow
   past: boolean
-  registering: boolean
+  full: boolean
   onRegister: () => void
 }) {
   return (
@@ -662,8 +671,8 @@ export function SecurePass({
             </div>
             <p className="mt-1 text-sm text-slate-500">Additional pass tiers and pricing will appear here.</p>
           </div>
-          <Button size="lg" className="mt-4 w-full rounded-xl" onClick={onRegister} disabled={registering}>
-            {registering ? 'Registering…' : 'Proceed to registration'} <ArrowRight className="h-4 w-4" aria-hidden="true" />
+          <Button size="lg" className="mt-4 w-full rounded-xl" onClick={onRegister}>
+            {full ? 'Join the waitlist' : 'Proceed to registration'} <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Button>
           <ul className="mt-3 space-y-1.5 text-xs text-slate-500">
             <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary-600" aria-hidden="true" /> Instant confirmation</li>

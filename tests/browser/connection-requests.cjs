@@ -118,7 +118,7 @@ function rawRows(url) {
   if (p.endsWith('/profiles')) return one([profile])
   if (p.endsWith('/user_accounts')) return one([{ account_type: ctl.accountType, status: ctl.accountStatus }])
   if (p.endsWith('/events')) return events
-  if (p.endsWith('/event_registrations')) return [...registered].map((id) => ({ event_id: id, id: 'reg-' + id + '-0f3a9c21', user_id: UID, checked_in_at: null }))
+  if (p.endsWith('/event_registrations')) return [...registered].map((id) => ({ event_id: id, id: 'reg-' + id + '-0f3a9c21', user_id: UID, checked_in_at: null, status: 'registered' }))
   if (p.endsWith('/event_invitations')) return invitations
   if (p.endsWith('/connections')) return one(conns)
   if (p.endsWith('/follow_ups')) return one(followUps)
@@ -143,6 +143,19 @@ function rawRows(url) {
   return []
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// Registering opens a dialog: confirm it, wait for the confirmation, close it.
+async function confirmRegister(page) {
+  await page.waitForSelector('[role=dialog]')
+  await page.click('[role=dialog] button:has-text("Confirm registration"), [role=dialog] button:has-text("Join waitlist")')
+  await page.waitForSelector('[role=dialog] >> text=registered', { timeout: 6000 })
+  await page.click('[role=dialog] button:has-text("Done")')
+  await page.waitForSelector('[role=dialog]', { state: 'detached' })
+}
+async function confirmCancel(page) {
+  await page.waitForSelector('[role=dialog]')
+  await page.click('[role=dialog] button:has-text("Cancel registration"), [role=dialog] button:has-text("Leave waitlist")')
+  await page.waitForSelector('[role=dialog]', { state: 'detached' })
+}
 const err = (code, message) => ({ code, message, details: null, hint: null })
 
 async function wire(ctx) {
@@ -153,6 +166,27 @@ async function wire(ctx) {
     if (m === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
     if (m === 'HEAD') { const n = rows(url).length; return route.fulfill({ status: 200, headers: { ...cors, 'content-range': `0-0/${n}` } }) }
     if (m === 'GET') return json(200, rows(url, (req.headers()['accept'] || '').includes('pgrst.object')))
+    // Registration goes through RPCs: the table cannot be written directly any more.
+    if (m === 'POST' && url.endsWith('/rpc/register_for_event')) {
+      if (ctl.delay) await sleep(ctl.delay)
+      const b = JSON.parse(req.postData() || '{}')
+      if (ctl.failRegister) { log.push(['POST reg FAILED', b.p_event_id]); return json(400, err('P0001', 'internal failure')) }
+      registered.add(b.p_event_id); regCounts[b.p_event_id]++; log.push(['POST reg', b.p_event_id])
+      return json(200, [{ registration_id: 'r-' + b.p_event_id, registration_status: 'registered', waitlist_position: null }])
+    }
+    if (m === 'POST' && url.endsWith('/rpc/cancel_event_registration')) {
+      const b = JSON.parse(req.postData() || '{}')
+      if (ctl.failUnregister) { log.push(['DELETE reg FAILED', b.p_event_id]); return json(400, err('P0001', 'internal failure')) }
+      registered.delete(b.p_event_id); regCounts[b.p_event_id]--; log.push(['DELETE reg', b.p_event_id])
+      return json(200, 'registered')
+    }
+    if (m === 'POST' && url.endsWith('/rpc/get_event_registration_form')) return json(200, [])
+    if (m === 'POST' && url.endsWith('/rpc/my_event_registration')) {
+      const b = JSON.parse(req.postData() || '{}')
+      return json(200, registered.has(b.p_event_id)
+        ? [{ registration_id: 'r-' + b.p_event_id, registration_status: 'registered', registered_at: '2026-10-01T00:00:00Z', waitlist_position: null, answers: {} }]
+        : [])
+    }
     if (m === 'POST' && url.includes('/rpc/')) {
       const fn = url.split('/rpc/')[1].split('?')[0]
       const b = JSON.parse(req.postData() || '{}')

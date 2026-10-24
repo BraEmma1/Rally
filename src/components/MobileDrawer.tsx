@@ -86,6 +86,7 @@ export default function MobileDrawer({ open, onClose }: { open: boolean; onClose
           .from('event_registrations')
           .select('event_id, events!inner(start_date)', { count: 'exact', head: true })
           .eq('user_id', userId)
+          .in('status', ['registered', 'checked_in'])
           .gte('events.start_date', today),
         supabase
           .from('event_invitations')

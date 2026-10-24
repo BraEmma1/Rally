@@ -114,6 +114,7 @@ function EventHomeMobile() {
         .select('id, checked_in_at')
         .eq('event_id', eventId)
         .eq('user_id', userId)
+        .in('status', ['registered', 'checked_in'])
         .maybeSingle()
       if (!cancelled) setCheckedIn(!!data?.checked_in_at)
     }

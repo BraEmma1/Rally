@@ -13,6 +13,8 @@ import {
 import { supabase, type EventRow, type PublicProfile, type ConnectProfile, type Connection, type EventRegistration, RELATIONSHIP_TYPES } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
+import { CancelRegistrationDialog, RegistrationDialog } from '@/components/events/RegistrationDialog'
+import { fetchMyRegistration, isAttending, type RegistrationResult, type RegistrationStatus } from '@/lib/registrations'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -64,13 +66,18 @@ export default function EventDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [event, setEvent] = useState<EventRow | null>(null)
-  const [isRegistered, setIsRegistered] = useState(false)
+  // My registration for this event, or null. A cancelled one counts as none.
+  const [regStatus, setRegStatus] = useState<RegistrationStatus | null>(null)
+  // Registered or checked in. Waitlisted people do not get the attendee views.
+  const isRegistered = isAttending(regStatus)
+  const isWaitlisted = regStatus === 'waitlisted'
+  const [showRegister, setShowRegister] = useState(false)
+  const [showCancel, setShowCancel] = useState(false)
   const [attendeeCount, setAttendeeCount] = useState(0)
   const [attendees, setAttendees] = useState<PublicProfile[]>([])
   const [attendeeLoading, setAttendeeLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [tab, setTab] = useState<Tab>('about')
-  const [registering, setRegistering] = useState(false)
   // A failed register / unregister. Shown as a banner so the page stays on screen;
   // `error` is reserved for the event failing to load.
   const [actionError, setActionError] = useState<string | null>(null)
@@ -101,7 +108,7 @@ export default function EventDetailPage() {
     try {
       const [eventRes, regRes] = await Promise.all([
         supabase.from('events').select('*').eq('id', id).maybeSingle(),
-        supabase.from('event_registrations').select('id').eq('event_id', id).eq('user_id', user.id).maybeSingle(),
+        fetchMyRegistration(id),
       ])
 
       if (eventRes.error) throw eventRes.error
@@ -114,7 +121,7 @@ export default function EventDetailPage() {
 
       const eventData = eventRes.data as EventRow
       setEvent(eventData)
-      setIsRegistered(!!regRes.data)
+      setRegStatus(regRes.data && regRes.data.registration_status !== 'cancelled' ? regRes.data.registration_status : null)
 
       // Aggregate-only RPC: the count stays public while the registration rows
       // behind it are visible to fellow attendees only.
@@ -137,6 +144,7 @@ export default function EventDetailPage() {
       .from('event_registrations')
       .select('user_id')
       .eq('event_id', id)
+      .in('status', ['registered', 'checked_in'])
 
     if (!regs || regs.length === 0) {
       setAttendees([])
@@ -200,49 +208,30 @@ export default function EventDetailPage() {
     }
   }, [tab, isRegistered])
 
-  async function handleRegister() {
-    if (!id || !user || registering) return
+  // Registering opens the registration dialog (form, waitlist notice, confirmation);
+  // the register / cancel calls themselves live in the dialogs.
+  function handleRegister() {
+    if (!id || !user || regStatus) return
     setActionError(null)
-    setRegistering(true)
-    const { error: regError } = await supabase
-      .from('event_registrations')
-      .insert({ event_id: id, user_id: user.id })
-    if (regError) {
-      setActionError(`Could not register: ${regError.message}`)
-      setRegistering(false)
-      return
-    }
-    setIsRegistered(true)
-    setAttendeeCount((n) => n + 1)
-    setRegistering(false)
+    setShowRegister(true)
+  }
 
-    await supabase.from('notifications').insert({
-      user_id: user.id,
-      type: 'event_registration',
-      title: 'Registration confirmed',
-      message: `You are registered for ${event?.name || 'the event'}.`,
-      link: `/events/${id}`,
-    })
+  function handleUnregister() {
+    if (!id || !user || !regStatus) return
+    setActionError(null)
+    setShowCancel(true)
+  }
+
+  function onRegistered(result: RegistrationResult) {
+    setRegStatus(result.registration_status)
+    if (result.registration_status === 'registered') setAttendeeCount((n) => n + 1)
     refreshNotifications()
   }
 
-  async function handleUnregister() {
-    if (!id || !user || registering) return
-    setActionError(null)
-    setRegistering(true)
-    const { error: unregError } = await supabase
-      .from('event_registrations')
-      .delete()
-      .eq('event_id', id)
-      .eq('user_id', user.id)
-    if (unregError) {
-      setActionError(`Could not unregister: ${unregError.message}`)
-      setRegistering(false)
-      return
-    }
-    setIsRegistered(false)
-    setAttendeeCount((n) => Math.max(0, n - 1))
-    setRegistering(false)
+  function onCancelled(previous: RegistrationStatus | null) {
+    setShowCancel(false)
+    setRegStatus(null)
+    if (isAttending(previous)) setAttendeeCount((n) => Math.max(0, n - 1))
   }
 
   // --- Connection flow ---
@@ -377,6 +366,7 @@ export default function EventDetailPage() {
   if (!event) return <ErrorState message="Event not found." />
 
   const past = isEventPast(event)
+  const full = !!event.capacity && attendeeCount >= event.capacity
   const filteredAttendees = attendees.filter((a) => {
     if (!search) return true
     const q = search.toLowerCase()
@@ -392,8 +382,8 @@ export default function EventDetailPage() {
 
   // The pass options are for people who have not registered. A registered
   // attendee's pass (badge QR) lives in Event Mode, not on this page.
-  const passCard = isRegistered ? null : (
-    <SecurePass event={event} past={past} registering={registering} onRegister={handleRegister} />
+  const passCard = isRegistered || isWaitlisted ? null : (
+    <SecurePass event={event} past={past} full={full} onRegister={handleRegister} />
   )
 
   return (
@@ -418,9 +408,14 @@ export default function EventDetailPage() {
               Confirmed Attendee
             </span>
           )}
-          {!isRegistered && !past && (
+          {isWaitlisted && (
+            <span className="inline-flex items-center rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-800">
+              On the waitlist
+            </span>
+          )}
+          {!isRegistered && !isWaitlisted && !past && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-50 px-3 py-1 text-xs font-semibold text-accent-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-accent-500" aria-hidden="true" /> Registration open
+              <span className="h-1.5 w-1.5 rounded-full bg-accent-500" aria-hidden="true" /> {full ? 'Event full · waitlist open' : 'Registration open'}
             </span>
           )}
           {past && (
@@ -453,7 +448,8 @@ export default function EventDetailPage() {
         event={event}
         past={past}
         registered={isRegistered}
-        registering={registering}
+        waitlisted={isWaitlisted}
+        full={full}
         attendeeCount={attendeeCount}
         host={host}
         onRegister={handleRegister}
@@ -484,7 +480,7 @@ export default function EventDetailPage() {
             <AgendaHighlights
               sessions={agenda}
               registered={isRegistered}
-              registering={registering}
+              registering={false}
               past={past}
               onUnlock={handleRegister}
               fullAgendaPath={`${basePath}/agenda`}
@@ -750,18 +746,35 @@ export default function EventDetailPage() {
       )}
 
       {/* Phones: keep the main action in reach while the long page scrolls. */}
-      {!isRegistered && !past && (
+      {!isRegistered && !isWaitlisted && !past && (
         <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-rally-line bg-white/95 p-3 backdrop-blur md:hidden">
           <div className="mx-auto flex max-w-xl items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-semibold text-rally-navy">{event.name}</p>
-              <p className="text-xs text-rally-muted">{attendeeCount} registered</p>
+              <p className="text-xs text-rally-muted">{attendeeCount} registered{full ? ' · full' : ''}</p>
             </div>
-            <Button size="lg" className="shrink-0 rounded-xl" onClick={handleRegister} disabled={registering}>
-              {registering ? 'Registering…' : 'Register Now'}
+            <Button size="lg" className="shrink-0 rounded-xl" onClick={handleRegister}>
+              {full ? 'Join waitlist' : 'Register Now'}
             </Button>
           </div>
         </div>
+      )}
+
+      {showRegister && event && (
+        <RegistrationDialog
+          event={event}
+          full={full}
+          onClose={() => setShowRegister(false)}
+          onRegistered={onRegistered}
+        />
+      )}
+      {showCancel && event && regStatus && (
+        <CancelRegistrationDialog
+          event={event}
+          status={regStatus}
+          onClose={() => setShowCancel(false)}
+          onCancelled={onCancelled}
+        />
       )}
     </div>
   )

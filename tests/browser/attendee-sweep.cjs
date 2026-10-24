@@ -117,7 +117,7 @@ function rawRows(url) {
   if (p.endsWith('/profiles')) return one([profile])
   if (p.endsWith('/user_accounts')) return one([{ account_type: ctl.accountType, status: ctl.accountStatus }])
   if (p.endsWith('/events')) return events
-  if (p.endsWith('/event_registrations')) return [...registered].map((id) => ({ event_id: id, id: 'reg-' + id + '-0f3a9c21', user_id: UID, checked_in_at: null }))
+  if (p.endsWith('/event_registrations')) return [...registered].map((id) => ({ event_id: id, id: 'reg-' + id + '-0f3a9c21', user_id: UID, checked_in_at: null, status: 'registered' }))
   if (p.endsWith('/event_invitations')) return invitations
   if (p.endsWith('/connections')) return one(conns)
   if (p.endsWith('/follow_ups')) return one(followUps)
@@ -142,6 +142,19 @@ function rawRows(url) {
   return []
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// Registering opens a dialog: confirm it, wait for the confirmation, close it.
+async function confirmRegister(page) {
+  await page.waitForSelector('[role=dialog]')
+  await page.click('[role=dialog] button:has-text("Confirm registration"), [role=dialog] button:has-text("Join waitlist")')
+  await page.waitForSelector('[role=dialog] >> text=registered', { timeout: 6000 })
+  await page.click('[role=dialog] button:has-text("Done")')
+  await page.waitForSelector('[role=dialog]', { state: 'detached' })
+}
+async function confirmCancel(page) {
+  await page.waitForSelector('[role=dialog]')
+  await page.click('[role=dialog] button:has-text("Cancel registration"), [role=dialog] button:has-text("Leave waitlist")')
+  await page.waitForSelector('[role=dialog]', { state: 'detached' })
+}
 const err = (code, message) => ({ code, message, details: null, hint: null })
 
 async function wire(ctx) {
@@ -152,6 +165,27 @@ async function wire(ctx) {
     if (m === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
     if (m === 'HEAD') { const n = rows(url).length; return route.fulfill({ status: 200, headers: { ...cors, 'content-range': `0-0/${n}` } }) }
     if (m === 'GET') return json(200, rows(url, (req.headers()['accept'] || '').includes('pgrst.object')))
+    // Registration goes through RPCs: the table cannot be written directly any more.
+    if (m === 'POST' && url.endsWith('/rpc/register_for_event')) {
+      if (ctl.delay) await sleep(ctl.delay)
+      const b = JSON.parse(req.postData() || '{}')
+      if (ctl.failRegister) { log.push(['POST reg FAILED', b.p_event_id]); return json(400, err('P0001', 'internal failure')) }
+      registered.add(b.p_event_id); regCounts[b.p_event_id]++; log.push(['POST reg', b.p_event_id])
+      return json(200, [{ registration_id: 'r-' + b.p_event_id, registration_status: 'registered', waitlist_position: null }])
+    }
+    if (m === 'POST' && url.endsWith('/rpc/cancel_event_registration')) {
+      const b = JSON.parse(req.postData() || '{}')
+      if (ctl.failUnregister) { log.push(['DELETE reg FAILED', b.p_event_id]); return json(400, err('P0001', 'internal failure')) }
+      registered.delete(b.p_event_id); regCounts[b.p_event_id]--; log.push(['DELETE reg', b.p_event_id])
+      return json(200, 'registered')
+    }
+    if (m === 'POST' && url.endsWith('/rpc/get_event_registration_form')) return json(200, [])
+    if (m === 'POST' && url.endsWith('/rpc/my_event_registration')) {
+      const b = JSON.parse(req.postData() || '{}')
+      return json(200, registered.has(b.p_event_id)
+        ? [{ registration_id: 'r-' + b.p_event_id, registration_status: 'registered', registered_at: '2026-10-01T00:00:00Z', waitlist_position: null, answers: {} }]
+        : [])
+    }
     if (m === 'POST' && url.includes('/rpc/')) return json(200, rows(url))
     // writes
     if (ctl.delay) await sleep(ctl.delay)
@@ -259,7 +293,11 @@ function rec(group, name, pass, detail = '') {
     rec('detail', 'unregistered: Register button, no Enter Event Mode / Unregister, no section tabs', (await vis(page, 'button:has-text("Register Now"), button:has-text("Register")')) && !(await vis(page, 'button:has-text("Enter Event Mode")')) && !(await vis(page, 'button:has-text("Unregister")')) && (await page.locator('[role=tab]').count()) === 0)
     ctl.delay = 700
     await page.locator('button:has-text("Register Now"), button:has-text("Register")').first().click()
-    rec('detail', 'Register shows an in-flight state', await page.waitForSelector('button:has-text("Registering")', { timeout: 3000 }).then(() => true).catch(() => false))
+    await page.waitForSelector('[role=dialog]')
+    await page.click('[role=dialog] button:has-text("Confirm registration")')
+    rec('detail', 'Register shows an in-flight state in the dialog', await page.waitForSelector('[role=dialog] button:has-text("Saving")', { timeout: 3000 }).then(() => true).catch(() => false))
+    await page.waitForSelector('[role=dialog] >> text=You’re registered', { timeout: 6000 })
+    await page.click('[role=dialog] button:has-text("Done")')
     await page.waitForSelector('button:has-text("Enter Event Mode")', { timeout: 6000 }).catch(() => {})
     ctl.delay = 0
     rec('detail', 'registered: POST sent, Enter Event Mode + Unregister + tabs shown', log.some((l) => l[0] === 'POST reg' && l[1] === 'e-02') && (await vis(page, 'button:has-text("Enter Event Mode")')) && (await vis(page, 'button:has-text("Unregister")')) && (await page.locator('[role=tab]').count()) >= 3)
@@ -282,19 +320,28 @@ function rec(group, name, pass, detail = '') {
     // unregister failure then success
     ctl.failUnregister = true
     await page.locator('button:has-text("Unregister")').first().click()
-    await page.waitForSelector('[role=alert]', { timeout: 5000 }).catch(() => {})
-    rec('detail', 'Unregister failure: inline alert, stays registered, page intact', (await vis(page, '[role=alert]')) && (await vis(page, 'button:has-text("Enter Event Mode")')) && registered.has('e-02'))
-    await page.locator('[role=alert] button:has-text("Dismiss")').click()
+    await page.waitForSelector('[role=dialog]')
+    await page.click('[role=dialog] button:has-text("Cancel registration")')
+    await page.waitForSelector('[role=dialog] [role=alert]', { timeout: 5000 }).catch(() => {})
+    rec('detail', 'Unregister failure: error in the dialog, stays registered, page intact', (await vis(page, '[role=dialog] [role=alert]')) && (await vis(page, 'button:has-text("Enter Event Mode")')) && registered.has('e-02'))
+    await page.click('[role=dialog] button:has-text("Keep my place")')
+    await page.waitForSelector('[role=dialog]', { state: 'detached' })
     ctl.failUnregister = false
     await page.locator('button:has-text("Unregister")').first().click()
+    await confirmCancel(page)
     await page.waitForSelector('button:has-text("Register")', { timeout: 5000 }).catch(() => {})
     await page.waitForTimeout(400)
     rec('detail', 'Unregister succeeds: DELETE sent, back to unregistered with no tabs', log.some((l) => l[0] === 'DELETE reg' && l[1] === 'e-02') && (await page.locator('[role=tab]').count()) === 0 && !registered.has('e-02'))
     // register failure
     ctl.failRegister = true
     await page.locator('button:has-text("Register Now"), button:has-text("Register")').first().click()
-    await page.waitForSelector('[role=alert]', { timeout: 5000 }).catch(() => {})
-    rec('detail', 'Register failure: inline alert, still unregistered, Register still offered', (await vis(page, '[role=alert]')) && !registered.has('e-02') && (await vis(page, 'button:has-text("Register")')))
+    await page.waitForSelector('[role=dialog]')
+    await page.click('[role=dialog] button:has-text("Confirm registration")')
+    await page.waitForSelector('[role=dialog] [role=alert]', { timeout: 5000 }).catch(() => {})
+    const regFailAlert = await vis(page, '[role=dialog] [role=alert]')
+    await page.click('[role=dialog] button:has-text("Cancel")')
+    await page.waitForSelector('[role=dialog]', { state: 'detached' })
+    rec('detail', 'Register failure: error in the dialog, still unregistered, Register still offered', regFailAlert && !registered.has('e-02') && (await vis(page, 'button:has-text("Register")')))
     ctl.failRegister = false
     rec('detail', 'no console/page errors across registration flows', errors.length === 0, errors.slice(0, 2).join(' || '))
     await page.goto(BASE + '/events/e-past', { waitUntil: 'networkidle' }); await page.waitForTimeout(500)
@@ -307,6 +354,7 @@ function rec(group, name, pass, detail = '') {
     ;({ page, ctx, errors } = await open(1440, 900, '/events/e-next'))
     await page.locator('button:has-text("Enter Event Mode")').first().click()
     await page.waitForURL('**/events/e-next/home', { timeout: 5000 }).catch(() => {})
+    await page.waitForSelector('aside', { timeout: 5000 }).catch(() => {})
     rec('detail', 'Enter Event Mode opens /events/e-next/home with the Event Mode sidebar', page.url().endsWith('/events/e-next/home') && (await vis(page, 'aside')))
     await ctx.close()
   })

@@ -53,6 +53,7 @@ export default function EventConnectSheet({
       .select('id, checked_in_at')
       .eq('event_id', event.id)
       .eq('user_id', user.id)
+      .in('status', ['registered', 'checked_in'])
       .maybeSingle()
       .then(({ data }) => {
         if (!cancelled) setReg((data as { id: string; checked_in_at: string | null } | null) ?? null)
