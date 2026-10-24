@@ -20,6 +20,7 @@ const SUITES = [
   'dashboard-and-event-mode-pages.cjs',
   'attendee-sweep.cjs',
   'connection-requests.cjs',
+  'event-registration.cjs',
 ]
 
 const reachable = (url) =>

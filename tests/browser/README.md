@@ -33,6 +33,7 @@ otherwise the stub will not see the traffic). `SHOTS_DIR` sets where screenshots
 | `event-mode-shell.cjs` | Event Mode sidebar, bottom nav, More drawer, tablet layout, signed-out and wrong-account access |
 | `dashboard-and-event-mode-pages.cjs` | Dashboard, Event Home (phone), Agenda and Schedule, Speakers, Exhibitors, Directory |
 | `connection-requests.cjs` | Connection requests: Connect choice (scan or send a request), send / accept / decline / cancel, the Requests tab, Connections page, notifications, and the fallback when the backend feature is missing |
+| `event-registration.cjs` | Registration dialog: organizer-defined form (all five question kinds), validation, the exact answers sent, confirmation, capacity -> waitlist, leaving the waitlist, cancelling, server error mapping, keyboard handling, the Event Detail waitlisted state, phone layout |
 | `attendee-sweep.cjs` | Every attendee route at 320 / 390 / 820 / 1440px, Event Detail flows, Messages regression, Follow-ups, Opportunities, Notifications, Profile, Scan, keyboard focus, role access |
 
 Each suite prints `PASS` / `FAIL` lines; `run.cjs` totals them and exits non-zero

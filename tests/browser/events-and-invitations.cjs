@@ -67,7 +67,7 @@ function rawRows(url) {
   if (p.endsWith('/profiles')) return one([profile])
   if (p.endsWith('/user_accounts')) return one([{ account_type: 'attendee', status: 'active' }])
   if (p.endsWith('/events')) return events
-  if (p.endsWith('/event_registrations')) return [...registered].map((id) => ({ event_id: id }))
+  if (p.endsWith('/event_registrations')) return [...registered].map((id) => ({ event_id: id, status: 'registered' }))
   if (p.endsWith('/event_invitations')) return invitations
   if (p.endsWith('/connections')) return one(conns)
   if (p.endsWith('/follow_ups')) return one(followUps)
@@ -80,6 +80,19 @@ function rawRows(url) {
   return []
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+// Registering opens a dialog: confirm it, wait for the confirmation, close it.
+async function confirmRegister(page) {
+  await page.waitForSelector('[role=dialog]')
+  await page.click('[role=dialog] button:has-text("Confirm registration"), [role=dialog] button:has-text("Join waitlist")')
+  await page.waitForSelector('[role=dialog] >> text=registered', { timeout: 6000 })
+  await page.click('[role=dialog] button:has-text("Done")')
+  await page.waitForSelector('[role=dialog]', { state: 'detached' })
+}
+async function confirmCancel(page) {
+  await page.waitForSelector('[role=dialog]')
+  await page.click('[role=dialog] button:has-text("Cancel registration"), [role=dialog] button:has-text("Leave waitlist")')
+  await page.waitForSelector('[role=dialog]', { state: 'detached' })
+}
 const err = (code, message) => ({ code, message, details: null, hint: null })
 
 async function wire(ctx) {
@@ -90,6 +103,20 @@ async function wire(ctx) {
     if (m === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
     if (m === 'HEAD') { const n = rows(url).length; return route.fulfill({ status: 200, headers: { ...cors, 'content-range': `0-0/${n}` } }) }
     if (m === 'GET') return json(200, rows(url, (req.headers()['accept'] || '').includes('pgrst.object')))
+    // Registration goes through RPCs: the table cannot be written directly any more.
+    if (m === 'POST' && url.endsWith('/rpc/register_for_event')) {
+      if (ctl.delay) await sleep(ctl.delay)
+      const b = JSON.parse(req.postData() || '{}')
+      if (ctl.failRegister) { log.push(['POST reg FAILED', b.p_event_id]); return json(400, err('P0001', 'internal failure')) }
+      registered.add(b.p_event_id); regCounts[b.p_event_id]++; log.push(['POST reg', b.p_event_id])
+      return json(200, [{ registration_id: 'r-' + b.p_event_id, registration_status: 'registered', waitlist_position: null }])
+    }
+    if (m === 'POST' && url.endsWith('/rpc/cancel_event_registration')) {
+      const b = JSON.parse(req.postData() || '{}')
+      registered.delete(b.p_event_id); regCounts[b.p_event_id]--; log.push(['DELETE reg', b.p_event_id])
+      return json(200, 'registered')
+    }
+    if (m === 'POST' && url.endsWith('/rpc/get_event_registration_form')) return json(200, [])
     if (m === 'POST' && url.includes('/rpc/')) return json(200, rows(url))
     // writes
     if (ctl.delay) await sleep(ctl.delay)
@@ -185,7 +212,9 @@ function rec(group, name, pass, detail = '') {
     rec('invitations', 'Accept shows "Accepting…" while in flight', loadingLabel)
     rec('invitations', 'all Accept/Decline buttons disabled while one request is in flight', disabledNow)
     await page.waitForSelector(`${card('Test Event 02')} >> text=Accepted`)
-    rec('invitations', 'Accept success: badge "Accepted" + Registered pill, PATCH + POST sent', (await page.isVisible(`${card('Test Event 02')} >> text=Registered`)) && log.some((l) => l[0] === 'PATCH Accepted') && log.some((l) => l[0] === 'POST reg' && l[1] === 'e-02'), JSON.stringify(log))
+    rec('invitations', 'Accept success: badge "Accepted", PATCH sent, and the registration dialog opens (no silent registration)', (await page.waitForSelector('[role=dialog]', { timeout: 3000 }).then(() => true).catch(() => false)) && log.some((l) => l[0] === 'PATCH Accepted') && !registered.has('e-02'), JSON.stringify(log))
+    await confirmRegister(page)
+    rec('invitations', 'Accept then confirm: Registered pill and registration sent', (await page.isVisible(`${card('Test Event 02')} >> text=Registered`)) && log.some((l) => l[0] === 'POST reg' && l[1] === 'e-02'), JSON.stringify(log))
     rec('invitations', 'Accept success: Accept/Decline gone for that invitation', (await page.$$(`${card('Test Event 02')} button:has-text("Decline")`)).length === 0)
     rec('counts', 'Upcoming tab badge went 1 -> 2 after accepting', (await page.textContent('[role=tab]:has-text("Upcoming")')).includes('2'))
     rec('counts', 'Invitations tab badge went 3 -> 2 pending', (await page.textContent('[role=tab]:has-text("Invitations")')).includes('2'))
@@ -214,18 +243,27 @@ function rec(group, name, pass, detail = '') {
     await page.waitForSelector('[role=alert]')
     rec('invitations', 'Decline error: inline alert, invitation still Pending', /Could not decline the invitation/.test(await page.textContent('[role=alert]')) && (await page.isVisible(`${card('Test Event 06')} >> text=Pending`)))
     ctl.failDeclinePatch = false
-    // accept: status saved but registration fails -> reload shows the truth
+    // accept: status saved, the dialog opens, registration fails inside it
     ctl.failRegister = true
     await page.click(`${card('Test Event 06')} button:has-text("Accept")`)
-    await page.waitForSelector('[role=alert]:has-text("Could not accept")')
+    await page.waitForSelector('[role=dialog]')
+    await page.click('[role=dialog] button:has-text("Confirm registration")')
+    await page.waitForSelector('[role=dialog] [role=alert]:has-text("Could not complete your registration")')
+    rec('invitations', 'Accept then registration fails: error shown in the dialog, nothing registered', !registered.has('e-06'))
+    await page.click('[role=dialog] button:has-text("Cancel")')
+    await page.waitForSelector('[role=dialog]', { state: 'detached' })
     await page.waitForSelector(`${card('Test Event 06')} >> text=Accepted`)
-    rec('invitations', 'Accept where registration then fails: alert + list reloads to stored state (Accepted, not registered)', (await page.isVisible(`${card('Test Event 06')} button:has-text("Register")`)) && !registered.has('e-06'))
+    rec('invitations', 'After closing the dialog: invitation Accepted, not registered, Register offered', (await page.isVisible(`${card('Test Event 06')} button:has-text("Register")`)) && !registered.has('e-06'))
     // register from the invitation after failure, then success
     await page.click(`${card('Test Event 06')} button:has-text("Register")`)
-    await page.waitForSelector('[role=alert]:has-text("Could not register")')
-    rec('invitations', 'Register failure shown inline', true)
+    await page.waitForSelector('[role=dialog]')
+    await page.click('[role=dialog] button:has-text("Confirm registration")')
+    await page.waitForSelector('[role=dialog] [role=alert]:has-text("Could not complete your registration")')
+    rec('invitations', 'Register failure shown inline in the dialog', true)
+    await page.click('[role=dialog] button:has-text("Cancel")')
     ctl.failRegister = false
     await page.click(`${card('Test Event 06')} button:has-text("Register")`)
+    await confirmRegister(page)
     await page.waitForSelector(`${card('Test Event 06')} >> text=Registered`)
     rec('invitations', 'Register succeeds after retry', registered.has('e-06'))
     rec('invitations', 'console/page errors during invitation flows', errors.length === 0, errors.slice(0, 2).join(' || '))
@@ -280,6 +318,7 @@ function rec(group, name, pass, detail = '') {
     const victim = (await cardNames(page))[0]
     const upBefore = await page.textContent('[role=tab]:has-text("Upcoming")')
     await page.click(`article:has-text("${victim}") button:has-text("Register")`)
+    await confirmRegister(page)
     await page.waitForSelector(`article:has-text("${victim}") >> text=Registered`)
     const after = await showing(page)
     rec('counts', 'registering a card on page 2 leaves the page total unchanged', before === after, `${before} -> ${after}`)
@@ -288,6 +327,7 @@ function rec(group, name, pass, detail = '') {
     // register an EARLIER event -> becomes the hero, old hero returns to grid, grid total unchanged
     await page.goto(BASE + '/events', { waitUntil: 'networkidle' })
     await page.click('article:has-text("Test Event 01") button:has-text("Register")')
+    await confirmRegister(page)
     await page.waitForSelector('text=Your next event')
     await page.waitForFunction(() => document.querySelector('article h2')?.textContent.includes('Test Event 01'))
     const grid2 = await cardNames(page)
@@ -299,7 +339,7 @@ function rec(group, name, pass, detail = '') {
     await page.click('article:has-text("Registered Next Event") button:has-text("Unregister")').catch(async () => {
       await page.click('button[aria-label="Page 2"]'); await page.click('article:has-text("Registered Next Event") button:has-text("Unregister")')
     })
-    await page.waitForFunction(() => !document.body.innerText.includes('Unregister') || true)
+    await confirmCancel(page)
     await page.waitForTimeout(200)
     rec('counts', 'unregister: Upcoming badge decremented and total unchanged', (await page.textContent('[role=tab]:has-text("Upcoming")')).trim() !== upB && /of 14 events/.test((await showing(page)) || ''), `${upB} -> ${(await page.textContent('[role=tab]:has-text("Upcoming")')).trim()}`)
     // register failure leaves everything as it was
@@ -308,8 +348,12 @@ function rec(group, name, pass, detail = '') {
     await page.goto(BASE + '/events', { waitUntil: 'networkidle' })
     const first = (await cardNames(page))[0]
     await page.click(`article:has-text("${first}") button:has-text("Register")`)
-    await page.waitForSelector('[role=alert]:has-text("Could not register")')
-    rec('counts', 'failed register: inline alert, card still unregistered, totals unchanged', (await page.isVisible(`article:has-text("${first}") button:has-text("Register")`)) && /of 14 events/.test((await showing(page)) || ''))
+    await page.waitForSelector('[role=dialog]')
+    await page.click('[role=dialog] button:has-text("Confirm registration")')
+    await page.waitForSelector('[role=dialog] [role=alert]:has-text("Could not complete your registration")')
+    await page.click('[role=dialog] button:has-text("Cancel")')
+    await page.waitForSelector('[role=dialog]', { state: 'detached' })
+    rec('counts', 'failed register: error in the dialog, card still unregistered, totals unchanged', (await page.isVisible(`article:has-text("${first}") button:has-text("Register")`)) && /of 14 events/.test((await showing(page)) || ''))
     ctl.failRegister = false
     rec('pagination', 'console/page errors', errors.length === 0, errors.slice(0, 2).join(' || '))
     await ctx.close()
