@@ -2,6 +2,7 @@ import { NavLink } from 'react-router-dom'
 import { Home, Calendar, Users, MessagesSquare, Menu } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUnreadMessages } from '@/lib/useUnreadMessages'
+import { usePendingRequests } from '@/lib/usePendingRequests'
 
 // Fixed attendee bottom navigation. "More" is a button that opens the side
 // drawer rather than a route, so it is rendered separately from the NavLinks.
@@ -9,6 +10,7 @@ import { useUnreadMessages } from '@/lib/useUnreadMessages'
 // Event Mode navigation only.
 export default function BottomNav({ onMore }: { onMore: () => void }) {
   const unread = useUnreadMessages()
+  const pending = usePendingRequests()
   const itemClass = ({ isActive }: { isActive: boolean }) =>
     cn(
       'flex min-h-[44px] min-w-[44px] flex-1 flex-col items-center justify-center gap-1 px-1 py-1.5 text-[11px] font-medium transition-colors motion-reduce:transition-none',
@@ -38,10 +40,17 @@ export default function BottomNav({ onMore }: { onMore: () => void }) {
         )}
       </NavLink>
 
-      <NavLink to="/connections" className={itemClass} aria-label="Network">
+      <NavLink to="/connections" className={itemClass} aria-label={`Network${pending > 0 ? `, ${pending} request${pending === 1 ? '' : 's'} waiting` : ''}`}>
         {({ isActive }) => (
           <>
-            <Users className="h-5 w-5" aria-hidden="true" />
+            <span className="relative">
+              <Users className="h-5 w-5" aria-hidden="true" />
+              {pending > 0 && (
+                <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-error-600 px-1 text-[10px] font-semibold leading-none text-white">
+                  {pending > 99 ? '99+' : pending}
+                </span>
+              )}
+            </span>
             <span className={isActive ? 'font-semibold' : undefined}>Network</span>
           </>
         )}

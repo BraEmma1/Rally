@@ -41,6 +41,11 @@ export function friendlyRequestError(error: { message?: string } | null, fallbac
   return fallback
 }
 
+// Fired after any change to the caller's requests so the Network tab badge can
+// refresh straight away instead of waiting for its next poll.
+export const REQUESTS_CHANGED_EVENT = 'rally:connection-requests-changed'
+const notifyChanged = () => window.dispatchEvent(new Event(REQUESTS_CHANGED_EVENT))
+
 export async function fetchMyConnectionRequests() {
   const { data, error } = await supabase.rpc('my_connection_requests')
   return { data: (data ?? []) as ConnectionRequest[], error }
@@ -51,6 +56,7 @@ export async function sendConnectionRequest(eventId: string, userId: string) {
     target_event_id: eventId,
     target_user_id: userId,
   })
+  if (!error) notifyChanged()
   return { data: (data ?? null) as string | null, error }
 }
 
@@ -59,10 +65,12 @@ export async function respondToConnectionRequest(requestId: string, accept: bool
     request_id: requestId,
     accept,
   })
+  if (!error) notifyChanged()
   return { data: (data ?? null) as 'accepted' | 'declined' | null, error }
 }
 
 export async function cancelConnectionRequest(requestId: string) {
   const { error } = await supabase.rpc('cancel_connection_request', { request_id: requestId })
+  if (!error) notifyChanged()
   return { error }
 }
