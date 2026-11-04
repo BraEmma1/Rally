@@ -23,3 +23,4 @@ No Supabase project is contacted and nothing is written anywhere but memory.
 | --- | --- |
 | `event-registration.test.mjs` | Registration form validation, capacity and waitlist order, automatic promotion (cancel, delete, capacity change), cancellation keeps a record, direct INSERT/DELETE blocked, privacy of waitlisted / cancelled rows, organizer-only form and answers, grants |
 | `event-team-hardening.test.mjs` | `event_team` is written only through the assignment RPCs (migration `20261028000000`): direct INSERT / UPDATE / DELETE refused (archived events, owners/admins, forged `assigned_by`, cross-organization), the RPCs and reads still work, final policies and privileges, RPC security model |
+| `event-manager-assignment.test.mjs` | assign / unassign / list event managers: who may call them, what they refuse (archived, owner/admin, non-member, other organization), what assignment grants a manager, stale assignments, grants |

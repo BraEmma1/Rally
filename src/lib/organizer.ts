@@ -177,6 +177,31 @@ export async function inviteMember(
   return { error: null }
 }
 
+// Event assignments. Only an owner or admin may change them, and only for a
+// member whose role is "manager"; the functions enforce both, and refuse new
+// assignments on an archived event.
+export async function assignEventManager(
+  eventId: string,
+  userId: string
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('assign_event_manager', {
+    target_event_id: eventId,
+    target_user_id: userId,
+  })
+  return { error: error ? readableError(error, 'Could not assign this event.') : null }
+}
+
+export async function unassignEventManager(
+  eventId: string,
+  userId: string
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.rpc('unassign_event_manager', {
+    target_event_id: eventId,
+    target_user_id: userId,
+  })
+  return { error: error ? readableError(error, 'Could not remove this assignment.') : null }
+}
+
 export async function revokeInvitation(invitationId: string): Promise<{ error: string | null }> {
   const { error } = await supabase.rpc('revoke_organization_invitation', {
     invitation_id: invitationId,
