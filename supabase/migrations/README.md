@@ -153,3 +153,35 @@ Do not rename the repository files to the recorded versions: the repository
 number is the one fresh environments use, and it keeps the intended order. Apply
 to production through the owner's own process, never with `supabase db push`
 (rule 1 above).
+
+### Applied outside migration history: `20261026000000_event_registration_flow.sql`
+
+This migration is **not recorded** in rally-dev's migration history (checked
+read-only with `list_migrations` on 2026-11-04), yet its schema **is present**.
+The SQL was evidently run outside the tracked history (for example through the
+Supabase SQL Editor).
+
+On 2026-11-04, read-only catalog queries against rally-dev were compared with a
+replay of this repository's migrations on PGlite. Hashes were identical for the
+18 related function definitions (including `SECURITY DEFINER` and
+`search_path`), and for the constraints, indexes and columns of
+`event_registration_questions` and `event_registration_answers` and the triggers
+on `event_registrations` and `events`. The policies on `events`,
+`event_registrations` and `event_team`, the `notifications` type constraint, the
+row-level-security flags, and the table, column and `EXECUTE` grants were
+compared as listings and matched. The schema is therefore **equivalent to this
+file**. Both registration tables hold no rows.
+
+What this does and does not mean:
+
+- The history row for this migration is **missing**. This table does not list it
+  as recorded, and it must not be read as recorded.
+- Do **not** re-apply the file blindly. It is not idempotent (its
+  `CREATE TRIGGER` statements are not `IF NOT EXISTS`), so a second run fails or
+  duplicates.
+- A controlled reconciliation of the migration history is **pending**. Do not
+  edit `supabase_migrations.schema_migrations` by hand or run
+  `supabase migration repair` without the repository owner's approval (rule 1
+  above).
+- Production was not inspected, and nothing here says whether production has
+  this migration.
