@@ -2,6 +2,8 @@
 // INSERT / UPDATE / DELETE are refused, the RPCs keep working, reads keep working, and
 // organization isolation is unchanged. Runs on PGlite; see boot.mjs for what that does
 // and does not prove.
+import fs from 'node:fs'
+import path from 'node:path'
 import { boot, MIGRATIONS } from './boot.mjs'
 
 const MIG = process.argv[2] || MIGRATIONS
@@ -93,7 +95,7 @@ ok('...and the row is still there', (await team(E1)).join() === U.m1)
 ok('a manager cannot delete their own row directly', DENIED.test((await err(U.m1, `DELETE FROM event_team WHERE user_id=$1`, [U.m1])) ?? '') && (await team(E1)).join() === U.m1)
 const updErr = await err(U.admin, `UPDATE event_team SET assigned_by=$1 WHERE event_id=$2`, [U.owner, E1])
 ok('direct UPDATE (forging assigned_by) is refused', DENIED.test(updErr ?? ''), String(updErr))
-ok('assigned_by is unchanged', (await sup(`SELECT assigned_by FROM event_team WHERE event_id=$1`, [E1])).rows[0].assigned_by === U.admin)
+ok('assigned_by is unchanged', (await sup(`SELECT assigned_by FROM event_team WHERE event_id=$1`, [E1])).rows[0]?.assigned_by === U.admin)
 ok('anon cannot read or write the table', DENIED.test((await err(U.admin, `SELECT * FROM event_team`, [], 'anon')) ?? '') && DENIED.test((await err(U.admin, `INSERT INTO event_team (event_id,user_id) VALUES ($1,$2)`, [E2, U.m3], 'anon')) ?? ''))
 
 // ---- reads keep working ---------------------------------------------------
@@ -122,6 +124,23 @@ const colPriv = async (c, p) => (await sup(`SELECT has_column_privilege('authent
 ok('no column-level write privileges survive', !(await colPriv('assigned_by', 'INSERT')) && !(await colPriv('assigned_by', 'UPDATE')) && !(await colPriv('user_id', 'INSERT')))
 ok('anon has no privileges at all', !(await sup(`SELECT has_table_privilege('anon','public.event_team','SELECT') ok`)).rows[0].ok)
 ok('RLS is still on and not forced (so the RPCs, run as the owner, are unaffected)', (await sup(`SELECT relrowsecurity r, relforcerowsecurity f FROM pg_class WHERE relname='event_team'`)).rows[0].r === true)
+
+// ---- independent column-level grants are removed too ----------------------
+// A column-level GRANT is a separate privilege from the table-level one (another
+// environment could have one). The migration's table-level REVOKE must clear it;
+// re-running the migration after adding some proves it does, and that it is safe to repeat.
+const migFile = path.join(MIG, '20261028000000_event_team_writes_through_rpcs.sql')
+if (fs.existsSync(migFile)) {
+  const colAcls = async () => Number((await sup(`SELECT count(*) n FROM pg_attribute WHERE attrelid='public.event_team'::regclass AND attnum>0 AND NOT attisdropped AND attacl IS NOT NULL`)).rows[0].n)
+  await db.exec(`GRANT INSERT (event_id, user_id, assigned_by), UPDATE (assigned_by, user_id), REFERENCES (event_id) ON public.event_team TO authenticated`)
+  ok('(setup) column-level grants were really added', (await colAcls()) === 3)
+  ok('(setup) with them, a column-level INSERT would be possible', await colPriv('assigned_by', 'INSERT'))
+  await db.exec(fs.readFileSync(migFile, 'utf8'))
+  ok('the migration leaves no column ACLs at all', (await colAcls()) === 0)
+  ok('no column-level INSERT, UPDATE or REFERENCES remains on any column', !(await colPriv('assigned_by', 'INSERT')) && !(await colPriv('assigned_by', 'UPDATE')) && !(await colPriv('user_id', 'INSERT')) && !(await colPriv('user_id', 'UPDATE')) && !(await colPriv('event_id', 'REFERENCES')))
+  ok('a direct INSERT is refused again after the column grants are cleared', DENIED.test((await directInsert(U.admin, E1, U.m1, U.owner)) ?? ''))
+  ok('the migration is safe to run twice (SELECT only, one policy)', (await priv('SELECT')) && !(await priv('INSERT')) && Number((await sup(`SELECT count(*) n FROM pg_policies WHERE tablename='event_team'`)).rows[0].n) === 1)
+}
 
 // ---- the RPCs' own security model -----------------------------------------
 const fns = (await sup(`SELECT proname, prosecdef, proconfig FROM pg_proc WHERE pronamespace='public'::regnamespace AND proname IN ('assign_event_manager','unassign_event_manager','event_team_list') ORDER BY 1`)).rows
