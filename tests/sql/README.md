@@ -22,3 +22,4 @@ No Supabase project is contacted and nothing is written anywhere but memory.
 | File | Covers |
 | --- | --- |
 | `event-registration.test.mjs` | Registration form validation, capacity and waitlist order, automatic promotion (cancel, delete, capacity change), cancellation keeps a record, direct INSERT/DELETE blocked, privacy of waitlisted / cancelled rows, organizer-only form and answers, grants |
+| `connection-request-cooloff.test.mjs` | the 30-day cool-off in `send_connection_request` (migration `20261027000000`): declined and cancelled, the 29/31-day boundary, directional, unchanged signature and grants |
