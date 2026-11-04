@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/Button'
 import { Input, Label, Select } from '@/components/ui/Input'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/States'
 import { ConfirmDialog, SheetDialog } from '@/components/organizer/SheetDialog'
+import { ManagerEventAssignments } from '@/components/organizer/ManagerEventAssignments'
 import { listOrganizationEvents } from '@/lib/events'
 import {
   assignableRoles,
@@ -33,6 +34,7 @@ import {
   ORG_ROLE_LABELS,
   type OrganizationInvitation,
   type OrganizationMember,
+  type OrganizerEvent,
   type OrgRole,
 } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
@@ -215,9 +217,18 @@ export default function TeamPage() {
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
-  // user_id -> number of assigned events; null means the lookup itself failed
-  // and access lines should degrade instead of claiming zero.
-  const [assignments, setAssignments] = useState<Record<string, number> | null>(null)
+  // user_id -> ids of the events they are assigned to; null means the lookup
+  // itself failed and access lines should degrade instead of claiming zero.
+  const [assignedEvents, setAssignedEvents] = useState<Record<string, string[]> | null>(null)
+  const [events, setEvents] = useState<OrganizerEvent[]>([])
+  const [eventsError, setEventsError] = useState<string | null>(null)
+  const assignments = useMemo<Record<string, number> | null>(
+    () =>
+      assignedEvents
+        ? Object.fromEntries(Object.entries(assignedEvents).map(([id, ids]) => [id, ids.length]))
+        : null,
+    [assignedEvents]
+  )
 
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState<OrgRole | 'all'>('all')
@@ -235,6 +246,37 @@ export default function TeamPage() {
   const manages = canManageTeam(role)
   const roleOptions = assignableRoles(role)
 
+  // Events and who is assigned to them. Also run on its own after an assignment
+  // changes, so the page does not fall back to its loading state.
+  const loadAssignments = useCallback(async () => {
+    if (!orgId) return
+    const eventsResult = await listOrganizationEvents(orgId)
+    setEvents(eventsResult.data)
+    setEventsError(eventsResult.error)
+    if (eventsResult.error) {
+      setAssignedEvents(null)
+      return
+    }
+    const eventIds = eventsResult.data.map((event) => event.id)
+    if (eventIds.length === 0) {
+      setAssignedEvents({})
+      return
+    }
+    const { data, error: teamError } = await supabase
+      .from('event_team')
+      .select('user_id, event_id')
+      .in('event_id', eventIds)
+    if (teamError) {
+      setAssignedEvents(null)
+      return
+    }
+    const byUser: Record<string, string[]> = {}
+    for (const row of (data ?? []) as { user_id: string; event_id: string }[]) {
+      ;(byUser[row.user_id] ??= []).push(row.event_id)
+    }
+    setAssignedEvents(byUser)
+  }, [orgId])
+
   const load = useCallback(async () => {
     if (!orgId) return
     setLoading(true)
@@ -250,25 +292,7 @@ export default function TeamPage() {
 
     // Event assignments are a separate, failure-tolerant layer: the team list
     // stays usable even if the assignment counts cannot be loaded.
-    const eventsResult = await listOrganizationEvents(orgId)
-    const eventIds = eventsResult.data.map((event) => event.id)
-    if (eventIds.length > 0) {
-      const { data, error: teamError } = await supabase
-        .from('event_team')
-        .select('user_id, event_id')
-        .in('event_id', eventIds)
-      if (teamError) {
-        setAssignments(null)
-      } else {
-        const counts: Record<string, number> = {}
-        for (const row of (data ?? []) as { user_id: string; event_id: string }[]) {
-          counts[row.user_id] = (counts[row.user_id] ?? 0) + 1
-        }
-        setAssignments(counts)
-      }
-    } else {
-      setAssignments({})
-    }
+    await loadAssignments()
 
     if (manages) {
       const invitationsResult = await listInvitations(orgId)
@@ -281,7 +305,7 @@ export default function TeamPage() {
     }
 
     setLoading(false)
-  }, [orgId, manages])
+  }, [orgId, manages, loadAssignments])
 
   useEffect(() => {
     void load()
@@ -301,6 +325,12 @@ export default function TeamPage() {
   }, [members, search, roleFilter])
 
   const pending = invitations.filter((i) => i.status === 'pending')
+
+  // The dialog keeps the member as it was when opened; the role select can change
+  // it underneath, so assignment controls follow the refreshed list.
+  const liveManagingRole = managing
+    ? (members.find((m) => m.user_id === managing.user_id)?.role ?? managing.role)
+    : null
 
   const totals = useMemo(() => {
     const admins = members.filter((m) => m.role === 'owner' || m.role === 'admin').length
@@ -838,6 +868,17 @@ export default function TeamPage() {
               </Select>
               <p className="mt-1 text-xs text-gray-500">{ORG_ROLE_DESCRIPTIONS[managing.role]}</p>
             </div>
+
+            {manages && liveManagingRole === 'manager' && (
+              <ManagerEventAssignments
+                userId={managing.user_id}
+                memberName={managing.full_name}
+                events={events}
+                assignedEventIds={assignedEvents ? (assignedEvents[managing.user_id] ?? []) : null}
+                eventsError={eventsError}
+                onChanged={loadAssignments}
+              />
+            )}
 
             <div className="border-t border-gray-200 pt-4">
               <Button
