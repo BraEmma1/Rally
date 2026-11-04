@@ -22,3 +22,4 @@ No Supabase project is contacted and nothing is written anywhere but memory.
 | File | Covers |
 | --- | --- |
 | `event-registration.test.mjs` | Registration form validation, capacity and waitlist order, automatic promotion (cancel, delete, capacity change), cancellation keeps a record, direct INSERT/DELETE blocked, privacy of waitlisted / cancelled rows, organizer-only form and answers, grants |
+| `event-manager-assignment.test.mjs` | assign / unassign / list event managers: who may call them, what they refuse (archived, owner/admin, non-member, other organization), what assignment grants a manager, stale assignments, grants |
