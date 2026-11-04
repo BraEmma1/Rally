@@ -21,6 +21,7 @@ const SUITES = [
   'attendee-sweep.cjs',
   'connection-requests.cjs',
   'event-registration.cjs',
+  'event-manager-assignment.cjs',
 ]
 
 const reachable = (url) =>
