@@ -1,94 +1,526 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  ArrowRight,
-  BarChart3,
-  BriefcaseBusiness,
-  CalendarDays,
-  Check,
-  ChevronDown,
-  CircleUserRound,
-  FileText,
-  Menu,
-  MessageCircle,
-  Network,
-  QrCode,
-  Sparkles,
-  UsersRound,
-  X,
-} from 'lucide-react'
+import { ArrowRight, Check, Clock3 } from 'lucide-react'
+import { LandingNav, RallyMark, SECTIONS } from '@/components/landing/LandingNav'
+import { OrganizerStory } from '@/components/landing/OrganizerStory'
+import { PhotoPrint, ProofPrint, QrCode, TurnCard, useDeal } from '@/components/landing/parts'
+import '@/components/landing/landing.css'
 
-const networkingPhoto = 'https://images.pexels.com/photos/8761650/pexels-photo-8761650.jpeg?auto=compress&cs=tinysrgb&h=650&w=940'
+// The public landing page (signed out, `/`). Every screen on it is the real Rally interface
+// captured with fictional sample data (scripts/landing-screenshots); every capability it
+// names is live in the app today, and the ledger lists what is not.
 
-type DemoModalProps = { open: boolean; onClose: () => void }
+const deal = (rotate: number, delay = 0) =>
+  ({ '--deal-rotate': `${rotate}deg`, '--deal-delay': `${delay}ms` }) as CSSProperties
 
-type ScreenshotProps = {
-  label: string
-  variant?: 'desktop' | 'mobile'
-  className?: string
-}
-
-function RallyMark({ compact = false }: { compact?: boolean }) {
+function EventCard({ compact }: { compact?: boolean }) {
   return (
-    <Link to="/" className="marketing-logo" aria-label="Rally home">
-      <span className="marketing-logo-mark"><span /><span /><span /></span>
-      {!compact && <span>Rally</span>}
-    </Link>
+    <div className="rl-card">
+      <span className="rl-card__label">Event</span>
+      <div style={{ alignSelf: 'center' }}>
+        <p className="rl-card__title">Accra Founders Summit</p>
+        <p className="rl-card__meta" style={{ marginTop: 6 }}>
+          {compact ? '12–13 Mar 2027 · Accra' : '12–13 March 2027 · Accra'}
+        </p>
+      </div>
+      <div className="rl-card__foot">
+        <span className="rl-card__pill">Registration open</span>
+        {!compact && <span className="rl-card__meta rl-num">300 places</span>}
+      </div>
+    </div>
   )
 }
 
-function ProductScreenshot({ label, variant = 'desktop', className = '' }: ScreenshotProps) {
+function PersonFront({ signupUrl }: { signupUrl: string }) {
   return (
-    <div className={`product-shot product-shot-${variant} ${className}`} role="img" aria-label={`${label} Rally product preview`}>
-      <div className="shot-bar"><span className="shot-dot shot-dot-red" /><span className="shot-dot shot-dot-yellow" /><span className="shot-dot shot-dot-green" /><span className="shot-title">Rally / {label}</span></div>
-      <div className="shot-body">
-        <aside className="shot-sidebar"><RallyMark compact /><span className="shot-nav active">Overview</span><span className="shot-nav">People</span><span className="shot-nav">Events</span><span className="shot-nav">Messages</span></aside>
-        <div className="shot-content">
-          <div className="shot-heading"><div><small>RALLY WORKSPACE</small><strong>{label}</strong></div><span className="shot-avatar">JW</span></div>
-          <div className="shot-stat-row"><div><small>Connections</small><b>482</b><em>+12.4%</em></div><div><small>Follow-ups</small><b>28</b><em>+8.1%</em></div><div><small>Opportunities</small><b>16</b><em>+4.6%</em></div></div>
-          <div className="shot-panels"><div className="shot-panel shot-chart"><small>Relationship activity</small><div className="chart-lines"><i /><i /><i /><i /><i /></div><div className="chart-axis"><span>Jan</span><span>Feb</span><span>Mar</span><span>Apr</span></div></div><div className="shot-panel shot-list"><small>Recent connections</small><span><i className="person-dot blue" /> Sarah Chen <b>New</b></span><span><i className="person-dot green" /> Michael Osei <b>Follow up</b></span><span><i className="person-dot orange" /> Priya Sharma <b>Opportunity</b></span></div></div>
+    <div className="rl-card">
+      <div className="rl-person" style={{ gridRow: '1 / -1' }}>
+        <div className="rl-person__who">
+          <span className="rl-person__avatar" aria-hidden="true">AB</span>
+          <div>
+            <p className="rl-person__name">Ama Boateng</p>
+            <p className="rl-person__role">Head of Partnerships<br />Meridian Microfinance</p>
+          </div>
+        </div>
+        <div className="rl-person__qr">
+          <QrCode value={signupUrl} label="QR code that opens Rally sign-up" />
+          <span>Scan to connect</span>
         </div>
       </div>
     </div>
   )
 }
 
-function MobileProductScreenshot({ label }: { label: string }) {
-  return <div className="mobile-shot"><div className="mobile-notch" /><div className="mobile-screen"><div className="mobile-brand"><RallyMark compact /><span>•••</span></div><small>EVENT MODE</small><strong>{label}</strong><div className="qr-box"><QrCode size={72} /><span>Scan to connect</span></div><div className="mobile-actions"><span>My Connections</span><span>Event Schedule</span><span>Messages</span></div></div></div>
+function PersonBack() {
+  return (
+    <div className="rl-card">
+      <div className="rl-back" style={{ gridRow: '1 / -1' }}>
+        <dl>
+          <div className="rl-back__row">
+            <dt>Met at</dt>
+            <dd>Accra Founders Summit, 12 Mar 2027</dd>
+          </div>
+          <div className="rl-back__row">
+            <dt>Follow up</dt>
+            <dd>Thu 18 Mar · send route data</dd>
+          </div>
+          <div className="rl-back__row rl-back__row--wide">
+            <dt>Note</dt>
+            <dd className="rl-back__hand">Wants a freight-finance pilot for exporters in Kumasi.</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  )
 }
 
-function DemoModal({ open, onClose }: DemoModalProps) {
-  const [submitted, setSubmitted] = useState(false)
-  useEffect(() => { document.body.style.overflow = open ? 'hidden' : ''; return () => { document.body.style.overflow = '' } }, [open])
-  if (!open) return null
-  function handleSubmit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setSubmitted(true) }
-  return <div className="demo-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}><div className="demo-modal" role="dialog" aria-modal="true" aria-labelledby="demo-title"><button className="demo-close" onClick={onClose} aria-label="Close request demo form"><X size={20} /></button>{submitted ? <div className="demo-success"><span className="success-icon"><Check /></span><h2>Thanks for reaching out.</h2><p>Your request is ready to be reviewed by the Rally team. We’ll be in touch using the details you shared.</p><button className="button button-primary" onClick={onClose}>Close</button></div> : <><span className="eyebrow">REQUEST A DEMO</span><h2 id="demo-title">See how Rally keeps relationships moving.</h2><p className="demo-intro">Tell us a little about yourself and we’ll show you the parts of Rally that fit your event journey.</p><form onSubmit={handleSubmit}><div className="form-grid"><label>Full name<input required name="name" autoComplete="name" /></label><label>Work email<input required type="email" name="email" autoComplete="email" /></label><label>Company / organization<input required name="company" autoComplete="organization" /></label><label>Role<input required name="role" /></label></div><label>What best describes you?<select required name="audience" defaultValue=""><option value="" disabled>Select one</option><option>Event Organizer</option><option>Sponsor</option><option>Exhibitor</option><option>Professional</option><option>Other</option></select></label><label>What would you like to use Rally for? <span>(optional)</span><textarea name="message" rows={3} /></label><button className="button button-primary demo-submit" type="submit">Request a Demo <ArrowRight size={16} /></button></form></>}</div></div>
+const JOURNEY = [
+  {
+    stage: 'Before',
+    organizer: 'Publishes the event and its registration form.',
+    attendee: 'Finds it, answers the questions, and gets a place or a waitlist spot.',
+    card: () => <EventCard compact />,
+  },
+  {
+    stage: 'At the door',
+    organizer: 'Scans each arrival’s Rally QR, or finds them by name.',
+    attendee: 'Walks in. The event app opens on the agenda.',
+    card: () => (
+      <div className="rl-card">
+        <span className="rl-card__label">Registration</span>
+        <div style={{ alignSelf: 'center' }}>
+          <p className="rl-card__title">You’re in</p>
+          <p className="rl-card__meta" style={{ marginTop: 6 }}>Kwabena Adjei · Riverline Freight</p>
+        </div>
+        <div className="rl-card__foot">
+          <span className="rl-card__pill">Checked in</span>
+          <span className="rl-card__meta rl-num">08:31</span>
+        </div>
+      </div>
+    ),
+  },
+  {
+    stage: 'In the room',
+    organizer: 'Sees how many attendees are networking.',
+    attendee: 'Scans a badge or sends a request from the attendee directory.',
+    card: (signupUrl: string) => (
+      <div className="rl-card">
+        <span className="rl-card__label">Connect</span>
+        <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', alignItems: 'end', gap: 14 }}>
+          <span className="rl-qr-mini" style={{ width: 56 }}><QrCode value={signupUrl} label="QR code that opens Rally sign-up" /></span>
+          <div>
+            <p className="rl-card__title">Ama Boateng</p>
+            <p className="rl-card__meta" style={{ marginTop: 6 }}>Head of Partnerships</p>
+          </div>
+        </div>
+        <span />
+      </div>
+    ),
+  },
+  {
+    stage: 'Afterwards',
+    organizer: 'Counts the connections and opportunities the event produced.',
+    attendee: 'Keeps notes, follow-ups and opportunities on every connection.',
+    card: () => (
+      <div className="rl-card">
+        <span className="rl-card__label">Met at</span>
+        <div style={{ alignSelf: 'center' }}>
+          <p className="rl-card__title">Accra Founders Summit</p>
+          <p className="rl-card__meta" style={{ marginTop: 6 }}>Note: wants a pilot in Kumasi</p>
+        </div>
+        <div className="rl-card__foot">
+          <span className="rl-card__meta">Follow up</span>
+          <span className="rl-card__meta rl-num">18 Mar</span>
+        </div>
+      </div>
+    ),
+  },
+]
+
+const LIVE = {
+  organizers: [
+    'Draft, published and unlisted events',
+    'Registration forms with five question types',
+    'Capacity limits with an automatic waitlist',
+    'Door check-in by QR or by name, with undo',
+    'Agenda, speakers and exhibitors',
+    'Team roles, with event managers per event',
+    'Partnerships: deliverables, evidence, documents',
+    'Networking analytics for each event',
+  ],
+  attendees: [
+    'Event discovery and registration',
+    'Event Mode: agenda, saved sessions, speakers, exhibitors',
+    'Attendee directory and connection requests',
+    'QR connections',
+    'Notes, follow-ups and opportunities',
+    'Direct messages',
+    'Add events to your calendar',
+  ],
 }
-
-function MarketingHeader({ onDemo }: { onDemo: () => void }) {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const links = [['Product', '#platform'], ['Solutions', '#audiences'], ['How It Works', '#how-it-works'], ['For Organizers', '#organizers'], ['For Sponsors', '#sponsors'], ['About', '#problem']]
-  return <header className="marketing-header"><div className="marketing-container header-inner"><RallyMark /><nav className={menuOpen ? 'mobile-open' : ''} aria-label="Marketing navigation">{links.map(([label, href]) => <a key={label} href={href} onClick={() => setMenuOpen(false)}>{label}{label === 'Product' && <ChevronDown size={13} />}</a>)}<div className="mobile-nav-actions"><Link to="/login" className="button button-outline">Sign In</Link><button className="button button-primary" onClick={onDemo}>Request a Demo</button></div></nav><div className="header-actions"><Link to="/login" className="header-signin">Sign In</Link><button className="button button-primary button-small" onClick={onDemo}>Request a Demo</button></div><button className="mobile-menu-button" aria-label={menuOpen ? 'Close menu' : 'Open menu'} aria-expanded={menuOpen} onClick={() => setMenuOpen((value) => !value)}>{menuOpen ? <X /> : <Menu />}</button></div></header>
-}
-
-function AudienceStrip() { const audiences: Array<{ icon: typeof UsersRound; title: string; text: string }> = [{ icon: UsersRound, title: 'For Professionals', text: 'Build your network' }, { icon: CalendarDays, title: 'For Organizers', text: 'Create impactful events' }, { icon: BriefcaseBusiness, title: 'For Sponsors', text: 'Strengthen partnerships' }, { icon: Network, title: 'For Exhibitors', text: 'Turn participation into opportunities' }]; return <div className="audience-strip" id="audiences">{audiences.map(({ icon: Icon, title, text }) => <div key={title}><span className="audience-icon"><Icon size={18} /></span><div><strong>{title}</strong><small>{text}</small></div></div>)}</div> }
-
-function SectionLabel({ children }: { children: ReactNode }) { return <span className="eyebrow">{children}</span> }
-function CheckList({ items }: { items: string[] }) { return <ul className="check-list">{items.map((item) => <li key={item}><Check size={15} />{item}</li>)}</ul> }
-
-function MarketingFooter({ onDemo }: { onDemo: () => void }) { return <footer className="marketing-footer"><div className="marketing-container footer-main"><div className="footer-brand"><RallyMark /><p>Turn event connections into business opportunities.</p><button className="button button-primary" onClick={onDemo}>Request a Demo</button></div><div className="footer-column"><strong>PRODUCT</strong><a href="#platform">Event Networking</a><a href="#how-it-works">Messaging</a><a href="#professionals">Follow-ups</a><a href="#platform">Opportunities</a></div><div className="footer-column"><strong>SOLUTIONS</strong><a href="#organizers">For Organizers</a><a href="#sponsors">For Sponsors</a><a href="#sponsors">For Exhibitors</a><a href="#professionals">For Professionals</a></div><div className="footer-column"><strong>RESOURCES</strong><a href="#showcase">Product Tour</a><button onClick={onDemo}>Contact</button></div><div className="footer-column"><strong>COMPANY</strong><a href="#problem">About Us</a><a href="#problem">Our story</a><a href="#cta">Get started</a></div></div><div className="marketing-container footer-bottom"><span>© 2026 Rally. All rights reserved.</span><span>Built for the relationships that make events matter.</span></div></footer> }
+const NOT_YET = [
+  'Sponsor invitations and the sponsor workspace',
+  'Ticket sales and payments',
+  'Venue maps',
+  'Deal room',
+  'Event info pages in Event Mode',
+  'Live broadcast',
+  'Meeting scheduling',
+  'Saving events and people',
+  'Contact export (CSV, vCard)',
+]
 
 export default function MarketingHomePage() {
-  const [demoOpen, setDemoOpen] = useState(false)
-  const journeySteps: Array<{ icon: typeof CircleUserRound; title: string; text: string }> = [{ icon: CircleUserRound, title: 'Connect', text: 'Meet someone and connect through Rally or QR.' }, { icon: FileText, title: 'Remember', text: 'Capture where you met, the event context and why the relationship matters.' }, { icon: MessageCircle, title: 'Follow Up', text: 'Keep important relationships moving after the event.' }, { icon: BarChart3, title: 'Grow', text: 'Turn relationships into meetings, opportunities and meaningful outcomes.' }]
-  return <div className="marketing-page"><MarketingHeader onDemo={() => setDemoOpen(true)} /><main>
-    <section className="hero-section"><div className="marketing-container hero-grid"><div className="hero-copy"><SectionLabel>EVENT NETWORKING &amp; RELATIONSHIP PLATFORM</SectionLabel><h1>Turn event connections<br />into business <span>opportunities.</span></h1><p>Rally helps professionals, organizers, sponsors and exhibitors build valuable relationships before, during and after events — from the first connection to the follow-up, opportunity and outcome.</p><div className="hero-actions"><button className="button button-primary" onClick={() => setDemoOpen(true)}>Request a Demo <ArrowRight size={16} /></button><a className="button button-outline" href="#how-it-works"><Sparkles size={16} /> See How Rally Works</a></div></div><div className="hero-visual"><img className="hero-product-image" src="/ChatGPT_Image_Oct_5,_2026,_09_38_27_PM.png" alt="Rally organizer dashboard with event networking and QR connection screens" /></div></div><div className="marketing-container"><AudienceStrip /></div></section>
-    <section className="problem-section" id="problem"><div className="marketing-container problem-grid"><div className="problem-image"><img src={networkingPhoto} alt="Professionals connecting at a business networking event" /></div><div className="problem-copy"><SectionLabel>THE PROBLEM</SectionLabel><h2>Great conversations shouldn’t disappear when the event ends.</h2><p>You meet valuable people at events — but often forget who you met, lose the context of the conversation, and fail to follow up.</p><p>Organizers can count registrations and attendance, but struggle to understand the relationships and opportunities their event helped create.</p></div></div></section>
-    <section className="how-section" id="how-it-works"><div className="marketing-container"><div className="section-heading centered"><SectionLabel>HOW RALLY WORKS</SectionLabel><h2>From connection to real opportunities.</h2></div><div className="journey-grid">{journeySteps.map(({ icon: Icon, title, text }, index) => <div className="journey-step" key={title}><span className={`journey-icon journey-${index}`}><Icon size={21} /></span><div><strong>{index + 1}. {title}</strong><p>{text}</p></div>{index < 3 && <ArrowRight className="journey-arrow" size={22} />}</div>)}</div></div></section>
-    <section className="lifecycle-section"><div className="marketing-container"><div className="section-heading centered"><h2>Built for what happens before, during and after the event.</h2></div><div className="lifecycle-grid"><div className="lifecycle-card"><span className="lifecycle-number blue-bg">01</span><h3>Before the event</h3><CheckList items={['Discover relevant people', 'Prepare for the event', 'Build your professional presence']} /><div className="mini-preview"><UsersRound size={18} /><span>Browse attendees</span><small>Find the people worth meeting.</small></div></div><div className="lifecycle-card"><span className="lifecycle-number green-bg">02</span><h3>During the event</h3><CheckList items={['Connect instantly', 'Use event context', 'Network through Event Mode', 'Continue conversations']} /><div className="mini-preview"><QrCode size={18} /><span>Event Mode</span><small>Make every introduction count.</small></div></div><div className="lifecycle-card"><span className="lifecycle-number orange-bg">03</span><h3>After the event</h3><CheckList items={['Remember every valuable connection', 'Follow up', 'Manage relationships', 'Develop opportunities']} /><div className="mini-preview"><Network size={18} /><span>My Connections</span><small>Keep relationships moving forward.</small></div></div></div></div></section>
-    <section className="audience-solutions" id="professionals"><div className="marketing-container solution-grid"><article className="solution-card solution-blue"><div><SectionLabel>FOR PROFESSIONALS</SectionLabel><h2>Never lose a valuable connection again.</h2><CheckList items={['Professional profile', 'QR networking', 'Connection context', 'Follow-ups', 'Opportunity tracking']} /><a href="#how-it-works" className="text-link">Build your network <ArrowRight size={15} /></a></div><MobileProductScreenshot label="My Connections" /></article><article className="solution-card solution-green" id="organizers"><div><SectionLabel>FOR ORGANIZERS</SectionLabel><h2>See what your event actually creates.</h2><CheckList items={['Event management', 'Attendee participation', 'Networking activity', 'Connections', 'Partnership management']} /><div><a href="#showcase" className="text-link">Explore the organizer workspace <ArrowRight size={15} /></a></div><div><Link to="/signup?type=organizer" className="text-link">Create an organizer account <ArrowRight size={15} /></Link></div></div><ProductScreenshot label="Event Networking" /></article><article className="solution-card solution-navy" id="sponsors"><div><SectionLabel>FOR SPONSORS &amp; EXHIBITORS</SectionLabel><h2>Turn event participation into lasting business relationships.</h2><CheckList items={['Event partnerships', 'Partnership obligations', 'Deliverables & requirements', 'Shared documents', 'Partnership progress']} /><a href="#showcase" className="text-link">Strengthen partnerships <ArrowRight size={15} /></a></div><ProductScreenshot label="Sponsor Workspace" /></article></div></section>
-    <section className="platform-section" id="platform"><div className="marketing-container platform-grid"><div><SectionLabel>THE RALLY PLATFORM</SectionLabel><h2>A complete event relationship platform.</h2><p>Everything you need to connect, collaborate and grow before, during and after your events.</p><div className="platform-list"><span><Network size={17} />Professional networking</span><span><CalendarDays size={17} />Event management</span><span><BriefcaseBusiness size={17} />Partnership management</span><span><MessageCircle size={17} />Messaging</span><span><CircleUserRound size={17} />Relationship tracking</span><span><BarChart3 size={17} />Business opportunity pipeline</span></div></div><div className="platform-showcase"><ProductScreenshot label="Event Networking" /><MobileProductScreenshot label="Event Mode" /><MobileProductScreenshot label="My Network" /></div></div></section>
-    <section className="showcase-section" id="showcase"><div className="marketing-container"><div className="section-heading centered"><SectionLabel>ONE CONNECTED EXPERIENCE</SectionLabel><h2>The event ends. The relationship continues.</h2><p>Rally preserves the context behind every introduction so valuable conversations can become lasting professional relationships.</p></div><div className="showcase-visual"><ProductScreenshot label="Rally Workspace" /><MobileProductScreenshot label="Connect at the event" /></div></div></section>
-    <section className="cta-section" id="cta"><div className="marketing-container cta-inner"><div><SectionLabel>MAKE EVERY CONNECTION COUNT</SectionLabel><h2>Create event experiences where valuable conversations become lasting professional relationships.</h2></div><div className="cta-actions"><button className="button button-white" onClick={() => setDemoOpen(true)}>Request a Demo <ArrowRight size={16} /></button><Link to="/signup" className="button button-ghost-white">Get Started</Link></div></div></section>
-  </main><MarketingFooter onDemo={() => setDemoOpen(true)} /><DemoModal open={demoOpen} onClose={() => setDemoOpen(false)} /></div>
+  const root = useRef<HTMLDivElement>(null)
+  useDeal(root)
+  const [activeStage, setActiveStage] = useState(JOURNEY.length - 1)
+  const signupUrl = useMemo(() => `${window.location.origin}/signup`, [])
+
+  return (
+    <div className="rl" ref={root}>
+      <a href="#main" className="rl-skip">Skip to content</a>
+      <LandingNav />
+
+      <main id="main">
+        {/* ---------------------------------------------------------------- hero */}
+        <section className="rl-hero" aria-labelledby="hero-title">
+          <div className="rl-wrap rl-hero__grid">
+            <div className="rl-hero__copy">
+              <h1 id="hero-title" className="rl-h1">Run the event. Keep every connection it makes.</h1>
+              <p className="rl-lede">
+                Rally runs registration, door check-in, the programme, your team and your partners. Every attendee
+                who meets someone at your event keeps that connection, with your event written on the back.
+              </p>
+              <div className="rl-actions">
+                <Link to="/signup?type=organizer" className="rl-btn rl-btn--primary">
+                  Create organizer account <ArrowRight aria-hidden="true" />
+                </Link>
+                <Link to="/signup" className="rl-btn rl-btn--line">Join as an attendee</Link>
+              </div>
+              <div className="rl-hero__fine">
+                <p className="rl-fine">Organizer accounts are approved by a Rally administrator before you create your organization.</p>
+                <p className="rl-fine">Already on Rally? <Link to="/login" className="rl-textlink">Log in</Link></p>
+              </div>
+            </div>
+
+            <div className="rl-hand">
+              <div className="rl-hand__photo" data-intro style={{ '--intro-delay': '0ms' } as CSSProperties}>
+                <PhotoPrint
+                  name="badges-conversation"
+                  alt="Attendees in conversation at a conference, name badges on blue lanyards."
+                  position="58% 50%"
+                  eager
+                  sizes="(max-width: 1023px) 80vw, 34vw"
+                />
+              </div>
+              <div className="rl-hand__event" data-intro style={{ '--intro-delay': '160ms' } as CSSProperties} aria-hidden="true">
+                <EventCard />
+              </div>
+              <div className="rl-hand__person" data-intro style={{ '--intro-delay': '320ms' } as CSSProperties}>
+                <TurnCard name="Ama Boateng" autoTurn front={<PersonFront signupUrl={signupUrl} />} back={<PersonBack />} />
+              </div>
+            </div>
+          </div>
+
+          <div className="rl-rise rl-wrap">
+            <ProofPrint
+              src="/landing/screens/organizer-event-overview.webp"
+              small={{ src: '/landing/screens/organizer-event-overview-phone.webp', width: 780, height: 1688 }}
+              width={2160}
+              height={1350}
+              eager
+              alt="Rally organizer workspace for Accra Founders Summit 2027: 214 registrations, 168 checked in, 341 connections made at the event and 12 open invitations."
+              slug={['Organizer', 'Event workspace', 'Sample data']}
+            />
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------- how it works */}
+        <section id="how" className="rl-sheet rl-sheet--over" aria-labelledby="how-title">
+          <div className="rl-wrap">
+            <div className="rl-head rl-head--split">
+              <h2 id="how-title" className="rl-h2">One event. Both sides of the table.</h2>
+              <p className="rl-lede">
+                Organizers run the event on Rally, and the people who attend use the same event to find each other,
+                connect and follow up. Nothing is exported from one tool into another: it is one record.
+              </p>
+            </div>
+            <ol className="rl-deal">
+              {JOURNEY.map((j, i) => (
+                <li
+                  key={j.stage}
+                  className="rl-deal__item"
+                  data-active={i === activeStage}
+                  onMouseEnter={() => setActiveStage(i)}
+                  data-deal
+                  style={deal(i % 2 ? 4 : -4, i * 90)}
+                >
+                  <div className="rl-deal__card" aria-hidden="true">{j.card(signupUrl)}</div>
+                  <h3 className="rl-deal__stage">{j.stage}</h3>
+                  <div className="rl-deal__who">
+                    <p><b>Organizer</b><span>{j.organizer}</span></p>
+                    <p><b>Attendee</b><span>{j.attendee}</span></p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* ---------------------------------------------------------- organizers */}
+        <section id="organizers" className="rl-section" aria-labelledby="org-title">
+          <div className="rl-wrap">
+            <div className="rl-head rl-head--split">
+              <div style={{ display: 'grid', gap: 20 }}>
+                <h2 id="org-title" className="rl-h2">Everything the organizer runs, in one workspace.</h2>
+                <p className="rl-lede">From the first draft to the last check-in, you and your team work from the same event.</p>
+              </div>
+              <div>
+                <PhotoPrint
+                  name="speaker-session"
+                  alt="A conference session: a presenter speaks while a participant is handed a microphone."
+                  className="rl-photo--wide"
+                  position="50% 40%"
+                />
+              </div>
+            </div>
+            <OrganizerStory />
+          </div>
+        </section>
+
+        {/* ----------------------------------------------------------- attendees */}
+        <section id="attendees" className="rl-sheet" aria-labelledby="att-title">
+          <div className="rl-wrap">
+            <div className="rl-attend-top">
+              <div style={{ display: 'grid', gap: 24 }}>
+                <h2 id="att-title" className="rl-h2">Attendees meet people. Rally remembers where.</h2>
+                <p className="rl-lede">
+                  Attendees find events, register, and use Event Mode on their phone while they are there. Everyone
+                  they connect with is saved with the event they met at.
+                </p>
+                <div className="rl-actions">
+                  <Link to="/signup" className="rl-btn rl-btn--primary">Join as an attendee <ArrowRight aria-hidden="true" /></Link>
+                </div>
+              </div>
+              <div>
+                <PhotoPrint
+                  name="qr-badge"
+                  alt="Two attendees at a refreshment table; one wears a conference badge with a QR code."
+                  position="72% 50%"
+                />
+              </div>
+            </div>
+
+            <ul className="rl-phones" aria-label="The attendee app">
+              {[
+                {
+                  title: 'Register in a minute',
+                  body: 'Answer the organizer’s questions and get a confirmed place, or a waitlist position when the event is full.',
+                  shot: 'attendee-registration', h: 1556, slug: ['Attendee', 'Registration', 'Sample data'] as [string, ...string[]],
+                  alt: 'Rally registration sheet for Women in Fintech Breakfast, asking for a company and an area of work.',
+                },
+                {
+                  title: 'Event Mode on the day',
+                  body: 'Agenda, saved sessions, speakers, exhibitors and messages for the event you are at. Map, deal room and event info are still to come.',
+                  shot: 'attendee-event-home-phone', h: 1688, slug: ['Attendee', 'Event Mode', 'Sample data'] as [string, ...string[]],
+                  alt: 'Rally Event Mode home for Accra Founders Summit 2027, marked checked in, with agenda, attendees, speakers, exhibitors, messages and schedule; map, deal room and event info are marked coming soon.',
+                },
+                {
+                  title: 'Find the people worth meeting',
+                  body: 'Browse the attendee directory by industry or location, scan a badge, or send a connection request.',
+                  shot: 'attendee-network-phone', h: 1688, slug: ['Attendee', 'Event Mode', 'Network', 'Sample data'] as [string, ...string[]],
+                  alt: 'Rally attendee directory for the summit with search, industry and location filters, and an attendee marked Connected.',
+                },
+              ].map((p, i) => (
+                <li key={p.shot} className="rl-phones__item" data-deal style={deal(i === 1 ? 4 : -4, i * 120)}>
+                  <ProofPrint src={`/landing/screens/${p.shot}.webp`} alt={p.alt} width={780} height={p.h} slug={p.slug} phone />
+                  <div className="rl-phones__text">
+                    <h3 className="rl-h3">{p.title}</h3>
+                    <p>{p.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            <div className="rl-keep">
+              <div className="rl-keep__copy">
+                <h3 className="rl-h2" style={{ fontSize: 'clamp(1.8rem, 1.2rem + 1.8vw, 2.8rem)' }}>
+                  The back of the card is where the value is.
+                </h3>
+                <p className="rl-body">
+                  A connection in Rally keeps the event you met at. After the event, it is where the relationship carries on.
+                </p>
+                <ul>
+                  {[
+                    'Notes on what you talked about',
+                    'Follow-ups with due dates',
+                    'Opportunities, from first conversation to won or lost',
+                    'Direct messages',
+                    'Connection requests, with a 30-day pause after a decline',
+                  ].map((t) => <li key={t}>{t}</li>)}
+                </ul>
+              </div>
+              <div className="rl-keep__cards">
+                <div>
+                  <ProofPrint
+                    src="/landing/screens/attendee-connection.webp"
+                    small={{ src: '/landing/screens/attendee-connection-phone.webp', width: 780, height: 1280 }}
+                    width={1776}
+                    height={960}
+                    alt="A Rally connection for Ama Boateng, met at Accra Founders Summit 2027, with message, schedule and share actions, two notes and a next step due 18 March."
+                    slug={['Attendee', 'Connection', 'Sample data']}
+                  />
+                </div>
+                <TurnCard name="Ama Boateng" front={<PersonFront signupUrl={signupUrl} />} back={<PersonBack />} style={{ rotate: '-1.5deg' }} />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* ------------------------------------------------------------ partners */}
+        <section id="partners" className="rl-section" aria-labelledby="partners-title">
+          <div className="rl-wrap">
+            <div className="rl-head">
+              <h2 id="partners-title" className="rl-h2">Sponsors and exhibitors, with every promise tracked.</h2>
+              <p className="rl-lede">Partnerships live inside the event they belong to, private to your team.</p>
+            </div>
+            <div className="rl-partners">
+              <div className="rl-partners__visual">
+                <div>
+                  <ProofPrint
+                    src="/landing/screens/organizer-partner-deliverables.webp"
+                    small={{ src: '/landing/screens/organizer-partner-deliverables-phone.webp', width: 780, height: 1688 }}
+                    width={2160}
+                    height={1350}
+                    alt="Rally partner page for Meridian Microfinance, headline sponsor: deliverables such as logo on the main stage screen and an exhibition stand, each marked completed with evidence attached."
+                    slug={['Organizer', 'Partner', 'Deliverables', 'Sample data']}
+                  />
+                </div>
+                <div className="rl-partners__phone">
+                  <ProofPrint
+                    src="/landing/screens/attendee-exhibitors-phone.webp"
+                    width={780}
+                    height={1688}
+                    phone
+                    alt="Rally Event Mode exhibitor list showing five exhibitors with their stand numbers and descriptions."
+                    slug={['Attendee', 'Exhibitors', 'Sample data']}
+                  />
+                </div>
+              </div>
+              <div className="rl-partners__copy">
+                <p>
+                  Record each partner’s package, value and roles. List what you owe them and what they owe you, mark
+                  each item as it is delivered, and attach the evidence.
+                </p>
+                <p className="rl-rule">
+                  Keep agreements and proposals with the partnership, each one marked internal or shared with the partner.
+                </p>
+                <p className="rl-rule">
+                  Internal notes and internal documents stay with your team. A workspace where sponsors see their own
+                  deliverables and the documents you share is on the way.
+                </p>
+                <p className="rl-rule">Exhibitors appear in the event app with their stand and description.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* -------------------------------------------------------------- ledger */}
+        <section id="ledger" className="rl-sheet" aria-labelledby="ledger-title">
+          <div className="rl-wrap">
+            <div className="rl-head">
+              <h2 id="ledger-title" className="rl-h2">What’s in Rally today.</h2>
+              <p className="rl-lede">
+                A plain list, so you know what you are signing up for. Checked against the product in November 2026.
+              </p>
+            </div>
+            <div className="rl-ledger">
+              <div className="rl-ledger__groups">
+                {([
+                  ['For organizers', LIVE.organizers],
+                  ['For attendees', LIVE.attendees],
+                ] as const).map(([title, items]) => (
+                  <div key={title}>
+                    <h3>{title}<span className="rl-num">{items.length}</span></h3>
+                    <ul>{items.map((t) => <li key={t}><Check aria-hidden="true" />{t}</li>)}</ul>
+                  </div>
+                ))}
+              </div>
+              <div className="rl-ledger__no">
+                <h3>Not in Rally yet</h3>
+                <ul>{NOT_YET.map((t) => <li key={t}><Clock3 aria-hidden="true" />{t}</li>)}</ul>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* --------------------------------------------------------------- close */}
+        <section className="rl-close" aria-labelledby="close-title">
+          <div className="rl-wrap rl-close__grid">
+            <div className="rl-close__copy">
+              <h2 id="close-title" className="rl-h1" style={{ fontSize: 'clamp(2.4rem, 1.2rem + 3.8vw, 4.6rem)' }}>
+                Put your next event on Rally.
+              </h2>
+              <p className="rl-lede">
+                Create an organizer account. Once it is approved, set up your organization, invite your team and
+                publish your first event.
+              </p>
+              <div className="rl-actions">
+                <Link to="/signup?type=organizer" className="rl-btn rl-btn--primary">
+                  Create organizer account <ArrowRight aria-hidden="true" />
+                </Link>
+                <Link to="/signup" className="rl-btn rl-btn--line">Join as an attendee</Link>
+              </div>
+              <p className="rl-fine">Already on Rally? <Link to="/login" className="rl-textlink">Log in</Link></p>
+            </div>
+            <div className="rl-close__hand" aria-hidden="true">
+              <div>
+                <PhotoPrint name="networking-smile" alt="" position="38% 50%" />
+              </div>
+              <div className="rl-close__blank" data-deal style={deal(8, 160)}>
+                <div className="rl-card">
+                  <span className="rl-card__label">Your event</span>
+                  <div className="rl-blank">
+                    <div>Name</div>
+                    <div>Date</div>
+                    <div>Venue</div>
+                    <div>Capacity</div>
+                  </div>
+                  <span />
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="rl-foot">
+        <div className="rl-wrap">
+          <div className="rl-foot__grid">
+            <div className="rl-foot__brand">
+              <RallyMark />
+              <p>Events, the people at them, and what happens next.</p>
+            </div>
+            <nav aria-labelledby="foot-product">
+              <h2 id="foot-product">On this page</h2>
+              <ul>{SECTIONS.map((s) => <li key={s.href}><a href={s.href}>{s.label}</a></li>)}</ul>
+            </nav>
+            <nav aria-labelledby="foot-account">
+              <h2 id="foot-account">Account</h2>
+              <ul>
+                <li><Link to="/signup?type=organizer">Create organizer account</Link></li>
+                <li><Link to="/signup">Join as an attendee</Link></li>
+                <li><Link to="/login">Log in</Link></li>
+                <li><Link to="/forgot-password">Reset your password</Link></li>
+              </ul>
+            </nav>
+          </div>
+          <div className="rl-foot__base">
+            <span>© 2026 Rally</span>
+            <span>Product screens and cards show fictional sample data. Event photography by Pavel Danilyuk on Pexels.</span>
+          </div>
+        </div>
+      </footer>
+    </div>
+  )
 }

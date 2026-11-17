@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "design-system-font",
+        "value": "plus jakarta sans",
+        "createdAt": "2026-11-17T18:13:39.832Z",
+        "reason": "agent decision: Plus Jakarta Sans is the signed-in app's heading font (tailwind.config.js fontFamily.display); DESIGN.md is scoped to the landing page only and says so"
+      }
+    ]
+  }
+}

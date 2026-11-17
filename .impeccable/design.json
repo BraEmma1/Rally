@@ -1,0 +1,167 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-17T00:00:00Z",
+  "title": "Design System: Rally (public landing)",
+  "scope": "Public signed-out landing page only (src/pages/MarketingHomePage.tsx, src/components/landing/, tokens on .rl). The signed-in app keeps its own system (tailwind.config.js, design-reference/stitch/rally-event-ui/design-system.md) and must not inherit this one.",
+  "extensions": {
+    "colorMeta": {
+      "table":       { "role": "neutral", "displayName": "Table Navy", "canonical": "#0b2554", "tonalRamp": ["#061631", "#081c42", "#0b2554", "#12306a", "#364766", "#5a6a86", "#93a7cb", "#e6edf7"] },
+      "table-deep":  { "role": "neutral", "displayName": "Under-table Navy", "canonical": "#081c42", "tonalRamp": ["#061631", "#081c42", "#0b2554", "#12306a", "#364766", "#5a6a86", "#93a7cb", "#e6edf7"] },
+      "table-raise": { "role": "neutral", "displayName": "Raised Navy (defined, unused)", "canonical": "#12306a", "tonalRamp": ["#061631", "#081c42", "#0b2554", "#12306a", "#364766", "#5a6a86", "#93a7cb", "#e6edf7"] },
+      "table-line":  { "role": "neutral", "displayName": "Table Rule", "canonical": "rgba(201, 214, 234, 0.18)" },
+      "on-table":    { "role": "neutral", "displayName": "On-table White", "canonical": "#ffffff", "tonalRamp": ["#5a6a86", "#93a7cb", "#c3d1ea", "#d9e1ec", "#e6edf7", "#f3f6fb", "#f9fbfd", "#ffffff"] },
+      "on-table-2":  { "role": "neutral", "displayName": "On-table Body", "canonical": "#c3d1ea", "tonalRamp": ["#5a6a86", "#93a7cb", "#c3d1ea", "#d9e1ec", "#e6edf7", "#f3f6fb", "#f9fbfd", "#ffffff"] },
+      "on-table-3":  { "role": "neutral", "displayName": "On-table Fine", "canonical": "#93a7cb", "tonalRamp": ["#5a6a86", "#93a7cb", "#c3d1ea", "#d9e1ec", "#e6edf7", "#f3f6fb", "#f9fbfd", "#ffffff"] },
+      "stock":       { "role": "neutral", "displayName": "Card Stock", "canonical": "#ffffff", "tonalRamp": ["#5a6a86", "#93a7cb", "#c3d1ea", "#d9e1ec", "#e6edf7", "#f3f6fb", "#f9fbfd", "#ffffff"] },
+      "stock-2":     { "role": "neutral", "displayName": "Tinted Stock", "canonical": "#f3f6fb", "tonalRamp": ["#5a6a86", "#93a7cb", "#c3d1ea", "#d9e1ec", "#e6edf7", "#f3f6fb", "#f9fbfd", "#ffffff"] },
+      "stock-3":     { "role": "neutral", "displayName": "Card Edge Stock", "canonical": "#e6edf7", "tonalRamp": ["#5a6a86", "#93a7cb", "#c3d1ea", "#d9e1ec", "#e6edf7", "#f3f6fb", "#f9fbfd", "#ffffff"] },
+      "ink":         { "role": "neutral", "displayName": "Ink", "canonical": "#0b2554", "tonalRamp": ["#061631", "#081c42", "#0b2554", "#12306a", "#364766", "#5a6a86", "#93a7cb", "#e6edf7"] },
+      "ink-2":       { "role": "neutral", "displayName": "Ink Body", "canonical": "#364766", "tonalRamp": ["#061631", "#081c42", "#0b2554", "#12306a", "#364766", "#5a6a86", "#93a7cb", "#e6edf7"] },
+      "ink-3":       { "role": "neutral", "displayName": "Ink Fine", "canonical": "#5a6a86", "tonalRamp": ["#061631", "#081c42", "#0b2554", "#12306a", "#364766", "#5a6a86", "#93a7cb", "#e6edf7"] },
+      "line":        { "role": "neutral", "displayName": "Stock Rule", "canonical": "#d9e1ec", "tonalRamp": ["#5a6a86", "#93a7cb", "#c3d1ea", "#d9e1ec", "#e6edf7", "#f3f6fb", "#f9fbfd", "#ffffff"] },
+      "blue":        { "role": "primary", "displayName": "Rally Blue", "canonical": "#0a66c2", "tonalRamp": ["#06386b", "#08529d", "#0a66c2", "#0b70d4", "#3d8ad8", "#7db8f2", "#b9d8f7", "#e8f2fc"] },
+      "blue-hover":  { "role": "primary", "displayName": "Rally Blue Hover", "canonical": "#0b70d4", "tonalRamp": ["#06386b", "#08529d", "#0a66c2", "#0b70d4", "#3d8ad8", "#7db8f2", "#b9d8f7", "#e8f2fc"] },
+      "blue-deep":   { "role": "primary", "displayName": "Pressed Blue", "canonical": "#08529d", "tonalRamp": ["#06386b", "#08529d", "#0a66c2", "#0b70d4", "#3d8ad8", "#7db8f2", "#b9d8f7", "#e8f2fc"] },
+      "blue-light":  { "role": "primary", "displayName": "Focus Blue", "canonical": "#7db8f2", "tonalRamp": ["#06386b", "#08529d", "#0a66c2", "#0b70d4", "#3d8ad8", "#7db8f2", "#b9d8f7", "#e8f2fc"] },
+      "status-live": { "role": "status", "displayName": "Live Green", "canonical": "#10b981", "tonalRamp": ["#064e3b", "#065f46", "#047857", "#059669", "#10b981", "#34d399", "#a7f3d0", "#ecfdf5"] }
+    },
+    "typographyMeta": {
+      "display":    { "displayName": "Display", "purpose": "Hero headline (four lines at 1440) and, at a smaller clamp, the closing headline." },
+      "headline":   { "displayName": "Headline", "purpose": "One per section." },
+      "title":      { "displayName": "Title", "purpose": "Story steps and sub-heads." },
+      "lede":       { "displayName": "Lede", "purpose": "One or two sentences under a headline, 38-40ch." },
+      "body":       { "displayName": "Body", "purpose": "Running copy, 46ch." },
+      "fine":       { "displayName": "Fine", "purpose": "Approval notes and log-in lines." },
+      "button":     { "displayName": "Button", "purpose": "Button labels." },
+      "card-label": { "displayName": "Card Label", "purpose": "Uppercase field labels printed on cards, card backs and footer column heads; never a section kicker." },
+      "slug":       { "displayName": "Slug", "purpose": "Caption under a proof print naming the screen." }
+    },
+    "shadows": [
+      { "name": "none", "value": "none", "purpose": "The system has no drop shadows. Depth is overlap, rotation and the painted edge." },
+      { "name": "drawn-edge", "value": "inset 0 0 0 1px #d9e1ec", "purpose": "Draws the edge of tinted stock (cards, mats) laid on a white sheet. An edge, not elevation." },
+      { "name": "line-button-ring", "value": "inset 0 0 0 1.5px rgba(255, 255, 255, 0.55)", "purpose": "Outline of the line button on navy; full white on hover, ink on sheets." },
+      { "name": "painted-edge-card", "value": "linear-gradient(0deg, #0a66c2 0 5px, transparent 5px)", "purpose": "The painted band along the bottom of a business card (background-image)." },
+      { "name": "painted-edge-button", "value": "linear-gradient(0deg, #08529d 0 3px, transparent 3px)", "purpose": "The painted band under a primary button; 1px when pressed." }
+    ],
+    "motion": [
+      { "name": "ease-deal", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "The one easing for every deal, turn and stack change." },
+      { "name": "card-turn", "value": "transform 900ms ease-deal", "purpose": "Person card flips front to back on the Y axis; hero auto-turns once after 2200ms unless touched." },
+      { "name": "deal-in-view", "value": "translate 1000ms, rotate 1000ms ease-deal; opacity 600ms ease; from 48px down, ~3deg", "purpose": "Below-the-fold items settle when scrolled into view, staggered by --deal-delay." },
+      { "name": "deal-intro", "value": "1100ms ease-deal from translate(60px, 120px) rotate(14deg)", "purpose": "Hero hand dealt in on load." },
+      { "name": "stack-print", "value": "transform 700ms ease-deal; opacity 500ms ease", "purpose": "Organizer story deals the new proof print over the last." },
+      { "name": "hand-active", "value": "rotate/translate 500ms ease-deal; colors 300ms ease", "purpose": "Active card in the dealt hand straightens and lifts 6px." },
+      { "name": "button", "value": "transform 220ms ease-deal; colors 160ms ease", "purpose": "1px lift on hover, 1px press." },
+      { "name": "reduced-motion", "value": "none", "purpose": "Under prefers-reduced-motion: reduce there is no deal, intro, turn or stack transition. Timing above is as built and has not been motion-reviewed." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "640px" },
+      { "name": "desk", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one blue action per viewport: a small card with a painted pressed-blue band.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">Create organizer account <svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M5 12h14\"/><path d=\"m12 5 7 7-7 7\"/></svg></a>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 10px; min-height: 48px; padding: 12px 22px 15px; border-radius: 4px; font-family: 'Schibsted Grotesk', 'Inter', system-ui, sans-serif; font-size: 1rem; font-weight: 650; letter-spacing: -0.005em; text-decoration: none; color: #fff; background-color: #0a66c2; background-image: linear-gradient(0deg, #08529d 0 3px, transparent 3px); transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1), background-color 160ms ease; } .ds-btn-primary svg { width: 18px; height: 18px; transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-primary:hover { background-color: #0b70d4; transform: translateY(-1px); } .ds-btn-primary:hover svg { transform: translateX(3px); } .ds-btn-primary:active { transform: translateY(1px); background-image: linear-gradient(0deg, #08529d 0 1px, transparent 1px); } .ds-btn-primary:focus-visible { outline: 2px solid #7db8f2; outline-offset: 3px; }"
+    },
+    {
+      "name": "Card-stock Button",
+      "kind": "button",
+      "refersTo": "button-card",
+      "description": "White stock button for a second action on navy (the nav's account action); its band turns blue on hover.",
+      "html": "<div style=\"background:#0b2554;padding:24px\"><a class=\"ds-btn-card\" href=\"#\">Create organizer account</a></div>",
+      "css": ".ds-btn-card { display: inline-flex; align-items: center; min-height: 48px; padding: 12px 22px 15px; border-radius: 4px; font-family: 'Schibsted Grotesk', 'Inter', system-ui, sans-serif; font-size: 1rem; font-weight: 650; text-decoration: none; color: #0b2554; background-color: #fff; background-image: linear-gradient(0deg, #e6edf7 0 3px, transparent 3px); transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-btn-card:hover { transform: translateY(-1px); background-image: linear-gradient(0deg, #0a66c2 0 3px, transparent 3px); } .ds-btn-card:focus-visible { outline: 2px solid #7db8f2; outline-offset: 3px; }"
+    },
+    {
+      "name": "Line Button",
+      "kind": "button",
+      "refersTo": "button-line",
+      "description": "Tertiary action on navy: an inset white ring, no fill.",
+      "html": "<div style=\"background:#0b2554;padding:24px\"><a class=\"ds-btn-line\" href=\"#\">Join as an attendee</a></div>",
+      "css": ".ds-btn-line { display: inline-flex; align-items: center; min-height: 48px; padding: 12px 22px; border-radius: 4px; font-family: 'Schibsted Grotesk', 'Inter', system-ui, sans-serif; font-size: 1rem; font-weight: 650; text-decoration: none; color: #fff; background: transparent; box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.55); transition: background-color 160ms ease; } .ds-btn-line:hover { box-shadow: inset 0 0 0 1.5px #fff; background: rgba(255, 255, 255, 0.06); } .ds-btn-line:focus-visible { outline: 2px solid #7db8f2; outline-offset: 3px; }"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Sticky navy bar: wordmark tile, four anchors, log-in link and the card-stock account button.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-mark\" href=\"#\"><span class=\"ds-mark__tile\">R</span>Rally</a><ul class=\"ds-nav__links\"><li><a href=\"#\">How it works</a></li><li><a href=\"#\">Organizers</a></li><li><a href=\"#\">Attendees</a></li><li><a href=\"#\">Partners</a></li></ul><a class=\"ds-nav__login\" href=\"#\">Log in</a></nav>",
+      "css": ".ds-nav { display: flex; align-items: center; gap: 28px; min-height: 72px; padding: 0 24px; background: rgba(11, 37, 84, 0.94); color: #fff; font-family: 'Inter', system-ui, sans-serif; } .ds-mark { display: inline-flex; align-items: center; gap: 10px; color: #fff; text-decoration: none; font-family: 'Schibsted Grotesk', 'Inter', system-ui, sans-serif; font-weight: 800; font-size: 1.35rem; letter-spacing: -0.03em; } .ds-mark__tile { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 4px; font-size: 1.05rem; background: linear-gradient(0deg, #08529d 0 3px, #0a66c2 3px); } .ds-nav__links { display: flex; gap: 4px; margin: 0; padding: 0; list-style: none; } .ds-nav__links a { display: inline-block; padding: 8px 12px; border-radius: 3px; text-decoration: none; color: #c3d1ea; font-size: 0.94rem; font-weight: 500; } .ds-nav__links a:hover { color: #fff; background: rgba(255, 255, 255, 0.07); } .ds-nav__login { margin-left: auto; color: #fff; font-weight: 600; text-decoration: none; } .ds-nav__login:hover { text-decoration: underline; text-underline-offset: 4px; } .ds-nav a:focus-visible { outline: 2px solid #7db8f2; outline-offset: 3px; }"
+    },
+    {
+      "name": "Business Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Card stock at 1.75:1 with a painted blue band; label, title, status foot.",
+      "html": "<div style=\"background:#0b2554;padding:32px\"><div class=\"ds-card\"><span class=\"ds-card__label\">Event</span><p class=\"ds-card__title\">Accra Founders Summit</p><div class=\"ds-card__foot\"><span class=\"ds-card__pill\">Registration open</span><span>300 places</span></div></div></div>",
+      "css": ".ds-card { width: 340px; aspect-ratio: 1.75 / 1; border-radius: 4px; background-color: #fff; color: #0b2554; background-image: linear-gradient(0deg, #0a66c2 0 5px, transparent 5px); padding: 20px 20px 25px; display: grid; grid-template-rows: auto 1fr auto; rotate: -2deg; font-family: 'Inter', system-ui, sans-serif; } .ds-card__label { font-family: 'Schibsted Grotesk', 'Inter', sans-serif; font-size: 0.66rem; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: #5a6a86; } .ds-card__title { align-self: center; margin: 0; font-family: 'Schibsted Grotesk', 'Inter', sans-serif; font-size: 1.55rem; font-weight: 700; letter-spacing: -0.025em; line-height: 1.05; } .ds-card__foot { display: flex; justify-content: space-between; align-items: end; font-size: 0.75rem; color: #364766; } .ds-card__pill { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: #0b2554; } .ds-card__pill::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: #10b981; }"
+    },
+    {
+      "name": "Turn Button",
+      "kind": "custom",
+      "refersTo": "turn-button",
+      "description": "The control under the person card that turns it over; keyboard operable.",
+      "html": "<div style=\"background:#0b2554;padding:24px\"><button class=\"ds-turn\" type=\"button\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8\"/><path d=\"M21 3v5h-5\"/><path d=\"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16\"/><path d=\"M8 16H3v5\"/></svg>Turn over</button></div>",
+      "css": ".ds-turn { display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 8px 14px 8px 12px; border: 0; border-radius: 3px; background: rgba(255, 255, 255, 0.1); color: #fff; cursor: pointer; font: 600 0.86rem/1 'Inter', system-ui, sans-serif; } .ds-turn svg { width: 15px; height: 15px; transition: rotate 500ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-turn:hover { background: rgba(255, 255, 255, 0.18); } .ds-turn:active svg { rotate: 180deg; } .ds-turn:focus-visible { outline: 2px solid #7db8f2; outline-offset: 3px; }"
+    },
+    {
+      "name": "Proof Print",
+      "kind": "custom",
+      "refersTo": "print-mat",
+      "description": "A real screen on a card-stock mat with crop marks and a slug naming it.",
+      "html": "<div style=\"background:#0b2554;padding:40px\"><figure class=\"ds-print\"><div class=\"ds-print__mat\"><span class=\"ds-crop ds-crop--tl\"></span><span class=\"ds-crop ds-crop--tr\"></span><span class=\"ds-crop ds-crop--bl\"></span><span class=\"ds-crop ds-crop--br\"></span><div class=\"ds-print__screen\"></div></div><figcaption class=\"ds-slug\"><b>Organizer event workspace</b><span>Sample data</span></figcaption></figure></div>",
+      "css": ".ds-print { margin: 0; width: 360px; font-family: 'Inter', system-ui, sans-serif; } .ds-print__mat { position: relative; background: #fff; padding: 10px; border-radius: 3px; } .ds-print__screen { height: 200px; border-radius: 2px; border: 1px solid #d9e1ec; background: #f3f6fb; } .ds-crop { position: absolute; width: 16px; height: 16px; border: 0 solid rgba(195, 209, 234, 0.55); } .ds-crop--tl { left: -22px; top: -22px; border-right-width: 1px; border-bottom-width: 1px; } .ds-crop--tr { right: -22px; top: -22px; border-left-width: 1px; border-bottom-width: 1px; } .ds-crop--bl { left: -22px; bottom: -22px; border-right-width: 1px; border-top-width: 1px; } .ds-crop--br { right: -22px; bottom: -22px; border-left-width: 1px; border-top-width: 1px; } .ds-slug { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 14px; font-size: 0.78rem; letter-spacing: 0.02em; color: #93a7cb; } .ds-slug b { font-weight: 600; color: #c3d1ea; }"
+    },
+    {
+      "name": "Text Link",
+      "kind": "custom",
+      "refersTo": "text-link",
+      "description": "Inline link with a 1.5px underline that firms up on hover; blue on white sheets.",
+      "html": "<p class=\"ds-fine\">Already on Rally? <a class=\"ds-textlink\" href=\"#\">Log in</a></p>",
+      "css": ".ds-fine { margin: 0; padding: 16px; background: #fff; font: 400 0.875rem/1.5 'Inter', system-ui, sans-serif; color: #5a6a86; } .ds-textlink { color: #0a66c2; font-weight: 600; text-decoration: underline; text-decoration-color: rgba(10, 102, 194, 0.35); text-underline-offset: 4px; text-decoration-thickness: 1.5px; } .ds-textlink:hover { text-decoration-color: currentColor; } .ds-textlink:focus-visible { outline: 2px solid #0a66c2; outline-offset: 3px; border-radius: 3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Card Exchange",
+    "overview": "The landing page is a hand of business cards dealt on a navy table. The event an organizer runs is the table; every connection Rally records is a card with a back to it, where you met, what was said and what comes next. Real product screens appear as proof prints on card-stock mats, with printer's crop marks and a slug naming the screen they come from. Event photography is mounted like a print, white border and all.\n\nThe material is paper on a surface. Depth comes only from objects lapping over one another, from small rotations, and from the painted band along the bottom edge of card stock; nothing floats on a drop shadow. Large white \"sheets\" of stock are laid over the navy table to carry whole sections, and the hero's proof print rises from under the first sheet. Density is moderate and editorial: big Schibsted Grotesk headlines, short ledes, generous section spacing, and every section built around one object (a hand, a stack of prints, a fan of phones, a ledger).\n\nMotion is dealing. Cards arrive with a short translate and a small rotation that settles on a long exponential ease-out, always from a state that is already visible, and the signature interaction is the card turn: the person card flips front to back, operable by keyboard.",
+    "keyCharacteristics": [
+      "Navy table ground, white and cool-tinted card stock laid over it.",
+      "Business cards at true 1.75:1 proportion with a painted blue edge band.",
+      "Depth from overlap, rotation and the painted edge; no drop shadows.",
+      "Brand blue fills only the primary action of a viewport or the element in focus.",
+      "Real screens shown as proof prints with crop marks and a slug caption.",
+      "The card turn and the deal as the only motion vocabulary."
+    ],
+    "rules": [
+      { "name": "The One Blue Fill Rule", "body": "Brand blue fills one thing per viewport: that viewport's primary action, or the active element. The nav's \"Create organizer account\" is white card stock, not blue, so the hero's blue button owns the first viewport. Small blue ink (edge bands, links, ledger checks) is allowed; a second blue fill is not.", "section": "colors" },
+      { "name": "The Painted Edge Rule", "body": "The blue band belongs to card stock (business cards, buttons, the wordmark tile). Sheets, photos and print mats never carry it.", "section": "colors" },
+      { "name": "The Card Field Rule", "body": "Uppercase tracked labels live on cards, card backs and the footer only. Never put one above a section headline.", "section": "typography" },
+      { "name": "The Papercut Rule", "body": "Nothing casts a shadow. If an object needs separating, lap it over its neighbor, rotate it, tint its face, or draw its edge with an inset hairline.", "section": "elevation" },
+      { "name": "The Recency Rule", "body": "In a stack, the newest object is on top and darkest; earlier ones fade (the organizer story's previous print sits at 38% opacity, its steps dim to on-table-3).", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep every new landing element inside the .rl root and its tokens.",
+      "Do give card stock its painted band (5px on cards, 3px on buttons), drawn as a background gradient so it follows the corner.",
+      "Do keep business cards at 1.75:1 and size their type in container units with rem floors.",
+      "Do show product proof as real captures on a print mat with crop marks and a slug that names the screen.",
+      "Do separate overlapping stock with lap, rotation, a tinted face or an inset 1px line hairline.",
+      "Do deal motion from a visible default and remove it under reduced motion."
+    ],
+    "donts": [
+      "Don't apply this world to the signed-in application; its screens follow tailwind.config.js and design-reference/stitch/rally-event-ui/design-system.md.",
+      "Don't use outer drop shadows on cards, prints, sheets or buttons.",
+      "Don't fill more than one element per viewport with brand blue.",
+      "Don't put the painted band on sheets, photos or print mats.",
+      "Don't set uppercase labels above section headlines; tracked caps belong to card fields.",
+      "Don't lay a named person card over a photographed face.",
+      "Don't lay repeated items out as a row of equal tiles; deal them as a hand."
+    ],
+    "openNotes": [
+      "Motion timing is unreviewed: the finish review returned ship on its scored fixes but saw reduced-motion captures only.",
+      "Contract named 3px card corners, a 4px edge and #F5F7FB; the build ships 4px corners, a 5px card band (3px on buttons) and #F3F6FB. Build values are recorded."
+    ]
+  }
+}

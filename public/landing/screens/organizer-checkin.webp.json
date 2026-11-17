@@ -1,0 +1,4 @@
+{
+  "prompt": "Real Rally interface, captured 2026-11-17 by scripts/landing-screenshots/capture.cjs (shot 'organizer-checkin') against a stubbed Supabase API answering from fictional sample data in scripts/landing-screenshots/fixtures.cjs. No real users, organizations or production data. Not edited after capture beyond PNG-to-WebP conversion.",
+  "createdAt": "2026-11-17T17:32:02.868Z"
+}
