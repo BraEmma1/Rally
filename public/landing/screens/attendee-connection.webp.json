@@ -1,0 +1,4 @@
+{
+  "prompt": "Real Rally interface, captured 2026-11-17 by scripts/landing-screenshots/capture.cjs (shot 'attendee-connection') against a stubbed Supabase API answering from fictional sample data in scripts/landing-screenshots/fixtures.cjs. Cropped below the connection's tab bar (the Meetings tab is a placeholder). No real users or production data.",
+  "createdAt": "2026-11-17T18:00:17.569Z"
+}
