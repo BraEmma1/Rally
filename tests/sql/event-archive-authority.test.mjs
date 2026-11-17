@@ -40,7 +40,7 @@ const field = async (e, col) => (await sup(`SELECT ${col} AS v FROM events WHERE
 
 // ---- seed -----------------------------------------------------------------
 const U = {}
-for (const n of ['owner', 'admin', 'm1', 'm2', 'suspAdmin', 'suspMgr', 'owner2']) U[n] = await user(`${n}@t.test`)
+for (const n of ['owner', 'admin', 'm1', 'm2', 'suspAdmin', 'suspMgr', 'suspOwner', 'owner2']) U[n] = await user(`${n}@t.test`)
 await sup(`UPDATE user_accounts SET account_type='organizer' WHERE user_id = ANY($1)`, [[U.owner, U.owner2]])
 const mkOrg = async (name, creator) =>
   (await sup(`INSERT INTO organizations (name, org_type, approval_status, created_by) VALUES ($1,'organizer','approved',$2) RETURNING id`, [name, creator])).rows[0].id
@@ -49,7 +49,7 @@ const org2 = await mkOrg('Other Org', U.owner2)
 await sup(`INSERT INTO organization_members (organization_id, user_id, role) VALUES ($1,$2,'owner') ON CONFLICT DO NOTHING`, [org, U.owner])
 await sup(`INSERT INTO organization_members (organization_id, user_id, role) VALUES ($1,$2,'owner') ON CONFLICT DO NOTHING`, [org2, U.owner2])
 await sup(`SET session_replication_role = replica`)
-for (const [u, r] of [['admin', 'admin'], ['m1', 'manager'], ['m2', 'manager'], ['suspAdmin', 'admin'], ['suspMgr', 'manager']]) {
+for (const [u, r] of [['admin', 'admin'], ['m1', 'manager'], ['m2', 'manager'], ['suspAdmin', 'admin'], ['suspMgr', 'manager'], ['suspOwner', 'owner']]) {
   await sup(`INSERT INTO organization_members (organization_id, user_id, role) VALUES ($1,$2,$3)`, [org, U[u], r])
 }
 const ev = async (name, { orgId = org, by = U.owner } = {}) =>
@@ -67,7 +67,7 @@ for (const [e, m] of [[E1, 'm1'], [E2, 'm1'], [E3, 'm1'], [E1, 'suspMgr']]) {
   const e1 = await err(U.owner, `SELECT assign_event_manager($1,$2)`, [e, U[m]])
   if (e1) { console.log('SEED FAILED', e1); process.exit(1) }
 }
-await sup(`UPDATE user_accounts SET status='suspended' WHERE user_id = ANY($1)`, [[U.suspAdmin, U.suspMgr]])
+await sup(`UPDATE user_accounts SET status='suspended' WHERE user_id = ANY($1)`, [[U.suspAdmin, U.suspMgr, U.suspOwner]])
 
 const ARCHIVE = `UPDATE events SET archived_at = now() WHERE id = $1 RETURNING id`
 const RESTORE = `UPDATE events SET archived_at = NULL WHERE id = $1 RETURNING id`
@@ -166,11 +166,71 @@ async function bypassingRls(uid, sql, params) {
 }
 ok('owner can then restore it on its own', (await err(U.owner, RESTORE, [E3])) === null && (await archivedAt(E3)) === null)
 
-// ---- server-side work is exempt -------------------------------------------
-await sup(`UPDATE events SET archived_at = now() WHERE id=$1`, [E3])
-ok('a statement with no signed-in user (migration / service role) may archive', (await archivedAt(E3)) !== null)
-await sup(`UPDATE events SET archived_at = NULL WHERE id=$1`, [E3])
-ok('...and restore', (await archivedAt(E3)) === null)
+// ---- who is exempt and who is not: database sessions -----------------------
+// How a caller is identified on Supabase (read from the project's auth schema):
+// auth.uid() = request.jwt.claim.sub or request.jwt.claims->>'sub'; auth.jwt() is
+// NULL when no claims are set; API requests log in as `authenticator` and SET ROLE
+// to the JWT's role; an administrative session logs in as a database role
+// (postgres) and carries no claims. These cases run as postgres, with RLS bypassed,
+// so only the trigger decides. The API cases are at the end of the file (PGlite
+// cannot switch the session user back once it has been changed).
+async function direct(sql, params = [], { claims = null, legacyRole = null } = {}) {
+  if (claims) await sup(`SELECT set_config('request.jwt.claims', $1, false)`, [JSON.stringify(claims)])
+  if (legacyRole) await sup(`SELECT set_config('request.jwt.claim.role', $1, false)`, [legacyRole])
+  try { await sup(sql, params); return null } catch (x) { return String(x.message) } finally {
+    await sup(`SELECT set_config('request.jwt.claims', '', false)`)
+    await sup(`SELECT set_config('request.jwt.claim.role', '', false)`)
+  }
+}
+const archived3 = async () => (await archivedAt(E3)) !== null
+
+ok('administrative session, no JWT claims at all (SQL editor / migrations / cron): may archive', (await direct(ARCHIVE, [E3])) === null && await archived3())
+ok('...and restore', (await direct(RESTORE, [E3])) === null && !(await archived3()))
+ok('administrative session with an empty claims object counts as no claims', (await direct(ARCHIVE, [E3], { claims: {} })) === null && await archived3())
+await direct(RESTORE, [E3])
+{
+  const e = await direct(ARCHIVE, [E3], { claims: { role: 'service_role' } })
+  ok('service-role claims with no user: exempt', e === null && await archived3(), e)
+  await direct(RESTORE, [E3])
+}
+{
+  const e = await direct(ARCHIVE, [E3], { claims: { role: 'service_role', sub: U.m1 } })
+  ok('service-role claims carrying a manager\'s identity: refused', REFUSED.test(e ?? '') && !(await archived3()), e)
+}
+{
+  const e = await direct(ARCHIVE, [E3], { claims: { role: 'service_role', sub: U.owner } })
+  ok('service-role claims carrying an owner\'s identity: allowed', e === null && await archived3(), e)
+  await direct(RESTORE, [E3])
+}
+{
+  const e = await direct(ARCHIVE, [E3], { claims: { role: 'anon' } })
+  ok('anonymous claims with RLS bypassed: refused (was exempt before)', REFUSED.test(e ?? '') && !(await archived3()), e)
+}
+{
+  const e = await direct(ARCHIVE, [E3], { claims: { role: 'authenticated' } })
+  ok('authenticated claims without a user, RLS bypassed: refused (was exempt before)', REFUSED.test(e ?? '') && !(await archived3()), e)
+}
+{
+  const e = await direct(ARCHIVE, [E3], { claims: { iss: 'supabase' } })
+  ok('claims present but naming no role and no user: refused', REFUSED.test(e ?? '') && !(await archived3()), e)
+}
+{
+  const e = await direct(ARCHIVE, [E3], { legacyRole: 'anon' })
+  ok('legacy request.jwt.claim.role = anon, RLS bypassed: refused', REFUSED.test(e ?? '') && !(await archived3()), e)
+}
+{
+  const e1 = await direct(ARCHIVE, [E3], { claims: { role: 'authenticated', sub: U.suspOwner } })
+  ok('suspended owner with RLS bypassed: refused by the trigger', REFUSED.test(e1 ?? '') && !(await archived3()), e1)
+  const e2 = await direct(ARCHIVE, [E3], { claims: { role: 'service_role', sub: U.suspAdmin } })
+  ok('suspended admin on a service-role token: refused by the trigger', REFUSED.test(e2 ?? '') && !(await archived3()), e2)
+}
+
+// A future SECURITY DEFINER function that archives events, reachable by anyone,
+// runs as its owner and bypasses RLS: the trigger must still judge the CALLER.
+// Created here (needs a superuser); called through the API at the end.
+await sup(`CREATE FUNCTION public.zz_test_archive(e uuid) RETURNS void LANGUAGE sql SECURITY DEFINER SET search_path = public, pg_temp
+           AS $$ UPDATE events SET archived_at = now() WHERE id = e $$`)
+await sup(`GRANT EXECUTE ON FUNCTION public.zz_test_archive(uuid) TO anon, authenticated`)
 
 // ---- shape of the change --------------------------------------------------
 {
@@ -193,6 +253,95 @@ ok('...and restore', (await archivedAt(E3)) === null)
   const e = await (async () => { try { await db.exec(fs.readFileSync(path.join(MIG, file), 'utf8')); return null } catch (x) { return String(x.message) } })()
   const n = Number((await sup(`SELECT count(*) n FROM pg_trigger WHERE tgname='check_event_archive_authority'`)).rows[0].n)
   ok('the migration can be re-run safely (one trigger afterwards)', e === null && n === 1, e)
+}
+
+
+// ---- who is exempt and who is not: through the API (must run LAST) ---------
+// PostgREST logs in as `authenticator` and, per request, SET LOCAL ROLE to the
+// verified JWT's role with the claims in request.jwt.claims. PGlite cannot return
+// to the postgres session user afterwards, so from here on setup and inspection
+// go through a service-role request (exempt by design) — nothing after this
+// section may use sup().
+await sup(`GRANT anon, authenticated, service_role TO authenticator`) // as on Supabase; the STUBS omit it
+await db.exec(`SET SESSION AUTHORIZATION authenticator`)
+async function api(role, claims, sql, params = []) {
+  await db.exec('BEGIN')
+  try {
+    await db.exec(`SET LOCAL ROLE ${role}`)
+    if (claims) await db.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(claims)])
+    const r = await db.query(sql, params)
+    await db.exec('COMMIT')
+    return { rows: r.rows.length, error: null }
+  } catch (x) {
+    await db.exec('ROLLBACK')
+    return { rows: 0, error: String(x.message) }
+  }
+}
+const SVC = { role: 'service_role', iss: 'supabase' }
+const apiArchived = async () => {
+  await db.exec('BEGIN')
+  try {
+    await db.exec(`SET LOCAL ROLE service_role`)
+    await db.query(`SELECT set_config('request.jwt.claims', $1, true)`, [JSON.stringify(SVC)])
+    return (await db.query(`SELECT archived_at FROM events WHERE id=$1`, [E3])).rows[0].archived_at !== null
+  } finally { await db.exec('COMMIT') }
+}
+const apiRestore = () => api('service_role', SVC, RESTORE, [E3])
+
+ok('session user is now the API login (authenticator)', (await db.query(`SELECT session_user::text s`)).rows[0].s === 'authenticator')
+{
+  const r = await api('service_role', SVC, ARCHIVE, [E3])
+  ok('API: service-role request with no end user is exempt', r.error === null && r.rows === 1 && await apiArchived(), JSON.stringify(r))
+  await apiRestore()
+}
+{
+  const r = await api('service_role', { role: 'service_role', sub: U.m1 }, ARCHIVE, [E3])
+  ok('API: service-role token carrying a manager\'s identity is refused', REFUSED.test(r.error ?? '') && !(await apiArchived()), JSON.stringify(r))
+}
+{
+  // Service-role code that forwards the user's own token runs as that user.
+  const r = await api('authenticated', { role: 'authenticated', sub: U.m1 }, ARCHIVE, [E3])
+  ok('API: server code forwarding an assigned manager\'s token is refused', REFUSED.test(r.error ?? '') && !(await apiArchived()), JSON.stringify(r))
+}
+{
+  const r = await api('authenticated', { role: 'authenticated', sub: U.admin }, ARCHIVE, [E3])
+  ok('API: active admin may archive', r.error === null && r.rows === 1 && await apiArchived(), JSON.stringify(r))
+  const r2 = await api('authenticated', { role: 'authenticated', sub: U.owner }, RESTORE, [E3])
+  ok('API: active owner may restore', r2.error === null && r2.rows === 1 && !(await apiArchived()), JSON.stringify(r2))
+}
+{
+  const r = await api('anon', { role: 'anon', iss: 'supabase' }, ARCHIVE, [E3])
+  ok('API: anonymous request changes nothing', r.rows === 0 && !(await apiArchived()), JSON.stringify(r))
+}
+{
+  const r = await api('authenticated', { role: 'authenticated' }, ARCHIVE, [E3])
+  ok('API: authenticated token without a user changes nothing', r.rows === 0 && !(await apiArchived()), JSON.stringify(r))
+}
+{
+  const r = await api('authenticated', { role: 'authenticated', sub: U.suspOwner }, ARCHIVE, [E3])
+  ok('API: suspended owner changes nothing', r.rows === 0 && !(await apiArchived()), JSON.stringify(r))
+}
+{
+  // Missing claims inside the API login is not an administrative session, even in
+  // a role that bypasses RLS.
+  const r = await api('service_role', null, ARCHIVE, [E3])
+  ok('API login with no claims, even as service_role, is refused', REFUSED.test(r.error ?? '') && !(await apiArchived()), JSON.stringify(r))
+}
+{
+  const viaAnon = await api('anon', { role: 'anon' }, `SELECT public.zz_test_archive($1)`, [E3])
+  ok('API: anonymous caller through a SECURITY DEFINER function is refused', REFUSED.test(viaAnon.error ?? '') && !(await apiArchived()), JSON.stringify(viaAnon))
+  const viaNoUser = await api('authenticated', { role: 'authenticated' }, `SELECT public.zz_test_archive($1)`, [E3])
+  ok('API: user-less token through a SECURITY DEFINER function is refused', REFUSED.test(viaNoUser.error ?? '') && !(await apiArchived()), JSON.stringify(viaNoUser))
+  const viaMgr = await api('authenticated', { role: 'authenticated', sub: U.m1 }, `SELECT public.zz_test_archive($1)`, [E3])
+  ok('API: assigned manager through a SECURITY DEFINER function is refused', REFUSED.test(viaMgr.error ?? '') && !(await apiArchived()), JSON.stringify(viaMgr))
+  const viaOwner = await api('authenticated', { role: 'authenticated', sub: U.owner }, `SELECT public.zz_test_archive($1)`, [E3])
+  ok('API: active owner through a SECURITY DEFINER function is allowed', viaOwner.error === null && await apiArchived(), JSON.stringify(viaOwner))
+  await apiRestore()
+}
+{
+  // Event authority itself is unchanged for the assigned manager.
+  const r = await api('authenticated', { role: 'authenticated', sub: U.m1 }, `UPDATE events SET description='edited via API' WHERE id=$1 RETURNING id`, [E2])
+  ok('API: assigned manager can still edit the event', r.error === null && r.rows === 1, JSON.stringify(r))
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

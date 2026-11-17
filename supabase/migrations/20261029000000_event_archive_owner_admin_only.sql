@@ -43,11 +43,30 @@ request, an RPC added later — passes through it.
 - INSERT is unaffected: a new event is always created unarchived by the existing
   trigger.
 
-## Who is exempt
-A statement with no signed-in user (auth.uid() IS NULL) — a migration, the SQL
-editor, or the service role — is not an end-user request and is not checked.
-Anonymous API requests also have no auth.uid(), but cannot reach this trigger:
-no UPDATE policy on events applies to anon, so their update matches no rows.
+## Who is checked, and who is exempt
+How Supabase identifies a caller (definitions read from the project):
+- auth.uid() is request.jwt.claim.sub, else request.jwt.claims ->> 'sub'.
+- auth.jwt() is request.jwt.claim, else request.jwt.claims; NULL when unset.
+- API requests arrive through PostgREST, which logs in as `authenticator` and
+  switches to the role named in the verified JWT (anon, authenticated or
+  service_role), publishing the claims in request.jwt.claims.
+- A direct database session (SQL editor, migrations, pg_cron, psql) logs in as
+  a database role such as postgres and carries no JWT claims at all.
+
+The decision, in order:
+1. A JWT that names a user (auth.uid() is set) is checked — whatever its role,
+   including a service-role token minted for a user, and service-role code that
+   forwards the user's own token.
+2. A service-role JWT with no user is exempt. The service role is fully trusted
+   (it bypasses RLS); code holding that key must authorize its own callers.
+3. No JWT claims at all is exempt ONLY outside the API: when the session did not
+   log in as `authenticator`. That is a trusted administrative session.
+4. Anything else is refused: anonymous tokens, authenticated tokens without a
+   user, and an API session with missing claims — including inside any
+   SECURITY DEFINER function those callers might reach in future, and when RLS
+   is bypassed.
+Anonymous API requests are, separately, already stopped by RLS: no UPDATE
+policy on events applies to anon.
 
 ## Existing data
 No rows are read or changed. Events that are archived today stay archived;
@@ -63,11 +82,26 @@ CREATE OR REPLACE FUNCTION public.enforce_event_archive_authority()
 RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
+DECLARE
+  v_claims jsonb := auth.jwt();
+  v_role   text  := coalesce(nullif(current_setting('request.jwt.claim.role', true), ''),
+                             v_claims ->> 'role', '');
 BEGIN
-  -- Server-side work (migrations, the SQL editor, the service role) carries no
-  -- end user and is not an organization act.
+  -- See "Who is checked, and who is exempt" above.
   IF auth.uid() IS NULL THEN
-    RETURN NEW;
+    -- A service-role request with no end user: trusted server code.
+    IF v_role = 'service_role' THEN
+      RETURN NEW;
+    END IF;
+    -- No JWT at all, outside the API login: an administrative session. An
+    -- empty object counts as no claims. session_user is the login role and is
+    -- not changed by SET ROLE or SECURITY DEFINER.
+    IF v_role = '' AND coalesce(v_claims, '{}'::jsonb) = '{}'::jsonb
+       AND session_user <> 'authenticator' THEN
+      RETURN NEW;
+    END IF;
+    RAISE EXCEPTION 'Only an organization owner or admin can archive or restore an event'
+      USING ERRCODE = '42501';
   END IF;
 
   IF NOT (public.account_is_active() AND public.is_org_admin(OLD.organization_id)) THEN
