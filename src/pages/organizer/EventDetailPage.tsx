@@ -27,7 +27,9 @@ import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label } from '@/components/ui/Input'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/States'
-import { canManageTeam } from '@/lib/organizer'
+import { eventCapabilities } from '@/lib/eventAccess'
+import { useEventAccess } from '@/lib/useEventAccess'
+import { EventAccessNotice } from '@/components/organizer/EventAccessNotice'
 import { fetchActivityCounts, type ActivityCounts } from '@/lib/checkin'
 import {
   LIFECYCLE_BADGE,
@@ -205,7 +207,12 @@ function DetailRow({
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
-  const { role, loading: orgLoading } = useOrganizer()
+  const { loading: orgLoading, memberships } = useOrganizer()
+  // Event-scoped, not the organization role: an owner or admin manages every
+  // event, a manager only the ones assigned to them. Nothing below is loaded or
+  // shown until the database has said yes.
+  const access = useEventAccess(id)
+  const allowed = access.state === 'manage'
 
   const [event, setEvent] = useState<OrganizerEvent | null>(null)
   const [attendees, setAttendees] = useState<EventAttendee[]>([])
@@ -220,8 +227,6 @@ export default function EventDetailPage() {
   const [inviting, setInviting] = useState(false)
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null)
-
-  const manages = canManageTeam(role)
 
   const load = useCallback(async () => {
     if (!id) return
@@ -252,13 +257,23 @@ export default function EventDetailPage() {
   }, [id])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    if (allowed) void load()
+  }, [load, allowed])
 
-  if (orgLoading || loading) return <LoadingState message="Loading event…" />
+  if (orgLoading) return <LoadingState message="Loading event…" />
+  // A direct link and a click from the events list land here alike: no access,
+  // no event data and no controls.
+  if (access.state !== 'manage') return <EventAccessNotice access={access} onRetry={access.retry} />
+  if (loading) return <LoadingState message="Loading event…" />
   if (error && !event) return <ErrorState message={error} onRetry={() => void load()} />
   if (!event) return null
 
+  // Archive and restore need organization authority over the EVENT's
+  // organization; everything else here needs only event authority.
+  const roleInEventOrganization =
+    memberships.find((m) => m.organization.id === event.organization_id)?.role ?? null
+  const can = eventCapabilities(access, event, roleInEventOrganization)
+  const manages = can.manage
   const lifecycle = eventLifecycle(event)
   const archived = event.archived_at !== null
   const pendingInvites = invitations.filter((i) => i.status === 'Pending')
@@ -274,8 +289,10 @@ export default function EventDetailPage() {
     setBusy(true)
     setError(null)
     const { error: actionError } = await fn()
-    if (actionError) setError(actionError)
+    // Reload first: load() starts by clearing the error, which used to wipe the
+    // database's refusal before anyone could read it.
     await load()
+    if (actionError) setError(actionError)
     setBusy(false)
   }
 
@@ -361,7 +378,7 @@ export default function EventDetailPage() {
           <Link to={eventPageTo}>
             <Button variant="secondary">View event page</Button>
           </Link>
-          {manages && !archived && (
+          {can.editDetails && (
             <Link to={`/organizer/events/${event.id}/edit`}>
               <Button>
                 <Pencil className="h-4 w-4" aria-hidden="true" />
@@ -378,8 +395,9 @@ export default function EventDetailPage() {
             <p className="text-sm text-warning-700">
               This event is archived. Nothing has been deleted — its registrations and history are
               intact, and restoring it makes it editable again.
+              {!can.restore && ' Only an owner or admin of the organization can restore it.'}
             </p>
-            {manages && (
+            {can.restore && (
               <Button variant="secondary" disabled={busy} onClick={() => void act(() => setEventArchived(event.id, false))}>
                 <ArchiveRestore className="h-4 w-4" aria-hidden="true" />
                 Restore
@@ -455,7 +473,7 @@ export default function EventDetailPage() {
                   View event page
                 </Button>
               </Link>
-              {manages && !archived && (
+              {can.editDetails && (
                 <Link to={`/organizer/events/${event.id}/edit`} className="flex-1">
                   <Button variant="secondary" className="w-full">
                     <Pencil className="h-4 w-4" aria-hidden="true" />
@@ -464,7 +482,7 @@ export default function EventDetailPage() {
                 </Link>
               )}
             </div>
-            {!canCheckIn && manages && !archived && lifecycle === 'draft' && (
+            {!canCheckIn && can.changeLifecycle && lifecycle === 'draft' && (
               <Button
                 className="w-full"
                 disabled={busy}
@@ -521,7 +539,7 @@ export default function EventDetailPage() {
             <Card className="lg:col-span-3">
               <CardHeader className="flex flex-row items-center justify-between gap-2">
                 <CardTitle>Event details</CardTitle>
-                {manages && !archived && (
+                {can.editDetails && (
                   <Link
                     to={`/organizer/events/${event.id}/edit`}
                     className="text-sm font-medium text-primary-600 hover:text-primary-700"
@@ -621,7 +639,7 @@ export default function EventDetailPage() {
             </div>
           </div>
 
-          {manages && !archived && (
+          {can.changeLifecycle && (
             <Card>
               <CardHeader>
                 <CardTitle>Lifecycle</CardTitle>
@@ -672,18 +690,23 @@ export default function EventDetailPage() {
                       Reopen as live
                     </Button>
                   )}
-                  <Button
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() => void act(() => setEventArchived(event.id, true))}
-                  >
-                    <Archive className="h-4 w-4" aria-hidden="true" />
-                    Archive
-                  </Button>
+                  {/* Organization authority, not event authority: an assigned
+                      manager runs the event but cannot put it away. */}
+                  {can.archive && (
+                    <Button
+                      variant="secondary"
+                      disabled={busy}
+                      onClick={() => void act(() => setEventArchived(event.id, true))}
+                    >
+                      <Archive className="h-4 w-4" aria-hidden="true" />
+                      Archive
+                    </Button>
+                  )}
                 </div>
                 <p className="text-xs text-gray-500">
-                  Rally does not delete events. Archiving keeps the registrations and the
-                  connections people made there.
+                  {can.archive
+                    ? 'Rally does not delete events. Archiving keeps the registrations and the connections people made there.'
+                    : 'Only an owner or admin of the organization can archive this event.'}
                 </p>
               </CardContent>
             </Card>
@@ -766,7 +789,7 @@ export default function EventDetailPage() {
 
       {tab === 'invitations' && (
         <div className="space-y-4">
-          {manages && !archived && lifecycle !== 'draft' && (
+          {can.inviteAttendees && (
             <Card>
               <CardHeader>
                 <CardTitle>Invite someone</CardTitle>

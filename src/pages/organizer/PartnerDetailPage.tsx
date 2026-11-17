@@ -22,8 +22,10 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { ErrorState, LoadingState } from '@/components/ui/States'
-import { canManageTeam } from '@/lib/organizer'
 import { getEvent } from '@/lib/events'
+import { canManage } from '@/lib/eventAccess'
+import { useEventAccess } from '@/lib/useEventAccess'
+import { EventAccessNotice } from '@/components/organizer/EventAccessNotice'
 import { cn, displayUrl } from '@/lib/utils'
 import {
   STATUS_LABELS,
@@ -167,7 +169,12 @@ export default function PartnerDetailPage() {
   const { id: eventId, partnershipId } = useParams<{ id: string; partnershipId: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { role, loading: orgLoading } = useOrganizer()
+  const { loading: orgLoading } = useOrganizer()
+  // Partnerships belong to one event, and every write on them is guarded by
+  // can_manage_event — so is this page: an assigned manager may work here, an
+  // unassigned one may not, whatever their organization role.
+  const access = useEventAccess(eventId)
+  const allowed = access.state === 'manage'
 
   const [event, setEvent] = useState<OrganizerEvent | null>(null)
   const [partnership, setPartnership] = useState<Partnership | null>(null)
@@ -234,8 +241,8 @@ export default function PartnerDetailPage() {
   }, [eventId, partnershipId])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    if (allowed) void load()
+  }, [load, allowed])
 
   /** Reload only the partnership's contents, keeping the current tab. */
   const reloadContents = useCallback(async () => {
@@ -251,7 +258,7 @@ export default function PartnerDetailPage() {
   }, [eventId, partnershipId])
 
   const archived = event?.archived_at !== null && event?.archived_at !== undefined
-  const editable = canManageTeam(role) && !archived
+  const editable = canManage(access) && !archived
 
   const owed = useMemo(
     () => obligations.filter((o) => o.direction === 'organizer_to_partner'),
@@ -335,7 +342,9 @@ export default function PartnerDetailPage() {
     await load()
   }
 
-  if (orgLoading || loading) return <LoadingState message="Loading partner…" />
+  if (orgLoading) return <LoadingState message="Loading partner…" />
+  if (access.state !== 'manage') return <EventAccessNotice access={access} onRetry={access.retry} />
+  if (loading) return <LoadingState message="Loading partner…" />
 
   if (notFound) {
     return (
