@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import { resolveEventAccess, type EventAccess } from '@/lib/eventAccess'
 import type {
   EventAttendee,
   EventInvitationRow,
@@ -185,6 +186,17 @@ export async function setEventArchived(
     .eq('id', eventId)
   if (error) return { error: readableError(error, 'Could not update that event.') }
   return { error: null }
+}
+
+// May the caller manage this event? Asks the database the two questions every
+// organizer write policy asks — can_manage_event and account_is_active — so the
+// answer cannot drift from what the database will accept. See eventAccess.ts.
+export async function fetchEventAccess(eventId: string): Promise<EventAccess> {
+  const [manage, active] = await Promise.all([
+    supabase.rpc('can_manage_event', { target_event_id: eventId }),
+    supabase.rpc('account_is_active'),
+  ])
+  return resolveEventAccess(manage, active)
 }
 
 export async function listEventAttendees(

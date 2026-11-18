@@ -7,8 +7,10 @@ import { Button } from '@/components/ui/Button'
 import { BannerUpload } from '@/components/ui/BannerUpload'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input, Label, Select, Textarea } from '@/components/ui/Input'
-import { LoadingState } from '@/components/ui/States'
-import { canManageTeam } from '@/lib/organizer'
+import { ErrorState, LoadingState } from '@/components/ui/States'
+import { EventAccessNotice } from '@/components/organizer/EventAccessNotice'
+import { canCreateEvents } from '@/lib/eventAccess'
+import { useEventAccess } from '@/lib/useEventAccess'
 import { EVENT_TIMEZONES, VISIBILITY_LABELS, createEvent, getEvent, updateEvent, type EventInput } from '@/lib/events'
 import type { EventVisibility } from '@/lib/supabase'
 
@@ -41,13 +43,21 @@ export default function EventFormPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [archived, setArchived] = useState(false)
+  const [loadFailed, setLoadFailed] = useState(false)
+
+  // Editing is an event-scoped right (can_manage_event): an owner or admin may
+  // edit any event, a manager only those assigned to them. Creating is checked
+  // separately below. The check is skipped on the create form.
+  const access = useEventAccess(isEdit ? id : null)
+  const allowed = access.state === 'manage'
 
   useEffect(() => {
-    if (!id) return
+    if (!id || !allowed) return
     void (async () => {
       const { data, error: loadError } = await getEvent(id)
       if (loadError || !data) {
         setError(loadError ?? 'That event could not be found.')
+        setLoadFailed(true)
         setLoading(false)
         return
       }
@@ -67,14 +77,25 @@ export default function EventFormPage() {
       })
       setLoading(false)
     })()
-  }, [id])
+  }, [id, allowed])
 
-  if (orgLoading || loading) return <LoadingState message="Loading…" />
+  if (orgLoading) return <LoadingState message="Loading…" />
+  // The edit URL answers a direct link exactly as it answers the Edit button.
+  if (isEdit && access.state !== 'manage') {
+    return <EventAccessNotice access={access} onRetry={access.retry} />
+  }
+  if (loading) return <LoadingState message="Loading…" />
   if (!organization || !user) return null
+  // Never offer an empty edit form for an event that did not load: saving it
+  // would try to blank the real one.
+  if (isEdit && loadFailed) {
+    return <ErrorState message={error ?? 'That event could not be found.'} />
+  }
 
-  // Creating is an owner/admin act; a manager edits events assigned to them.
+  // Creating is an owner/admin act (the INSERT policy requires is_org_admin);
+  // a manager edits the events assigned to them but cannot create new ones.
   // The database enforces both — this only avoids offering a doomed form.
-  if (!isEdit && !canManageTeam(role)) {
+  if (!isEdit && !canCreateEvents(role)) {
     return (
       <Card>
         <CardContent>
