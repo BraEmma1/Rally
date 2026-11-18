@@ -18,6 +18,7 @@ import { EmptyState, ErrorState, LoadingState } from '@/components/ui/States'
 import { ConfirmDialog, SheetDialog } from '@/components/organizer/SheetDialog'
 import { ManagerEventAssignments } from '@/components/organizer/ManagerEventAssignments'
 import { listOrganizationEvents } from '@/lib/events'
+import { eventListScope } from '@/lib/eventAccess'
 import {
   assignableRoles,
   canActOnMember,
@@ -250,7 +251,7 @@ export default function TeamPage() {
   // changes, so the page does not fall back to its loading state.
   const loadAssignments = useCallback(async () => {
     if (!orgId) return
-    const eventsResult = await listOrganizationEvents(orgId)
+    const eventsResult = await listOrganizationEvents(orgId, eventListScope(role))
     setEvents(eventsResult.data)
     setEventsError(eventsResult.error)
     if (eventsResult.error) {
@@ -275,7 +276,7 @@ export default function TeamPage() {
       ;(byUser[row.user_id] ??= []).push(row.event_id)
     }
     setAssignedEvents(byUser)
-  }, [orgId])
+  }, [orgId, role])
 
   const load = useCallback(async () => {
     if (!orgId) return

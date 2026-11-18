@@ -102,6 +102,21 @@ export function eventCapabilities(
   }
 }
 
+// Which of an organization's events its organizer screens list for the caller.
+//
+// The events SELECT policy lets every organization member read every event of
+// the organization (and anyone read a published one), so the policy alone does
+// not narrow a manager's list. Owners and admins manage every event; a manager
+// manages exactly the events assigned to them through event_team, which is what
+// can_manage_event answers per event. Lists, counts and search all derive from
+// the one query this scope narrows. Any role other than a known owner/admin —
+// including one not loaded yet — gets the narrow scope.
+export type EventListScope = 'organization' | 'assigned'
+
+export function eventListScope(role: OrgRole | null | undefined): EventListScope {
+  return hasOrganizationAuthority(role) ? 'organization' : 'assigned'
+}
+
 // Creating an event is an organization-role act, not an event one: the INSERT
 // policy requires is_org_admin (owner or admin). A manager runs the events
 // assigned to them but cannot create new ones.
