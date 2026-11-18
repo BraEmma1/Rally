@@ -315,13 +315,16 @@ export default function EventDetailPage() {
     await load()
   }
 
+  // Registrations are confirmed ones (registered or checked in), the same rule
+  // as capacity and the public count. The waitlist is shown beside it, never in it.
+  const waitlisted = attendees.filter((a) => a.status === 'waitlisted').length
   const metrics = [
     {
       key: 'registrations',
       icon: <Users className="h-5 w-5" aria-hidden="true" />,
       label: 'Registrations',
       value: counts?.registrations ?? 0,
-      hint: 'For this event',
+      hint: waitlisted > 0 ? `Confirmed · ${waitlisted.toLocaleString()} waitlisted` : 'Confirmed',
       progress: null,
     },
     {
