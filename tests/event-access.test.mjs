@@ -9,6 +9,7 @@ import {
   canCreateEvents,
   canManage,
   eventCapabilities,
+  eventListScope,
   resolveEventAccess,
 } from '../src/lib/eventAccess.ts'
 
@@ -112,4 +113,14 @@ test('creating events stays an owner/admin act', () => {
   assert.equal(canCreateEvents('admin'), true)
   assert.equal(canCreateEvents('manager'), false)
   assert.equal(canCreateEvents(null), false)
+})
+
+// The events SELECT policy lets any organization member read every event, so the
+// list query itself must narrow a manager to their assignments.
+test('owners and admins list every organization event; everyone else only their assignments', () => {
+  assert.equal(eventListScope('owner'), 'organization')
+  assert.equal(eventListScope('admin'), 'organization')
+  assert.equal(eventListScope('manager'), 'assigned')
+  assert.equal(eventListScope(null), 'assigned')
+  assert.equal(eventListScope(undefined), 'assigned')
 })

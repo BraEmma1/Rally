@@ -23,6 +23,7 @@ import {
   listMembers,
   type OrgEventCounts,
 } from '@/lib/organizer'
+import { canCreateEvents, eventListScope } from '@/lib/eventAccess'
 import { cn } from '@/lib/utils'
 import {
   eventLifecycle,
@@ -227,13 +228,16 @@ export default function OrganizerDashboardPage() {
 
   const orgId = organization?.id ?? null
   const manages = canManageTeam(role)
+  const canCreate = canCreateEvents(role)
+  // Owners and admins see every event; a manager only the ones assigned to them.
+  const scope = eventListScope(role)
 
   const loadEvents = useCallback(async () => {
     if (!orgId) return
     setEventsLoading(true)
     setEventsError(null)
 
-    const eventsResult = await listOrganizationEvents(orgId)
+    const eventsResult = await listOrganizationEvents(orgId, scope)
     if (eventsResult.error) {
       setEventsError(eventsResult.error)
       setEventsLoading(false)
@@ -247,7 +251,7 @@ export default function OrganizerDashboardPage() {
     if (countsResult.error) setEventsError(countsResult.error)
     setCounts(countsResult.data)
     setEventsLoading(false)
-  }, [orgId])
+  }, [orgId, scope])
 
   const loadTeam = useCallback(async () => {
     if (!orgId) return
@@ -346,9 +350,11 @@ export default function OrganizerDashboardPage() {
           </div>
         </div>
         <div className="hidden shrink-0 flex-wrap items-center gap-2 sm:flex">
-          <Link to="/organizer/events/new">
-            <Button>Create event</Button>
-          </Link>
+          {canCreate && (
+            <Link to="/organizer/events/new">
+              <Button>Create event</Button>
+            </Link>
+          )}
           <Link to="/organizer/settings">
             <Button variant="secondary">Organization settings</Button>
           </Link>
@@ -370,12 +376,14 @@ export default function OrganizerDashboardPage() {
               <CalendarRange className="h-6 w-6" aria-hidden="true" />
             </div>
             <h2 id="get-started-heading" className="mt-4 text-lg font-semibold text-gray-900">
-              Create your first event
+              {canCreate ? 'Create your first event' : 'No events assigned to you yet'}
             </h2>
             <p className="mx-auto mt-1 max-w-md text-sm text-gray-500">
-              Start by setting up an event, inviting your team and preparing attendee registration.
-              Your activity will appear here as it happens.
+              {canCreate
+                ? 'Start by setting up an event, inviting your team and preparing attendee registration. Your activity will appear here as it happens.'
+                : 'An owner or admin of your organization assigns events to you from the Team page. They will appear here once assigned.'}
             </p>
+            {canCreate && (
             <div className="mt-5 flex flex-col items-center justify-center gap-2 sm:flex-row">
               <Link to="/organizer/events/new">
                 <Button>Create Event</Button>
@@ -384,6 +392,7 @@ export default function OrganizerDashboardPage() {
                 <Button variant="secondary">Invite Team</Button>
               </Link>
             </div>
+            )}
           </div>
         </section>
       ) : (

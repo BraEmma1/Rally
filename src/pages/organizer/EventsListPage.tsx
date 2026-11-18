@@ -15,7 +15,8 @@ import { useOrganizer } from '@/context/OrganizerContext'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { EmptyState, ErrorState, LoadingState } from '@/components/ui/States'
-import { canManageTeam, fetchOrganizationEventCounts, type OrgEventCounts } from '@/lib/organizer'
+import { fetchOrganizationEventCounts, type OrgEventCounts } from '@/lib/organizer'
+import { canCreateEvents, eventListScope } from '@/lib/eventAccess'
 import {
   LIFECYCLE_BADGE,
   LIFECYCLE_LABELS,
@@ -203,14 +204,16 @@ export default function EventsListPage() {
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   const orgId = organization?.id ?? null
-  const canCreate = canManageTeam(role)
+  const canCreate = canCreateEvents(role)
+  // Owners and admins see every event; a manager only the ones assigned to them.
+  const scope = eventListScope(role)
 
   const load = useCallback(async () => {
     if (!orgId) return
     setLoading(true)
     setError(null)
 
-    const result = await listOrganizationEvents(orgId)
+    const result = await listOrganizationEvents(orgId, scope)
     if (result.error) {
       setError(result.error)
       setLoading(false)
@@ -224,7 +227,7 @@ export default function EventsListPage() {
     if (countsResult.error) setError(countsResult.error)
     setCounts(countsResult.data)
     setLoading(false)
-  }, [orgId])
+  }, [orgId, scope])
 
   useEffect(() => {
     void load()
@@ -481,7 +484,9 @@ export default function EventsListPage() {
                 description={
                   filtersActive
                     ? 'Try a different search, status or date range.'
-                    : 'Create an event and publish it when you are ready for attendees to see it.'
+                    : canCreate
+                      ? 'Create an event and publish it when you are ready for attendees to see it.'
+                      : 'Events an owner or admin assigns to you will appear here.'
                 }
                 action={
                   filtersActive ? (

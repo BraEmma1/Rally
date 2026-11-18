@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase'
-import { resolveEventAccess, type EventAccess } from '@/lib/eventAccess'
+import { resolveEventAccess, type EventAccess, type EventListScope } from '@/lib/eventAccess'
 import type {
   EventAttendee,
   EventInvitationRow,
@@ -73,14 +73,36 @@ export function readableError(error: { message?: string } | null, fallback: stri
   return message
 }
 
+// The organization's events the caller manages: all of them for an owner or
+// admin, only the ones assigned to them for a manager (see eventListScope). The
+// narrowing happens in the query, so nothing outside the scope reaches the page.
 export async function listOrganizationEvents(
-  orgId: string
+  orgId: string,
+  scope: EventListScope
 ): Promise<{ data: OrganizerEvent[]; counts: Record<string, number>; error: string | null }> {
-  const { data, error } = await supabase
+  let query = supabase
     .from('events')
     .select('*')
     .eq('organization_id', orgId)
     .order('start_date', { ascending: true, nullsFirst: false })
+
+  if (scope === 'assigned') {
+    const { data: session } = await supabase.auth.getSession()
+    const userId = session.session?.user.id
+    if (!userId) return { data: [], counts: {}, error: 'Could not load events.' }
+    // select_event_team lets organization members read every assignment in the
+    // organization, so the caller's own rows are picked out explicitly.
+    const { data: rows, error: teamError } = await supabase
+      .from('event_team')
+      .select('event_id')
+      .eq('user_id', userId)
+    if (teamError) return { data: [], counts: {}, error: readableError(teamError, 'Could not load events.') }
+    const assigned = ((rows ?? []) as { event_id: string }[]).map((row) => row.event_id)
+    if (assigned.length === 0) return { data: [], counts: {}, error: null }
+    query = query.in('id', assigned)
+  }
+
+  const { data, error } = await query
 
   if (error) return { data: [], counts: {}, error: readableError(error, 'Could not load events.') }
 
