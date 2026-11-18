@@ -8,18 +8,24 @@ import { Input } from '@/components/ui/Input'
 import { EmptyState, Spinner } from '@/components/ui/States'
 import { cn } from '@/lib/utils'
 import { listCheckInRows, type CheckInRow } from '@/lib/checkin'
+import { canCheckIn, hasCheckedIn, isConfirmedRegistration } from '@/lib/registrationStatus'
 
 // The event attendee directory. Data comes from find_event_attendees — the
 // same RPC as check-in — so it can only ever show what the backend permits:
 // the public professional card, registration status, and the check-in
 // timestamp. No email or phone, because the backend returns none.
-type Filter = 'all' | 'checked_in' | 'not_checked_in' | 'registered' | 'cancelled'
+//
+// "Confirmed" (registered or checked in) is the shared rule in
+// registrationStatus.ts. "Not checked in" means confirmed and still to arrive:
+// waitlisted and cancelled people cannot check in, so they are not in it.
+type Filter = 'all' | 'checked_in' | 'not_checked_in' | 'confirmed' | 'waitlisted' | 'cancelled'
 
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'checked_in', label: 'Checked in' },
   { key: 'not_checked_in', label: 'Not checked in' },
-  { key: 'registered', label: 'Registered' },
+  { key: 'confirmed', label: 'Confirmed' },
+  { key: 'waitlisted', label: 'Waitlisted' },
   { key: 'cancelled', label: 'Cancelled' },
 ]
 
@@ -48,9 +54,10 @@ export function AttendeesPanel({ eventId }: { eventId: string }) {
   }, [eventId])
 
   const visible = (rows ?? []).filter((r) => {
-    if (filter === 'checked_in') return r.checked_in_at !== null
-    if (filter === 'not_checked_in') return r.checked_in_at === null && r.status !== 'cancelled'
-    if (filter === 'registered') return r.status === 'registered'
+    if (filter === 'checked_in') return hasCheckedIn(r)
+    if (filter === 'not_checked_in') return canCheckIn(r)
+    if (filter === 'confirmed') return isConfirmedRegistration(r.status)
+    if (filter === 'waitlisted') return r.status === 'waitlisted'
     if (filter === 'cancelled') return r.status === 'cancelled'
     return true
   })
@@ -96,7 +103,7 @@ export function AttendeesPanel({ eventId }: { eventId: string }) {
             >
               {f.label}
               {f.key === 'checked_in' && rows && (
-                <span className="ml-1.5">{rows.filter((r) => r.checked_in_at !== null).length}</span>
+                <span className="ml-1.5">{rows.filter(hasCheckedIn).length}</span>
               )}
             </button>
           ))}

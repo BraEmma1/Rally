@@ -22,6 +22,7 @@ import {
   type CheckInRow,
 } from '@/lib/checkin'
 import { CheckInConfirmation, type CheckInOutcome } from '@/components/organizer/CheckInConfirmation'
+import { canCheckIn, summarizeRegistrations } from '@/lib/registrationStatus'
 
 // The event check-in desk. Two ways in — scan a badge QR or search the door
 // list — converge on the same backend RPC, exactly as the database does.
@@ -156,16 +157,19 @@ export function CheckInPanel({ eventId }: { eventId: string }) {
     await refresh()
   }
 
-  const total = rows?.length ?? 0
-  const checkedIn = rows?.filter((r) => r.checked_in_at !== null).length ?? 0
-  const notCheckedIn = total - checkedIn
+  // Confirmed registrations only: waitlisted and cancelled people hold no seat
+  // and cannot check in, so they are not part of the door count.
+  const summary = summarizeRegistrations(rows ?? [])
+  const total = summary.confirmed
+  const checkedIn = summary.checkedIn
+  const notCheckedIn = summary.notCheckedIn
   const pct = total === 0 ? 0 : Math.round((checkedIn / total) * 100)
 
   return (
     <div className="space-y-4">
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Total registered" value={total} />
+        <StatCard label="Confirmed" value={total} />
         <StatCard label="Checked in" value={checkedIn} accent="text-accent-700" />
         <StatCard label="Not checked in" value={notCheckedIn} accent="text-warning-700" />
         <StatCard label="Check-in rate" value={`${pct}%`} />
@@ -296,14 +300,20 @@ export function CheckInPanel({ eventId }: { eventId: string }) {
                           {undoing === r.user_id ? 'Undoing…' : 'Undo'}
                         </Button>
                       </>
-                    ) : (
+                    ) : canCheckIn(r) ? (
                       <Button
                         size="sm"
-                        disabled={processing || undoing === r.user_id || r.status === 'cancelled'}
+                        disabled={processing || undoing === r.user_id}
                         onClick={() => void checkInById(r.user_id, r.full_name || undefined)}
                       >
                         Check in
                       </Button>
+                    ) : (
+                      // Waitlisted and cancelled registrations cannot check in;
+                      // the database refuses both.
+                      <span className="text-xs font-medium text-gray-500">
+                        {r.status === 'waitlisted' ? 'Waitlisted' : 'Cancelled'}
+                      </span>
                     )}
                   </div>
                 </li>
