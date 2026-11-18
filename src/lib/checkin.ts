@@ -42,13 +42,25 @@ export type CheckInResult = {
   error: string | null
 }
 
+// One row of the organizer attendee list and export: the door-list card plus
+// what event administration needs (migration 20261101000000). email is the
+// account email the attendee registered with; phone is from their profile, null
+// when not set. marketing_consent is separate from registration: false unless
+// the attendee opted in to marketing for this event, and never implied.
+export type AttendeeRow = CheckInRow & {
+  email: string | null
+  phone: string | null
+  marketing_consent: boolean
+  marketing_consent_at: string | null
+}
+
 // One page of the organizer attendee list, searched and filtered on the server
 // (event_attendee_page). total is the number of matching registrations before
-// paging. Same authorization and fields as find_event_attendees.
+// paging. Only owners/admins and assigned managers of the event get an answer.
 export async function fetchAttendeePage(
   eventId: string,
   query: { search: string; filter: AttendeeFilter; page: number }
-): Promise<{ rows: CheckInRow[]; total: number; error: string | null }> {
+): Promise<{ rows: AttendeeRow[]; total: number; error: string | null }> {
   const { data, error } = await supabase.rpc('event_attendee_page', {
     target_event_id: eventId,
     search: normalizeSearch(query.search),
@@ -57,7 +69,26 @@ export async function fetchAttendeePage(
     page_offset: pageOffset(query.page),
   })
   if (error) return { rows: [], total: 0, error: readableError(error, 'Could not load attendees.') }
-  return { ...parseAttendeePage<CheckInRow>(data), error: null }
+  return { ...parseAttendeePage<AttendeeRow>(data), error: null }
+}
+
+// One chunk of the CSV export (event_attendee_export): the same search, filter,
+// order and gate as the list, up to 1000 rows at a time.
+export async function fetchAttendeeExportChunk(
+  eventId: string,
+  query: { search: string; filter: AttendeeFilter },
+  offset: number,
+  size: number
+): Promise<{ rows: AttendeeRow[]; total: number; error: string | null }> {
+  const { data, error } = await supabase.rpc('event_attendee_export', {
+    target_event_id: eventId,
+    search: normalizeSearch(query.search),
+    status_filter: query.filter,
+    page_size: size,
+    page_offset: offset,
+  })
+  if (error) return { rows: [], total: 0, error: readableError(error, 'Could not export attendees.') }
+  return { ...parseAttendeePage<AttendeeRow>(data), error: null }
 }
 
 export async function searchCheckInRows(

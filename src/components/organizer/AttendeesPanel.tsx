@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Search, Users } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Download, Mail, Phone, Search, Users } from 'lucide-react'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -7,7 +7,8 @@ import { Card, CardContent } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { EmptyState, Spinner } from '@/components/ui/States'
 import { cn } from '@/lib/utils'
-import { fetchAttendeePage, type CheckInRow } from '@/lib/checkin'
+import { fetchAttendeeExportChunk, fetchAttendeePage, type AttendeeRow } from '@/lib/checkin'
+import { attendeesCsv, collectAttendeeExport, exportFileName } from '@/lib/attendeeExport'
 import {
   ATTENDEE_FILTERS,
   ATTENDEE_SEARCH_DEBOUNCE_MS,
@@ -22,15 +23,21 @@ import {
 // which searches (name or company), filters by registration status and pages on
 // the server, behind the same gate as check-in: can_manage_event and an active
 // account. It returns only the public professional card, registration status
-// and check-in time. No email or phone, because the backend returns none.
+// and check-in time, plus the attendee's email and phone for running the event
+// (migration 20261101000000). The gate is in the database, not here.
+//
+// Marketing consent is shown separately and is never implied by registering.
+//
+// Export writes the whole search/filter result, not just this page, read in
+// chunks from event_attendee_export behind the same gate.
 //
 // Filters use the shared registration rules (registrationStatus.ts):
 // "Confirmed" is registered or checked in; "Not checked in" is confirmed and
 // still to arrive, so waitlisted and cancelled people are not in it.
 
-type Loaded = { key: string; rows: CheckInRow[]; total: number }
+type Loaded = { key: string; rows: AttendeeRow[]; total: number }
 
-export function AttendeesPanel({ eventId }: { eventId: string }) {
+export function AttendeesPanel({ eventId, eventName }: { eventId: string; eventName: string }) {
   const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<AttendeeFilter>('all')
@@ -38,6 +45,8 @@ export function AttendeesPanel({ eventId }: { eventId: string }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [error, setError] = useState<{ key: string; message: string } | null>(null)
   const [retries, setRetries] = useState(0)
+  const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null)
+  const [exportError, setExportError] = useState<string | null>(null)
   const seq = useRef(0)
 
   // Debounce typing. A new search term starts again at the first page; a pause
@@ -81,6 +90,32 @@ export function AttendeesPanel({ eventId }: { eventId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, retries])
 
+  // Every matching attendee, not just this page: the applied search and filter,
+  // read in chunks, then one CSV file built in the browser.
+  async function exportCsv() {
+    if (exporting) return
+    const query = { search, filter }
+    setExportError(null)
+    setExporting({ done: 0, total })
+    const result = await collectAttendeeExport(
+      (offset, size) => fetchAttendeeExportChunk(eventId, query, offset, size),
+      (done, all) => setExporting({ done, total: all })
+    )
+    setExporting(null)
+    if (result.error) {
+      setExportError(result.error)
+      return
+    }
+    const url = URL.createObjectURL(new Blob([attendeesCsv(result.rows)], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = exportFileName(eventName, query.filter)
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+  }
+
   function chooseFilter(next: AttendeeFilter) {
     if (next === filter) return
     setFilter(next)
@@ -109,12 +144,32 @@ export function AttendeesPanel({ eventId }: { eventId: string }) {
             className="pl-9"
           />
         </div>
-        {current && (
-          <p className="text-sm text-gray-500" aria-live="polite">
-            {total.toLocaleString()} {total === 1 ? 'attendee' : 'attendees'}
-          </p>
-        )}
+        <div className="flex items-center justify-between gap-3 sm:justify-end">
+          {current && (
+            <p className="text-sm text-gray-500" aria-live="polite">
+              {total.toLocaleString()} {total === 1 ? 'attendee' : 'attendees'}
+            </p>
+          )}
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => void exportCsv()}
+            disabled={!current || total === 0 || exporting !== null}
+            title="Download every attendee matching this search and filter as CSV"
+          >
+            {exporting ? <Spinner size="sm" /> : <Download className="h-4 w-4" aria-hidden="true" />}
+            {exporting
+              ? `Exporting ${exporting.done.toLocaleString()} of ${exporting.total.toLocaleString()}…`
+              : 'Export CSV'}
+          </Button>
+        </div>
       </div>
+
+      {exportError && (
+        <div role="alert" className="rounded-lg bg-error-50 px-3 py-2 text-sm text-error-700">
+          {exportError}
+        </div>
+      )}
 
       <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
         <div className="flex gap-2" role="group" aria-label="Filter attendees by status">
@@ -174,6 +229,22 @@ export function AttendeesPanel({ eventId }: { eventId: string }) {
                     <p className="truncate text-xs text-gray-500">
                       {[r.job_title, r.company].filter(Boolean).join(' · ') || 'No title set'}
                     </p>
+                    {(r.email || r.phone) && (
+                      <p className="mt-0.5 flex min-w-0 flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-600">
+                        {r.email && (
+                          <a href={`mailto:${r.email}`} className="inline-flex min-w-0 items-center gap-1 hover:text-primary-700 hover:underline">
+                            <Mail className="h-3 w-3 shrink-0" aria-hidden="true" />
+                            <span className="truncate">{r.email}</span>
+                          </a>
+                        )}
+                        {r.phone && (
+                          <a href={`tel:${r.phone.replace(/[^\d+]/g, '')}`} className="inline-flex items-center gap-1 hover:text-primary-700 hover:underline">
+                            <Phone className="h-3 w-3 shrink-0" aria-hidden="true" />
+                            {r.phone}
+                          </a>
+                        )}
+                      </p>
+                    )}
                   </div>
                   <div className="flex shrink-0 flex-col items-end gap-1">
                     <Badge
@@ -193,6 +264,9 @@ export function AttendeesPanel({ eventId }: { eventId: string }) {
                       <span className="text-xs text-gray-400">
                         {formatTime(r.checked_in_at)}
                       </span>
+                    )}
+                    {r.marketing_consent && (
+                      <span className="text-xs font-medium text-accent-700">Marketing opt-in</span>
                     )}
                   </div>
                 </li>
@@ -235,8 +309,9 @@ export function AttendeesPanel({ eventId }: { eventId: string }) {
       )}
 
       <p className="text-xs text-gray-500">
-        Rally does not show you attendees' email addresses or phone numbers. Attendees choose when
-        to share those, and none have through this event so far.
+        Use these contact details to run this event: updates, changes, waitlist places and
+        check-in. Registering is not consent to marketing. Only attendees marked “Marketing opt-in”
+        agreed to receive news and offers from your organization, and they can withdraw at any time.
       </p>
     </div>
   )

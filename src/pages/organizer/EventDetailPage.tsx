@@ -767,7 +767,7 @@ export default function EventDetailPage() {
 
       {tab === 'checkin' && <CheckInPanel eventId={event.id} />}
 
-      {tab === 'attendees' && <AttendeesPanel eventId={event.id} />}
+      {tab === 'attendees' && <AttendeesPanel eventId={event.id} eventName={event.name} />}
 
       {tab === 'networking' && (
         <div className="space-y-6">

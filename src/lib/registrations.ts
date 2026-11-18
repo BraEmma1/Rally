@@ -128,6 +128,33 @@ export async function cancelRegistration(eventId: string) {
   return { data: (data ?? null) as RegistrationStatus | null, error }
 }
 
+// Marketing consent for one event (migration 20261101000000). Separate from
+// registering: optional, off unless the attendee turns it on, and changeable at
+// any time. statement is the exact wording, rendered by the server, which is
+// also what the server records as evidence when the choice is saved.
+export type MarketingConsent = {
+  consented: boolean
+  recorded_at: string | null
+  statement: string
+}
+
+export async function fetchMyMarketingConsent(eventId: string) {
+  const { data, error } = await supabase.rpc('my_event_marketing_consent', { p_event_id: eventId })
+  const row = Array.isArray(data) ? (data[0] as MarketingConsent | undefined) : undefined
+  return { data: row ?? null, error }
+}
+
+export async function setMarketingConsent(eventId: string, consent: boolean) {
+  const { data, error } = await supabase.rpc('set_event_marketing_consent', {
+    p_event_id: eventId,
+    p_consent: consent,
+  })
+  const row = Array.isArray(data)
+    ? (data[0] as { consented: boolean; recorded_at: string | null } | undefined)
+    : undefined
+  return { data: row ?? null, error }
+}
+
 export async function fetchMyRegistration(eventId: string) {
   const { data, error } = await supabase.rpc('my_event_registration', { p_event_id: eventId })
   const row = Array.isArray(data) ? (data[0] as MyRegistration | undefined) : undefined
