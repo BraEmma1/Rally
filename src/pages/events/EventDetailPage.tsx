@@ -14,6 +14,7 @@ import { supabase, type EventRow, type PublicProfile, type ConnectProfile, type 
 import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import { CancelRegistrationDialog, RegistrationDialog } from '@/components/events/RegistrationDialog'
+import { MarketingConsentCard } from '@/components/events/MarketingConsentCard'
 import { fetchMyRegistration, isAttending, type RegistrationResult, type RegistrationStatus } from '@/lib/registrations'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
@@ -513,6 +514,8 @@ export default function EventDetailPage() {
           <aside className="min-w-0 space-y-6 lg:col-span-4">
             {passCard && <div className="hidden lg:block">{passCard}</div>}
             <VenueLogistics event={event} />
+            {/* Keyed on the registration so a fresh registration re-reads the choice. */}
+            {(isRegistered || isWaitlisted) && <MarketingConsentCard key={regStatus} eventId={event.id} />}
             <WhoYouCanMeet attendeeCount={attendeeCount} registered={isRegistered} networkPath={`${basePath}/network`} />
           </aside>
         </div>

@@ -165,13 +165,15 @@ ok('another organization\'s owner is refused', DENIED.test((await err(U.owner2, 
 ok('owner cannot read another organization\'s event', DENIED.test((await err(U.owner, PAGE, [E3, '', 'all', 20, 0])) ?? ''))
 ok('anonymous callers cannot execute it', /permission denied/.test((await err(null, PAGE, [E, '', 'all', 20, 0], 'anon')) ?? ''))
 
-// ---- no private data, unchanged security model ----------------------------
+// ---- fields and security model --------------------------------------------
+// 20261101000000 adds contact details and marketing consent for event
+// administration; tests/sql/attendee-contacts-export.test.mjs covers them.
 const one = await as(U.owner, PAGE, [E, '', 'all', 1, 0])
 const cols = one.fields.map((f) => f.name)
 ok('returns one row of total_count and attendees', JSON.stringify(cols) === JSON.stringify(['total_count', 'attendees']), JSON.stringify(cols))
 const keys = Object.keys(one.rows[0].attendees[0]).sort()
-ok('each attendee carries only the public card, status and times',
-  JSON.stringify(keys) === JSON.stringify(['checked_in_at', 'company', 'full_name', 'job_title', 'photo_url', 'registered_at', 'status', 'user_id']), JSON.stringify(keys))
+ok('each attendee carries the card, contact details, status, times and marketing consent',
+  JSON.stringify(keys) === JSON.stringify(['checked_in_at', 'company', 'email', 'full_name', 'job_title', 'marketing_consent', 'marketing_consent_at', 'phone', 'photo_url', 'registered_at', 'status', 'user_id']), JSON.stringify(keys))
 const fn = (await sup(
   `SELECT p.prosecdef, p.proconfig,
           has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth,

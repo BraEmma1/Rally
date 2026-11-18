@@ -8,10 +8,12 @@ import { formatDateRange } from '@/lib/utils'
 import {
   cancelRegistration,
   cleanAnswers,
+  fetchMyMarketingConsent,
   fetchRegistrationForm,
   friendlyRegistrationError,
   isAnswerEmpty,
   registerForEvent,
+  setMarketingConsent,
   type AnswerValue,
   type RegistrationAnswers,
   type RegistrationQuestion,
@@ -136,17 +138,28 @@ export function RegistrationDialog({
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [result, setResult] = useState<RegistrationResult | null>(null)
+  // Marketing consent: optional, separate from registering, and always unchecked
+  // until the attendee ticks it. The wording comes from the server, which records
+  // that same wording as evidence. If it cannot load, no box is shown and no
+  // consent is recorded.
+  const [consentStatement, setConsentStatement] = useState<string | null>(null)
+  const [hadConsent, setHadConsent] = useState(false)
+  const [marketing, setMarketing] = useState(false)
+  const [consentNotice, setConsentNotice] = useState<string | null>(null)
   const formRef = useRef<HTMLFormElement>(null)
+  const consentId = useId()
 
   const loadForm = useCallback(async () => {
     setLoadError(null)
     setQuestions(null)
-    const { data, error } = await fetchRegistrationForm(event.id)
-    if (error) {
-      setLoadError(friendlyRegistrationError(error, 'Could not load the registration form. Please try again.'))
+    const [form, consent] = await Promise.all([fetchRegistrationForm(event.id), fetchMyMarketingConsent(event.id)])
+    setConsentStatement(consent.error ? null : consent.data?.statement ?? null)
+    setHadConsent(!consent.error && consent.data?.consented === true)
+    if (form.error) {
+      setLoadError(friendlyRegistrationError(form.error, 'Could not load the registration form. Please try again.'))
       return
     }
-    setQuestions(data)
+    setQuestions(form.data)
   }, [event.id])
 
   useEffect(() => {
@@ -189,11 +202,21 @@ export function RegistrationDialog({
     setSubmitting(true)
     setSubmitError(null)
     const { data, error } = await registerForEvent(event.id, cleanAnswers(answers))
-    setSubmitting(false)
     if (error || !data) {
+      setSubmitting(false)
       setSubmitError(friendlyRegistrationError(error, 'Could not complete your registration. Please try again.'))
       return
     }
+    // The box records the choice made now. Ticked: opt in. Unticked after an
+    // earlier opt-in (registering again after cancelling): withdraw. A failure
+    // here never undoes the registration; it leaves no consent recorded.
+    if (consentStatement && (marketing || hadConsent)) {
+      const saved = await setMarketingConsent(event.id, marketing)
+      if (saved.error) {
+        setConsentNotice('We couldn’t save your marketing choice. You can set it on the event page.')
+      }
+    }
+    setSubmitting(false)
     setResult(data)
     onRegistered(data)
   }
@@ -217,6 +240,11 @@ export function RegistrationDialog({
             </p>
           </div>
           <EventSummary event={event} />
+          {consentNotice && (
+            <p role="alert" className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {consentNotice}
+            </p>
+          )}
         </div>
         <div className="flex justify-end border-t border-rally-line px-5 py-4">
           <Button size="lg" className="rounded-xl" onClick={onClose}>
@@ -270,6 +298,30 @@ export function RegistrationDialog({
                   onChange={(v) => setAnswer(q.id, v)}
                 />
               ))}
+            </div>
+          )}
+
+          {questions !== null && !loadError && (
+            <div className="space-y-3 border-t border-rally-line pt-4">
+              <p className="text-xs leading-relaxed text-slate-500">
+                The event organizer will see your name, email address and, if it is on your profile,
+                your phone number, so they can contact you about this event.
+              </p>
+              {consentStatement && (
+                <label htmlFor={consentId} className="flex cursor-pointer items-start gap-3 text-sm text-slate-700">
+                  <input
+                    id={consentId}
+                    type="checkbox"
+                    checked={marketing}
+                    disabled={submitting}
+                    onChange={(e) => setMarketing(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 shrink-0 accent-primary-600"
+                  />
+                  <span>
+                    {consentStatement} <span className="text-slate-400">(optional)</span>
+                  </span>
+                </label>
+              )}
             </div>
           )}
 
