@@ -1,4 +1,10 @@
 import { supabase } from '@/lib/supabase'
+import {
+  ATTENDEE_PAGE_SIZE,
+  normalizeSearch,
+  pageOffset,
+  type AttendeeFilter,
+} from '@/lib/attendeePage'
 
 // Front-end bindings for the Phase D organizer RPCs. Every read and write here
 // goes through those functions — the client never updates event_registrations
@@ -35,16 +41,27 @@ export type CheckInResult = {
   error: string | null
 }
 
-export async function listCheckInRows(eventId: string): Promise<{
-  data: CheckInRow[]
-  error: string | null
-}> {
-  const { data, error } = await supabase.rpc('find_event_attendees', {
+// One page of the organizer attendee list, searched and filtered on the server
+// (event_attendee_page). total is the number of matching registrations before
+// paging. Same authorization and fields as find_event_attendees.
+export async function fetchAttendeePage(
+  eventId: string,
+  query: { search: string; filter: AttendeeFilter; page: number }
+): Promise<{ rows: CheckInRow[]; total: number; error: string | null }> {
+  const { data, error } = await supabase.rpc('event_attendee_page', {
     target_event_id: eventId,
-    search: '',
+    search: normalizeSearch(query.search),
+    status_filter: query.filter,
+    page_size: ATTENDEE_PAGE_SIZE,
+    page_offset: pageOffset(query.page),
   })
-  if (error) return { data: [], error: readableError(error, 'Could not load the check-in list.') }
-  return { data: (data ?? []) as CheckInRow[], error: null }
+  if (error) return { rows: [], total: 0, error: readableError(error, 'Could not load attendees.') }
+  const result = (data ?? []) as (CheckInRow & { total_count: number | string })[]
+  return {
+    rows: result.map(({ total_count: _total, ...row }) => row),
+    total: result.length > 0 ? Number(result[0].total_count) || 0 : 0,
+    error: null,
+  }
 }
 
 export async function searchCheckInRows(
