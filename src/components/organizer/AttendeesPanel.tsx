@@ -12,6 +12,7 @@ import {
   ATTENDEE_FILTERS,
   ATTENDEE_SEARCH_DEBOUNCE_MS,
   attendeeQueryKey,
+  correctedPage,
   normalizeSearch,
   pageInfo,
   type AttendeeFilter,
@@ -66,9 +67,12 @@ export function AttendeesPanel({ eventId }: { eventId: string }) {
         return
       }
       // The list shrank under us (e.g. a cancellation) and this page is now past
-      // the end: go back to the first page rather than show an empty one.
-      if (result.rows.length === 0 && page > 0) {
-        setPage(0)
+      // the end. The total is always returned, so move to the last page that has
+      // rows (or the first, when nothing matches) instead of showing an empty one.
+      // The corrected page is in range, so this cannot repeat.
+      const corrected = correctedPage(page, result.total)
+      if (corrected !== null) {
+        setPage(corrected)
         return
       }
       setLoaded({ key, rows: result.rows, total: result.total })

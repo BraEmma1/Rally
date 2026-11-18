@@ -13,7 +13,9 @@ order that is not deterministic (ties on name are left to the planner).
 event_attendee_page(target_event_id, search, status_filter, page_size, page_offset)
 returns one page of the same public professional card find_event_attendees
 returns, plus total_count: the number of registrations matching the search and
-filter, before paging.
+filter, before paging. The result is always exactly one row (total_count,
+attendees jsonb array), so the total is known even when the requested page is
+empty: no matches, or a page past the end, e.g. after registrations changed.
 
 - Authorization is find_event_attendees' gate, unchanged:
   can_manage_event(event) AND account_is_active(). Owners and admins of the
@@ -47,16 +49,14 @@ CREATE OR REPLACE FUNCTION public.event_attendee_page(
   page_size integer DEFAULT 20,
   page_offset integer DEFAULT 0
 )
+-- Always exactly one row, so the total survives an empty or out-of-range page:
+--   total_count  registrations matching search + filter, before paging
+--   attendees    the requested page, a JSON array (possibly empty) of
+--                {user_id, full_name, job_title, company, photo_url, status,
+--                 registered_at, checked_in_at}, in page order
 RETURNS TABLE (
-  user_id uuid,
-  full_name text,
-  job_title text,
-  company text,
-  photo_url text,
-  status text,
-  registered_at timestamptz,
-  checked_in_at timestamptz,
-  total_count bigint
+  total_count bigint,
+  attendees jsonb
 )
 LANGUAGE plpgsql SECURITY DEFINER STABLE SET search_path = public, pg_temp
 AS $$
@@ -108,19 +108,31 @@ BEGIN
             WHEN 'cancelled'      THEN r.status = 'cancelled'
           END
   )
+  , page AS (
+    SELECT m.*
+    FROM matched m
+    ORDER BY lower(m.m_full_name), m.m_full_name, m.m_registered_at, m.reg_id
+    LIMIT v_size OFFSET v_offset
+  )
   SELECT
-    m.m_user_id,
-    m.m_full_name,
-    m.m_job_title,
-    m.m_company,
-    m.m_photo_url,
-    m.m_status,
-    m.m_registered_at,
-    m.m_checked_in_at,
-    (SELECT count(*) FROM matched)::bigint
-  FROM matched m
-  ORDER BY lower(m.m_full_name), m.m_full_name, m.m_registered_at, m.reg_id
-  LIMIT v_size OFFSET v_offset;
+    (SELECT count(*) FROM matched)::bigint,
+    COALESCE(
+      (SELECT jsonb_agg(
+                jsonb_build_object(
+                  'user_id',       pg.m_user_id,
+                  'full_name',     pg.m_full_name,
+                  'job_title',     pg.m_job_title,
+                  'company',       pg.m_company,
+                  'photo_url',     pg.m_photo_url,
+                  'status',        pg.m_status,
+                  'registered_at', pg.m_registered_at,
+                  'checked_in_at', pg.m_checked_in_at
+                )
+                ORDER BY lower(pg.m_full_name), pg.m_full_name, pg.m_registered_at, pg.reg_id
+              )
+         FROM page pg),
+      '[]'::jsonb
+    );
 END;
 $$;
 

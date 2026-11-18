@@ -9,10 +9,12 @@ import {
   ATTENDEE_FILTERS,
   ATTENDEE_PAGE_SIZE,
   attendeeQueryKey,
+  correctedPage,
   normalizeSearch,
   pageCount,
   pageInfo,
   pageOffset,
+  parseAttendeePage,
 } from '../src/lib/attendeePage.ts'
 
 test('default page size is 20', () => {
@@ -70,4 +72,52 @@ test('request keys change only when the request does', () => {
   assert.notEqual(attendeeQueryKey('e1', { ...base, filter: 'waitlisted' }), k)
   assert.notEqual(attendeeQueryKey('e1', { ...base, page: 1 }), k)
   assert.notEqual(attendeeQueryKey('e2', base), k)
+})
+
+// event_attendee_page always returns one row { total_count, attendees }, so the
+// total is known even for an empty page.
+test('parses a page and its total', () => {
+  const data = [{ total_count: '45', attendees: [{ user_id: 'a' }, { user_id: 'b' }] }]
+  assert.deepEqual(parseAttendeePage(data), { rows: [{ user_id: 'a' }, { user_id: 'b' }], total: 45 })
+})
+
+test('an empty page still carries the total', () => {
+  assert.deepEqual(parseAttendeePage([{ total_count: 25, attendees: [] }]), { rows: [], total: 25 })
+})
+
+test('an empty search result is total 0 with no rows', () => {
+  assert.deepEqual(parseAttendeePage([{ total_count: 0, attendees: [] }]), { rows: [], total: 0 })
+})
+
+test('malformed or missing data reads as empty, never throws', () => {
+  for (const bad of [null, undefined, [], {}, [{}], [{ total_count: 'x', attendees: 'nope' }]]) {
+    assert.deepEqual(parseAttendeePage(bad), { rows: [], total: 0 })
+  }
+})
+
+test('a valid page needs no correction', () => {
+  assert.equal(correctedPage(0, 45), null)
+  assert.equal(correctedPage(2, 45), null)
+  assert.equal(correctedPage(0, 0), null)
+})
+
+test('an out-of-range page moves to the last page with rows', () => {
+  assert.equal(correctedPage(3, 45), 2)
+  assert.equal(correctedPage(9, 21), 1)
+})
+
+test('a page that became invalid after the list shrank moves back', () => {
+  // Was on page 2 of 17 (size 10); 8 cancelled, 9 remain: page 2 no longer exists.
+  assert.equal(correctedPage(1, 9, 10), 0)
+  // Everything gone: back to the first page, which shows the empty state.
+  assert.equal(correctedPage(4, 0), 0)
+})
+
+test('a corrected page is always valid, so correction cannot loop', () => {
+  for (const total of [0, 1, 19, 20, 21, 99]) {
+    for (const page of [0, 1, 2, 5, 50]) {
+      const fixed = correctedPage(page, total) ?? page
+      assert.equal(correctedPage(fixed, total), null)
+    }
+  }
 })

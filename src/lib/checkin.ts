@@ -3,6 +3,7 @@ import {
   ATTENDEE_PAGE_SIZE,
   normalizeSearch,
   pageOffset,
+  parseAttendeePage,
   type AttendeeFilter,
 } from '@/lib/attendeePage'
 
@@ -56,12 +57,7 @@ export async function fetchAttendeePage(
     page_offset: pageOffset(query.page),
   })
   if (error) return { rows: [], total: 0, error: readableError(error, 'Could not load attendees.') }
-  const result = (data ?? []) as (CheckInRow & { total_count: number | string })[]
-  return {
-    rows: result.map(({ total_count: _total, ...row }) => row),
-    total: result.length > 0 ? Number(result[0].total_count) || 0 : 0,
-    error: null,
-  }
+  return { ...parseAttendeePage<CheckInRow>(data), error: null }
 }
 
 export async function searchCheckInRows(

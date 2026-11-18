@@ -76,6 +76,31 @@ export function pageInfo(total: number, page: number, size = ATTENDEE_PAGE_SIZE)
   }
 }
 
+// The page to show instead, when the requested one is past the end: the last
+// page that has rows, or the first page when nothing matches. null when the
+// requested page is valid. This happens when the list shrinks between requests
+// (a cancellation, a check-in leaving a filter), since the total is always known.
+export function correctedPage(page: number, total: number, size = ATTENDEE_PAGE_SIZE): number | null {
+  const last = pageCount(total, size) - 1
+  const requested = Math.max(0, Math.floor(page))
+  return requested > last ? last : null
+}
+
+// event_attendee_page returns exactly one row: { total_count, attendees }. The
+// total is present even when the page itself is empty. Anything malformed reads
+// as an empty result rather than a crash.
+export function parseAttendeePage<Row>(data: unknown): { rows: Row[]; total: number } {
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { total_count?: number | string | null; attendees?: unknown }
+    | null
+    | undefined
+  const total = Number(row?.total_count ?? 0)
+  return {
+    rows: Array.isArray(row?.attendees) ? (row.attendees as Row[]) : [],
+    total: Number.isFinite(total) && total > 0 ? total : 0,
+  }
+}
+
 // One key per distinct request. The panel fetches only when this changes, so a
 // re-render, or a debounce that settles on the same text, never re-requests.
 export function attendeeQueryKey(eventId: string, q: AttendeeQuery): string {

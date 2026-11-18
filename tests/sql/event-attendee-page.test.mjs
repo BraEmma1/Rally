@@ -96,20 +96,32 @@ await sup(`INSERT INTO event_registrations (event_id, user_id, status) VALUES ($
 await sup(`SET session_replication_role = origin`)
 
 const PAGE = `SELECT * FROM event_attendee_page($1,$2,$3,$4,$5)`
-const page = async (uid, { event = E, search = '', filter = 'all', size = 20, offset = 0 } = {}) =>
+// The function returns exactly one row: { total_count, attendees }. raw() gives
+// that row; page() gives the attendee array with the total attached as .total.
+const raw = async (uid, { event = E, search = '', filter = 'all', size = 20, offset = 0 } = {}) =>
   (await as(uid, PAGE, [event, search, filter, size, offset])).rows
-const total = (rows) => (rows.length ? Number(rows[0].total_count) : 0)
+const unwrap = (rows) => Object.assign([...(rows[0]?.attendees ?? [])], { total: Number(rows[0]?.total_count ?? NaN) })
+const page = async (uid, opts) => unwrap(await raw(uid, opts))
+const total = (rows) => rows.total
 const names = (rows) => rows.map((r) => r.full_name)
 
 // ---- pagination -----------------------------------------------------------
-const def = (await as(U.owner, `SELECT * FROM event_attendee_page($1)`, [E])).rows
+const def = unwrap((await as(U.owner, `SELECT * FROM event_attendee_page($1)`, [E])).rows)
 ok('default page size is 20 with the total of all matches', def.length === 20 && total(def) === 25, `${def.length}/${total(def)}`)
 const p1 = await page(U.owner, { offset: 0 })
 const p2 = await page(U.owner, { offset: 20 })
 ok('second page holds the remaining 5', p2.length === 5 && total(p2) === 25)
 const all = [...p1, ...p2].map((r) => r.user_id)
 ok('pages do not overlap and cover every registration', new Set(all).size === 25)
-ok('page past the end is empty', (await page(U.owner, { offset: 40 })).length === 0)
+// ---- empty pages still carry the total -------------------------------------
+const past = await raw(U.owner, { offset: 40 })
+ok('out-of-range page: one row, no attendees, total still 25',
+  past.length === 1 && past[0].attendees.length === 0 && Number(past[0].total_count) === 25, JSON.stringify(past))
+const none = await raw(U.owner, { search: 'zzz' })
+ok('search with no match: one row, no attendees, total 0',
+  none.length === 1 && none[0].attendees.length === 0 && Number(none[0].total_count) === 0, JSON.stringify(none))
+const noneFiltered = await raw(U.owner, { search: 'ada', filter: 'cancelled' })
+ok('search + filter with no match: total 0', noneFiltered.length === 1 && Number(noneFiltered[0].total_count) === 0)
 ok('order is deterministic across calls', JSON.stringify(await page(U.owner)) === JSON.stringify(p1))
 ok('sorted by name, case-insensitive', names(p1).slice(0, 3).join('|') === 'ada byron|ADA KING|Ada Lovelace', names(p1).slice(0, 3).join('|'))
 const graces = p1.filter((r) => r.full_name === 'Grace Hopper')
@@ -138,7 +150,6 @@ ok('search matches company', (await count('all', 'analytical')) === 1)
 ok('search trims surrounding spaces', (await count('all', '  ada  ')) === 3)
 ok('"%" matches literally, not everything', (await count('all', '%')) === 1)
 ok('"_" matches literally, not any character', (await count('all', '_')) === 1)
-ok('no match gives an empty page and total 0', (await page(U.owner, { search: 'zzz' })).length === 0)
 ok('search and filter combine', (await count('confirmed', 'ada')) === 2 && (await count('waitlisted', 'ada')) === 1)
 ok('search narrows before paging', (await count('all', 'person')) === 20 && (await page(U.owner, { search: 'person', size: 5, offset: 15 })).length === 5)
 
@@ -155,9 +166,12 @@ ok('owner cannot read another organization\'s event', DENIED.test((await err(U.o
 ok('anonymous callers cannot execute it', /permission denied/.test((await err(null, PAGE, [E, '', 'all', 20, 0], 'anon')) ?? ''))
 
 // ---- no private data, unchanged security model ----------------------------
-const cols = (await as(U.owner, PAGE, [E, '', 'all', 1, 0])).fields.map((f) => f.name)
-ok('returns only the public card, status, times and total',
-  JSON.stringify(cols) === JSON.stringify(['user_id', 'full_name', 'job_title', 'company', 'photo_url', 'status', 'registered_at', 'checked_in_at', 'total_count']), JSON.stringify(cols))
+const one = await as(U.owner, PAGE, [E, '', 'all', 1, 0])
+const cols = one.fields.map((f) => f.name)
+ok('returns one row of total_count and attendees', JSON.stringify(cols) === JSON.stringify(['total_count', 'attendees']), JSON.stringify(cols))
+const keys = Object.keys(one.rows[0].attendees[0]).sort()
+ok('each attendee carries only the public card, status and times',
+  JSON.stringify(keys) === JSON.stringify(['checked_in_at', 'company', 'full_name', 'job_title', 'photo_url', 'registered_at', 'status', 'user_id']), JSON.stringify(keys))
 const fn = (await sup(
   `SELECT p.prosecdef, p.proconfig,
           has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth,
@@ -168,6 +182,29 @@ ok('one signature, SECURITY DEFINER, search_path pinned',
 ok('execute granted to authenticated only', fn[0]?.auth === true && fn[0]?.anon === false)
 const fea = (await sup(`SELECT count(*)::int c FROM pg_proc WHERE proname='find_event_attendees'`)).rows[0].c
 ok('find_event_attendees still exists for the check-in desk', fea === 1)
+
+// ---- a page becomes invalid after registrations change --------------------
+// Last, because it changes the fixtures. Confirmed = 17: with 10 per page, page 2
+// holds 7. Then every 'registered' attendee cancels (cancel_event_registration
+// refuses a 'checked_in' status, so only those 12 are picked). The event has no
+// capacity, so the 4 waitlisted are promoted: confirmed becomes 17 - 12 + 4 = 9.
+// Page 2 is now past the end, yet the total is still reported, and page 1 holds
+// everyone left. Expected numbers are read back from the table, not assumed.
+const before = await page(U.mgr, { filter: 'confirmed', size: 10, offset: 10 })
+ok('before: confirmed page 2 (size 10) holds 7 of 17', before.length === 7 && before.total === 17, `${before.length}/${before.total}`)
+const toCancel = (await sup(
+  `SELECT user_id FROM event_registrations WHERE event_id=$1 AND status = 'registered' ORDER BY created_at`, [E])).rows.map((r) => r.user_id)
+for (const uid of toCancel) await as(uid, `SELECT cancel_event_registration($1)`, [E])
+const confirmedNow = (await sup(
+  `SELECT count(*)::int c FROM event_registrations WHERE event_id=$1 AND status IN ('registered','checked_in')`, [E])).rows[0].c
+ok('after: confirmed shrank below one page (17 - 12 cancelled + 4 promoted = 9)', confirmedNow === 9, String(confirmedNow))
+const after = await raw(U.mgr, { filter: 'confirmed', size: 10, offset: 10 })
+ok('after: the same page is empty but the total is still returned',
+  after.length === 1 && after[0].attendees.length === 0 && Number(after[0].total_count) === confirmedNow, JSON.stringify(after))
+const first = await page(U.mgr, { filter: 'confirmed', size: 10, offset: 0 })
+ok('after: page 1 holds every remaining confirmed registration', first.length === confirmedNow && first.total === confirmedNow)
+ok('after: waitlist is empty and cancelled counts 16',
+  (await page(U.owner, { filter: 'waitlisted' })).total === 0 && (await page(U.owner, { filter: 'cancelled', size: 100 })).total === 16)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
