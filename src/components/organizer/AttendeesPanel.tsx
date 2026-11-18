@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronLeft, ChevronRight, Download, Mail, Phone, Search, Users } from 'lucide-react'
+import { CheckCircle2, ChevronLeft, ChevronRight, Download, Mail, Phone, Search, Users } from 'lucide-react'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -9,6 +9,7 @@ import { EmptyState, Spinner } from '@/components/ui/States'
 import { cn } from '@/lib/utils'
 import { fetchAttendeeExportChunk, fetchAttendeePage, type AttendeeRow } from '@/lib/checkin'
 import { attendeesCsv, collectAttendeeExport, exportFileName } from '@/lib/attendeeExport'
+import { RegistrationDetailDialog } from '@/components/organizer/RegistrationDetailDialog'
 import {
   ATTENDEE_FILTERS,
   ATTENDEE_SEARCH_DEBOUNCE_MS,
@@ -34,6 +35,10 @@ import {
 // Filters use the shared registration rules (registrationStatus.ts):
 // "Confirmed" is registered or checked in; "Not checked in" is confirmed and
 // still to arrive, so waitlisted and cancelled people are not in it.
+//
+// "Manage" opens one registration (status, dates, waitlist place, answers) with
+// cancel / promote when the database allows them (migration 20261102000000).
+// After a change the list is fetched again, so counts and order are the server's.
 
 type Loaded = { key: string; rows: AttendeeRow[]; total: number }
 
@@ -47,6 +52,8 @@ export function AttendeesPanel({ eventId, eventName }: { eventId: string; eventN
   const [retries, setRetries] = useState(0)
   const [exporting, setExporting] = useState<{ done: number; total: number } | null>(null)
   const [exportError, setExportError] = useState<string | null>(null)
+  const [managing, setManaging] = useState<{ userId: string; name: string } | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const seq = useRef(0)
 
   // Debounce typing. A new search term starts again at the first page; a pause
@@ -165,6 +172,16 @@ export function AttendeesPanel({ eventId, eventName }: { eventId: string; eventN
         </div>
       </div>
 
+      {notice && (
+        <div role="status" className="flex items-start gap-2 rounded-lg bg-accent-50 px-3 py-2 text-sm text-accent-700">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="flex-1">{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} className="text-xs font-medium underline">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {exportError && (
         <div role="alert" className="rounded-lg bg-error-50 px-3 py-2 text-sm text-error-700">
           {exportError}
@@ -258,7 +275,15 @@ export function AttendeesPanel({ eventId, eventName }: { eventId: string; eventN
                               : 'default'
                       }
                     >
-                      {r.checked_in_at ? 'Checked in' : r.status === 'cancelled' ? 'Cancelled' : r.status === 'waitlisted' ? 'Waitlisted' : 'Not checked in'}
+                      {r.checked_in_at
+                        ? 'Checked in'
+                        : r.status === 'cancelled'
+                          ? 'Cancelled'
+                          : r.status === 'waitlisted'
+                            ? r.waitlist_position
+                              ? `Waitlisted · #${r.waitlist_position}`
+                              : 'Waitlisted'
+                            : 'Not checked in'}
                     </Badge>
                     {r.checked_in_at && (
                       <span className="text-xs text-gray-400">
@@ -268,6 +293,14 @@ export function AttendeesPanel({ eventId, eventName }: { eventId: string; eventN
                     {r.marketing_consent && (
                       <span className="text-xs font-medium text-accent-700">Marketing opt-in</span>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => setManaging({ userId: r.user_id, name: r.full_name || 'Rally member' })}
+                      className="rounded text-xs font-medium text-primary-700 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+                      aria-label={`Manage registration for ${r.full_name || 'Rally member'}`}
+                    >
+                      Manage
+                    </button>
                   </div>
                 </li>
               ))}
@@ -306,6 +339,20 @@ export function AttendeesPanel({ eventId, eventName }: { eventId: string; eventN
             </Button>
           </div>
         </nav>
+      )}
+
+      {managing && (
+        <RegistrationDetailDialog
+          eventId={eventId}
+          userId={managing.userId}
+          name={managing.name}
+          onClose={() => setManaging(null)}
+          onChanged={(message) => {
+            setManaging(null)
+            setNotice(message)
+            setRetries((n) => n + 1)
+          }}
+        />
       )}
 
       <p className="text-xs text-gray-500">

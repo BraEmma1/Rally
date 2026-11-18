@@ -52,6 +52,9 @@ export type AttendeeRow = CheckInRow & {
   phone: string | null
   marketing_consent: boolean
   marketing_consent_at: string | null
+  // Place in the waitlist (1 = next), null unless waitlisted (20261102000000).
+  // Absent before that migration is applied.
+  waitlist_position?: number | null
 }
 
 // One page of the organizer attendee list, searched and filtered on the server

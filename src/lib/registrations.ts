@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase'
+import type { RegistrationDetail } from '@/lib/registrationManagement'
 
 // Event registration. Backend: migration 20261026000000. Registering and
 // cancelling go through RPCs (the table cannot be written directly any more), so
@@ -98,6 +99,15 @@ const SAFE_MESSAGES = [
   'Your answers do not match',
   'An answer is too long',
   'You do not have access to this event',
+  'You do not manage this event',
+  'That person is not registered for this event',
+  'That registration is already cancelled',
+  'That person has checked in',
+  'That person is not on the waitlist',
+  'The event is full',
+  'Someone has been waiting longer',
+  'This event is archived',
+  'This event has finished',
   'A registration form can have at most',
   'Every question needs a label',
   'Help text can be at most',
@@ -186,6 +196,33 @@ export async function saveRegistrationQuestions(eventId: string, questions: Ques
       options: q.kind === 'single_choice' || q.kind === 'multi_choice' ? q.options ?? [] : null,
       required: q.required,
     })),
+  })
+  return { error }
+}
+
+// ---- Organizer registration management (migration 20261102000000) -----------
+// One registration, cancel it, or move a waitlisted person into a free place.
+// All three are gated in the database (can_manage_event and an active account);
+// the only status changes are -> cancelled and waitlisted -> registered.
+export async function fetchRegistrationDetail(eventId: string, userId: string) {
+  const { data, error } = await supabase.rpc('event_registration_detail', { p_event_id: eventId, p_user_id: userId })
+  const row = Array.isArray(data) ? (data[0] as RegistrationDetail | undefined) : undefined
+  return { data: row ?? null, error }
+}
+
+export async function organizerCancelRegistration(eventId: string, userId: string) {
+  const { data, error } = await supabase.rpc('organizer_cancel_event_registration', {
+    p_event_id: eventId,
+    p_user_id: userId,
+  })
+  const row = Array.isArray(data) ? (data[0] as { previous_status: string; promoted: number } | undefined) : undefined
+  return { data: row ?? null, error }
+}
+
+export async function promoteWaitlistedRegistration(eventId: string, userId: string) {
+  const { error } = await supabase.rpc('organizer_promote_waitlisted_registration', {
+    p_event_id: eventId,
+    p_user_id: userId,
   })
   return { error }
 }

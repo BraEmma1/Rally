@@ -172,8 +172,8 @@ const one = await as(U.owner, PAGE, [E, '', 'all', 1, 0])
 const cols = one.fields.map((f) => f.name)
 ok('returns one row of total_count and attendees', JSON.stringify(cols) === JSON.stringify(['total_count', 'attendees']), JSON.stringify(cols))
 const keys = Object.keys(one.rows[0].attendees[0]).sort()
-ok('each attendee carries the card, contact details, status, times and marketing consent',
-  JSON.stringify(keys) === JSON.stringify(['checked_in_at', 'company', 'email', 'full_name', 'job_title', 'marketing_consent', 'marketing_consent_at', 'phone', 'photo_url', 'registered_at', 'status', 'user_id']), JSON.stringify(keys))
+ok('each attendee carries the card, contact details, status, times, marketing consent and waitlist position (20261102000000)',
+  JSON.stringify(keys) === JSON.stringify(['checked_in_at', 'company', 'email', 'full_name', 'job_title', 'marketing_consent', 'marketing_consent_at', 'phone', 'photo_url', 'registered_at', 'status', 'user_id', 'waitlist_position']), JSON.stringify(keys))
 const fn = (await sup(
   `SELECT p.prosecdef, p.proconfig,
           has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth,
