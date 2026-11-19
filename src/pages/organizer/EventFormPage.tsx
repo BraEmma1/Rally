@@ -11,7 +11,16 @@ import { ErrorState, LoadingState } from '@/components/ui/States'
 import { EventAccessNotice } from '@/components/organizer/EventAccessNotice'
 import { canCreateEvents } from '@/lib/eventAccess'
 import { useEventAccess } from '@/lib/useEventAccess'
-import { EVENT_TIMEZONES, VISIBILITY_LABELS, createEvent, getEvent, updateEvent, type EventInput } from '@/lib/events'
+import {
+  EVENT_TIMEZONES,
+  VISIBILITY_LABELS,
+  createEvent,
+  getEvent,
+  getEventSeatCounts,
+  updateEvent,
+  type EventInput,
+  type EventSeatCounts,
+} from '@/lib/events'
 import type { EventVisibility } from '@/lib/supabase'
 
 const EMPTY: EventInput = {
@@ -44,6 +53,10 @@ export default function EventFormPage() {
   const [error, setError] = useState<string | null>(null)
   const [archived, setArchived] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
+  // Edit only: who already holds a seat and who is waiting. Null while loading
+  // or if it could not be read; the form still works without it.
+  const [seats, setSeats] = useState<EventSeatCounts | null>(null)
+  const [seatsFailed, setSeatsFailed] = useState(false)
 
   // Editing is an event-scoped right (can_manage_event): an owner or admin may
   // edit any event, a manager only those assigned to them. Creating is checked
@@ -76,6 +89,15 @@ export default function EventFormPage() {
         visibility: data.visibility,
       })
       setLoading(false)
+    })()
+  }, [id, allowed])
+
+  useEffect(() => {
+    if (!id || !allowed) return
+    void (async () => {
+      const { data, error: countError } = await getEventSeatCounts(id)
+      setSeats(data)
+      setSeatsFailed(Boolean(countError))
     })()
   }, [id, allowed])
 
@@ -328,9 +350,27 @@ export default function EventFormPage() {
                 placeholder="Leave empty for unlimited"
                 disabled={archived}
               />
+              {isEdit && seats && (
+                <p className="mt-1 text-sm text-gray-700" aria-live="polite">
+                  <span className="font-medium tabular-nums">{seats.confirmed.toLocaleString()}</span>{' '}
+                  confirmed ·{' '}
+                  <span className="font-medium tabular-nums">{seats.waitlisted.toLocaleString()}</span>{' '}
+                  waitlisted
+                </p>
+              )}
+              {isEdit && seatsFailed && (
+                <p className="mt-1 text-xs text-gray-500">Current registration counts could not be loaded.</p>
+              )}
+              {isEdit && seats && form.capacity !== null && form.capacity < seats.confirmed && (
+                <p className="mt-1 text-xs text-error-700">
+                  {seats.confirmed.toLocaleString()} people are already confirmed, so capacity cannot be
+                  lower than that.
+                </p>
+              )}
               <p className="mt-1 text-xs text-gray-500">
-                Registration closes automatically once capacity is reached. It cannot be set below
-                the number of people already registered.
+                Once the event is full, new registrations join the waitlist. Confirmed registrations
+                (registered or checked in) set the minimum capacity; waitlisted people do not count,
+                and raising the capacity moves them in, longest-waiting first.
               </p>
             </div>
 

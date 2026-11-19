@@ -23,6 +23,7 @@ const SUITES = [
   'event-registration.cjs',
   'event-manager-assignment.cjs',
   'event-manager-access.cjs',
+  'event-capacity-counts.cjs',
 ]
 
 const reachable = (url) =>
