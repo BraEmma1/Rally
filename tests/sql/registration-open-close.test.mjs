@@ -105,6 +105,73 @@ const reopen = (k, e) => as(U[k], `UPDATE events SET registration_closed_at = NU
 }
 
 // ============================================================================
+// The lookup table and its helpers
+// ============================================================================
+{
+  const diff = (await sup(
+    `SELECT (SELECT count(*)::int FROM pg_timezone_names) catalog,
+            (SELECT count(*)::int FROM iana_time_zones) tbl,
+            (SELECT count(*)::int FROM pg_timezone_names n WHERE NOT EXISTS (SELECT 1 FROM iana_time_zones z WHERE z.name = n.name)) missing,
+            (SELECT count(*)::int FROM iana_time_zones z WHERE NOT EXISTS (SELECT 1 FROM pg_timezone_names n WHERE n.name = z.name)) extra`)).rows[0]
+  ok('the table is exactly the catalog of zone names', diff.missing === 0 && diff.extra === 0 && diff.tbl === diff.catalog, JSON.stringify(diff))
+
+  // Every name the organizer form's datalist offers (Intl, as in EVENT_TIMEZONES).
+  // A name this Postgres build's tzdata does not have yet (the browser can be
+  // newer than the database) must be refused clearly on save, never stored and
+  // never silently computed in another zone. On rally-dev (Postgres 17.11) all
+  // 418 Intl names were present on 2026-11-19; PGlite 0.2.17's tzdata is older.
+  const intl = Intl.supportedValuesOf('timeZone')
+  const unknown = (await sup(`SELECT n FROM unnest($1::text[]) n WHERE NOT EXISTS (SELECT 1 FROM pg_timezone_names p WHERE p.name = n)`, [intl])).rows.map((r) => r.n)
+  const notInTable = (await sup(
+    `SELECT n FROM unnest($1::text[]) n
+      WHERE EXISTS (SELECT 1 FROM pg_timezone_names p WHERE p.name = n)
+        AND NOT EXISTS (SELECT 1 FROM iana_time_zones z WHERE z.name = n)`, [intl])).rows.map((r) => r.n)
+  ok(`every Intl timezone this Postgres knows is recognised (${intl.length - unknown.length} of ${intl.length})`, notInTable.length === 0, JSON.stringify(notInTable))
+  if (unknown.length) {
+    console.log(`NOTE  Intl names unknown to this Postgres build's tzdata: ${unknown.join(', ')}`)
+    const probe = await ev({ name: 'Newer zone', vis: 'draft', tz: null })
+    const e = await err(U.owner, `UPDATE events SET timezone=$2 WHERE id=$1`, [probe, unknown[0]])
+    ok(`a zone newer than the database (${unknown[0]}) is refused clearly, not stored`, BAD_TZ.test(e ?? '') && (await row(probe)).timezone === null, e)
+  }
+  const aliases = ['Europe/Kyiv', 'Europe/Kiev', 'Asia/Kolkata', 'Asia/Calcutta', 'US/Eastern', 'UTC', 'Etc/UTC', 'America/Ciudad_Juarez', 'Pacific/Kiritimati', 'Etc/GMT+12']
+  const al = (await sup(`SELECT n, event_recognised_timezone(n) r FROM unnest($1::text[]) n`, [aliases])).rows
+  ok('current and backward-compatible IANA names are recognised as themselves', al.every((x) => x.r === x.n), JSON.stringify(al.filter((x) => x.r !== x.n)))
+
+  const rec = async (v) => (await sup(`SELECT event_recognised_timezone($1) r, event_effective_timezone($1) e`, [v])).rows[0]
+  for (const [v, want] of [[' Africa/Accra ', 'Africa/Accra'], ['africa/accra', 'Africa/Accra'], ['AMERICA/NEW_YORK', 'America/New_York'], ['etc/utc', 'Etc/UTC']]) {
+    const r = await rec(v)
+    ok(`stored ${JSON.stringify(v)} is recognised as ${want} (no fallback)`, r.r === want && r.e === want, JSON.stringify(r))
+  }
+  for (const v of [null, '', '   ', 'PST', 'CEST', 'UTC+3', 'UTC-5', '<+03>-3', 'EST5EDT,M3.2.0,M11.1.0', 'Mars/Olympus_Mons', 'Africa/Accra/Extra']) {
+    const r = await rec(v)
+    ok(`stored ${JSON.stringify(v)} is unsupported and falls back to Etc/GMT+12`, r.r === null && r.e === 'Etc/GMT+12', JSON.stringify(r))
+  }
+
+  // No client can change the table.
+  for (const role of ['authenticated', 'anon', 'service_role']) {
+    const uid = role === 'anon' ? null : U.a
+    const res = []
+    for (const sql of [
+      `INSERT INTO iana_time_zones (name) VALUES ('Fake/Zone')`,
+      `UPDATE iana_time_zones SET name='Fake/Zone' WHERE name='Africa/Accra'`,
+      `DELETE FROM iana_time_zones WHERE name='Africa/Accra'`,
+      `TRUNCATE iana_time_zones`,
+    ]) res.push(await err(uid, sql, [], role))
+    ok(`${role} cannot insert, update, delete or truncate iana_time_zones`, res.every((e) => /permission denied/.test(e ?? '')), JSON.stringify(res))
+  }
+  ok('the table is untouched by those attempts', (await sup(`SELECT count(*)::int n FROM iana_time_zones WHERE name IN ('Fake/Zone') OR name='Africa/Accra'`)).rows[0].n === 1)
+  const sr = (await sup(
+    `SELECT bool_or(has_table_privilege('service_role', 'public.iana_time_zones', p)) any
+       FROM unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE']) p`)).rows[0]
+  ok('service_role has no privileges on iana_time_zones either', !sr.any)
+  for (const fn of ['accept_event_timezone(text)', 'event_recognised_timezone(text)', 'event_effective_timezone(text)']) {
+    const e = await err(U.a, `SELECT public.${fn.replace('(text)', "('Africa/Accra')")}`)
+    ok(`clients cannot call ${fn}`, /permission denied/.test(e ?? ''), e)
+  }
+  ok('a client cannot add a zone through accept_event_timezone', (await sup(`SELECT count(*)::int n FROM iana_time_zones WHERE name='Fake/Zone'`)).rows[0].n === 0)
+}
+
+// ============================================================================
 // Events used below
 // ============================================================================
 const OPEN = await ev({ name: 'Open', cap: 2 })
@@ -363,6 +430,66 @@ ok('every existing event starts open with no deadline', (await stateAt(OPEN, new
     BAD_TZ.test((await err(U.owner, `UPDATE events SET timezone='UTC-6' WHERE id=$1`, [LP])) ?? ''))
   ok('legacy invalid timezone: fixing it works', (await err(U.owner, `UPDATE events SET timezone='America/New_York' WHERE id=$1`, [LP])) === null
     && iso(await endsAt(LP)) === '2030-01-15T22:00:00.000Z')
+
+  // Legacy values Postgres resolves unambiguously are not sent to the fallback.
+  const LS = await legacy({ name: 'Legacy spaced', start: '2030-01-15', et: '17:00', tz: ' Asia/Tokyo ' })
+  ok('legacy " Asia/Tokyo ": computed in Tokyo, not the fallback', iso(await endsAt(LS)) === '2030-01-15T08:00:00.000Z', iso(await endsAt(LS)))
+  const LC = await legacy({ name: 'Legacy case', start: '2030-01-15', et: '17:00', tz: 'america/new_york' })
+  ok('legacy "america/new_york": computed in New York', iso(await endsAt(LC)) === '2030-01-15T22:00:00.000Z', iso(await endsAt(LC)))
+  const fl = (await as(U.a, `SELECT event_id, timezone_fallback f FROM get_event_registration_states($1)`, [[LS, LC, LP]])).rows
+  ok('states RPC: no fallback flag for recognisable legacy values', fl.filter((x) => x.event_id !== LP).every((x) => x.f === false) && fl.length === 3, JSON.stringify(fl))
+  ok('legacy recognisable values are not rewritten', (await row(LS)).timezone === ' Asia/Tokyo ' && (await row(LC)).timezone === 'america/new_york')
+  ok('legacy recognisable values: unrelated edits still save', (await err(U.owner, `UPDATE events SET name='x' WHERE id=$1`, [LC])) === null)
+  ok('writes stay strict: a newly typed lower-case name is refused',
+    BAD_TZ.test((await err(U.owner, `UPDATE events SET timezone='europe/london' WHERE id=$1`, [LC])) ?? ''))
+  ok('writes trim surrounding spaces from a valid name',
+    (await err(U.owner, `UPDATE events SET timezone='  Europe/London  ' WHERE id=$1`, [LC])) === null && (await row(LC)).timezone === 'Europe/London')
+
+  // The fallback is never earlier than the real end, in any recognised zone,
+  // with or without an end time, in winter and summer (DST).
+  for (const [d, t] of [['2030-01-16', '00:00'], ['2030-07-16', '00:00'], ['2030-01-15', '17:00'], ['2030-07-15', '17:00'], ['2030-07-15', '23:30']]) {
+    const r = (await sup(
+      `SELECT count(*) FILTER (WHERE ($1::date + $2::time) AT TIME ZONE z.name > ($1::date + $2::time) AT TIME ZONE 'Etc/GMT+12')::int later
+         FROM iana_time_zones z`, [d, t])).rows[0]
+    ok(`fallback wall clock ${d} ${t}: no recognised zone reaches it later than UTC-12`, r.later === 0, JSON.stringify(r))
+  }
+}
+
+// ============================================================================
+// What the current app sends (deploying before the interface changes)
+// ============================================================================
+{
+  // createEvent: the form's EMPTY values plus organization, creator and owner.
+  const form = { name: 'From the form', description: '', location: '', start_date: null, end_date: null, start_time: null, end_time: null, capacity: null, image_url: '', timezone: null, visibility: 'draft' }
+  const insert = (f) => as(U.owner,
+    `INSERT INTO events (name, description, location, start_date, end_date, start_time, end_time, capacity, image_url, timezone, visibility, organization_id, created_by, owner_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13) RETURNING id`,
+    [f.name, f.description, f.location, f.start_date, f.end_date, f.start_time, f.end_time, f.capacity, f.image_url, f.timezone, f.visibility, org, U.owner])
+  const created = await insert(form).then((r) => r.rows[0].id, (e) => e.message)
+  ok('app: creating a draft from the empty form works', /^[0-9a-f-]{36}$/.test(created), created)
+  const upd = (id, f) => err(U.owner,
+    `UPDATE events SET name=$2, description=$3, location=$4, start_date=$5, end_date=$6, start_time=$7, end_time=$8, capacity=$9, image_url=$10, timezone=$11, visibility=$12 WHERE id=$1`,
+    [id, f.name, f.description, f.location, f.start_date, f.end_date, f.start_time, f.end_time, f.capacity, f.image_url, f.timezone, f.visibility])
+  ok('app: saving the draft with dates and no timezone works', (await upd(created, { ...form, start_date: '2030-05-01', start_time: '09:00' })) === null)
+  ok('app: Publish without a timezone is refused with a readable message',
+    NO_TZ.test((await err(U.owner, `UPDATE events SET visibility='published' WHERE id=$1`, [created])) ?? ''))
+  ok('app: saving the form as Published without a timezone is refused the same way',
+    NO_TZ.test((await upd(created, { ...form, start_date: '2030-05-01', visibility: 'published' })) ?? ''))
+  ok('app: saving with a timezone from the list and Published works',
+    (await upd(created, { ...form, start_date: '2030-05-01', timezone: 'Africa/Accra', visibility: 'published' })) === null)
+  const direct = await insert({ ...form, name: 'Created published', start_date: '2030-05-01', timezone: 'Africa/Accra', visibility: 'published' }).then((r) => r.rows[0].id, (e) => e.message)
+  ok('app: creating an event already published with a timezone works', /^[0-9a-f-]{36}$/.test(direct), direct)
+  ok('app: registering for it works', (await register('h', direct)) === null)
+
+  // A legacy published event without a timezone, edited through the full form payload.
+  const L = await legacy({ name: 'Legacy form edit', start: '2030-06-01' })
+  ok('app: full-form save of a legacy published event without a timezone works',
+    (await upd(L, { ...form, name: 'Legacy edited', start_date: '2030-06-01', timezone: null, visibility: 'published' })) === null)
+  ok('app: Mark live, then back to upcoming, on it work', (await err(U.owner, `UPDATE events SET status='live' WHERE id=$1`, [L])) === null
+    && (await err(U.owner, `UPDATE events SET status='upcoming' WHERE id=$1`, [L])) === null)
+  ok('app: archive and restore it work', (await err(U.owner, `UPDATE events SET archived_at=now() WHERE id=$1`, [L])) === null
+    && (await err(U.owner, `UPDATE events SET archived_at=NULL WHERE id=$1`, [L])) === null)
+  ok('app: registering for it works and it stays without a timezone', (await register('h', L)) === null && (await row(L)).timezone === null)
 }
 
 // ============================================================================
@@ -511,9 +638,9 @@ ok('every existing event starts open with no deadline', (await stateAt(OPEN, new
             has_function_privilege('anon', p.oid, 'EXECUTE') n
        FROM pg_proc p JOIN pg_namespace s ON s.oid=p.pronamespace
       WHERE s.nspname='public' AND p.proname IN (
-        'accept_event_timezone','event_effective_timezone','event_ends_at','event_registration_state',
+        'accept_event_timezone','event_recognised_timezone','event_effective_timezone','event_ends_at','event_registration_state',
         'get_event_registration_states','register_for_event','enforce_event_write_rules','enforce_registration_rules')`)).rows
-  ok('eight functions present', fns.length === 8, JSON.stringify(fns.map((f) => f.proname)))
+  ok('nine functions present', fns.length === 9, JSON.stringify(fns.map((f) => f.proname)))
   ok('all SECURITY DEFINER with search_path = public, pg_temp',
     fns.every((f) => f.prosecdef && (f.cfg ?? '').includes('search_path=public, pg_temp')), JSON.stringify(fns))
   const client = ['get_event_registration_states', 'register_for_event']

@@ -29,12 +29,14 @@ Table iana_time_zones(name): the IANA zone names Postgres knows, copied from
 pg_timezone_names. pg_timezone_names reads the zone files on every call
 (258 ms on rally-dev, measured read-only), far too slow to run inside the
 registration lock. The table makes the check an index probe. RLS on, no
-grants: only the functions below read it. A valid name that is missing from
+grants (not even service_role): only the functions below read it, and only
+accept_event_timezone writes it. A valid name that is missing from
 it (a newer tzdata after an upgrade) is added the first time an organizer
 saves it, because the write-time check falls back to pg_timezone_names.
 
 Internal functions (no client EXECUTE):
-- accept_event_timezone(text)              write-time check, self-refreshing
+- accept_event_timezone(text)              write-time check, exact, self-refreshing
+- event_recognised_timezone(text)          read-time: canonical name or NULL
 - event_effective_timezone(text)           the zone the end is computed in
 - event_ends_at(events)                    when the event actually ends
 - event_registration_state(events, at)     'open' | 'closed' |
@@ -65,6 +67,12 @@ Client function:
 - Existing events are not rewritten. A published event with no timezone, or
   an unrecognised one, keeps working, and edits that leave the timezone alone
   still save.
+- A stored value is recognised when it is a known name after trimming
+  spaces, or matches exactly one known name ignoring case (Postgres resolves
+  zone names case-insensitively, so this is what it would use anyway). Only
+  a missing value, an abbreviation, a POSIX string or an unknown name falls
+  back. Every zone the browser's Intl list offers the organizer form (418,
+  ICU 77 / tzdata 2025b) is in rally-dev's catalog (598, Postgres 17.11).
 - Legacy fallback: an event with no recognised timezone is ended at its
   wall-clock end in Etc/GMT+12 (UTC-12, "Anywhere on Earth"). That is the
   last place on Earth to reach any given wall-clock time, so the fallback can
@@ -118,10 +126,33 @@ created_by. No name or contact detail is exposed.
 ## Existing data
 No existing row is modified. iana_time_zones is filled from the catalog.
 
+## Deploying before the interface changes
+The current app keeps working:
+- Creating an event: the form starts as a draft, which needs no timezone.
+  Creating it already published or unlisted without a timezone is refused
+  with "An event needs a timezone before it can be published"; the form shows
+  database messages as written (readableError).
+- Editing a draft or published event: the form sends every field; an
+  unchanged timezone (including a legacy NULL) is not re-judged, so the save
+  goes through. A newly typed unknown name is refused with "That timezone is
+  not recognised…".
+- Publishing a draft (Publish / Make unlisted): needs a recognised timezone.
+- Mark live / finished, archive, restore: unchanged.
+- Registering: refused only for the new reasons. The attendee dialog shows
+  "Registration for this event is closed" and "The registration deadline for
+  this event has passed" as written (friendlyRegistrationError allow-list).
+  Nothing in the current app closes registration or sets a deadline, so
+  until the interface ships the only new refusal attendees can meet is the
+  date-based end ("That event has already finished", already shown).
+- Existing published events without a timezone stay published, editable and
+  open for registration; they close at the end of their last day (or end
+  time) in UTC-12, and get_event_registration_states flags them with
+  timezone_fallback = true.
+
 ## Reversal
 Forward-only. To retire: re-create register_for_event and
 enforce_registration_rules from 20261026000000 and enforce_event_write_rules
-from 20261103000000, drop the five functions, the table and the three columns.
+from 20261103000000, drop the six functions, the table and the three columns.
 */
 
 -- ============================================================================
@@ -140,7 +171,9 @@ CREATE TABLE IF NOT EXISTS public.iana_time_zones (
 );
 
 ALTER TABLE public.iana_time_zones ENABLE ROW LEVEL SECURITY;
-REVOKE ALL ON TABLE public.iana_time_zones FROM PUBLIC, anon, authenticated;
+-- service_role too: Supabase's default privileges grant it every new table,
+-- and nothing but accept_event_timezone (as the owner) should ever write here.
+REVOKE ALL ON TABLE public.iana_time_zones FROM PUBLIC, anon, authenticated, service_role;
 
 INSERT INTO public.iana_time_zones (name)
 SELECT n.name FROM pg_timezone_names n
@@ -169,6 +202,27 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION public.accept_event_timezone(text) FROM PUBLIC, anon, authenticated;
 
+-- Read-time recognition of a STORED value: the canonical zone name, or NULL
+-- when the value is missing or genuinely unsupported. Lenient where Postgres
+-- itself is unambiguous, so a legacy ' Africa/Accra' or 'africa/accra' is not
+-- sent to the fallback: surrounding spaces are ignored, and case is ignored
+-- when exactly one name matches (zone lookup in Postgres is case-insensitive).
+-- Writes stay strict (accept_event_timezone). Abbreviations and POSIX strings
+-- never match. An index probe, not a pg_timezone_names scan.
+CREATE OR REPLACE FUNCTION public.event_recognised_timezone(p_tz text)
+RETURNS text
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+  SELECT COALESCE(
+    (SELECT z.name FROM iana_time_zones z WHERE z.name = btrim(p_tz)),
+    (SELECT min(z.name) FROM iana_time_zones z
+      WHERE lower(z.name) = lower(btrim(p_tz))
+     HAVING count(*) = 1)
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.event_recognised_timezone(text) FROM PUBLIC, anon, authenticated;
+
 -- The zone an event's end is computed in: its own when recognised, otherwise
 -- Etc/GMT+12 (UTC-12, the latest wall clock on Earth), which can only ever
 -- close registration late, never early. Never raises on bad stored text.
@@ -176,10 +230,7 @@ CREATE OR REPLACE FUNCTION public.event_effective_timezone(p_tz text)
 RETURNS text
 LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp
 AS $$
-  SELECT CASE
-    WHEN EXISTS (SELECT 1 FROM iana_time_zones z WHERE z.name = p_tz) THEN p_tz
-    ELSE 'Etc/GMT+12'
-  END;
+  SELECT COALESCE(public.event_recognised_timezone(p_tz), 'Etc/GMT+12');
 $$;
 
 REVOKE EXECUTE ON FUNCTION public.event_effective_timezone(text) FROM PUBLIC, anon, authenticated;
@@ -294,7 +345,7 @@ BEGIN
          e.registration_deadline,
          public.event_ends_at(e),
          LEAST(e.registration_deadline, public.event_ends_at(e)),
-         e.start_date IS NOT NULL AND public.event_effective_timezone(e.timezone) IS DISTINCT FROM e.timezone
+         e.start_date IS NOT NULL AND public.event_recognised_timezone(e.timezone) IS NULL
   FROM events e
   WHERE e.id = ANY (COALESCE(p_event_ids, ARRAY[]::uuid[]))
     AND (
