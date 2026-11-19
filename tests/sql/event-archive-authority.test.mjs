@@ -54,8 +54,8 @@ for (const [u, r] of [['admin', 'admin'], ['m1', 'manager'], ['m2', 'manager'], 
 }
 const ev = async (name, { orgId = org, by = U.owner } = {}) =>
   (await sup(
-    `INSERT INTO events (name, description, status, visibility, organization_id, created_by, start_date, end_date)
-     VALUES ($1,'original','upcoming','draft',$2,$3,'2030-01-01','2030-01-02') RETURNING id`,
+    `INSERT INTO events (name, description, status, visibility, organization_id, created_by, start_date, end_date, timezone)
+     VALUES ($1,'original','upcoming','draft',$2,$3,'2030-01-01','2030-01-02','Africa/Accra') RETURNING id`,
     [name, orgId, by])).rows[0].id
 const E1 = await ev('E1')
 const E2 = await ev('E2')
