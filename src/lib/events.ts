@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import { resolveEventAccess, type EventAccess, type EventListScope } from '@/lib/eventAccess'
+import { parseAttendeePage } from '@/lib/attendeePage'
 import type {
   EventAttendee,
   EventInvitationRow,
@@ -174,6 +175,36 @@ export async function updateEvent(
   const { error } = await supabase.from('events').update(patch).eq('id', eventId)
   if (error) return { error: readableError(error, 'Could not save those changes.') }
   return { error: null }
+}
+
+// Seats taken and people waiting, for the capacity field. Both numbers are
+// event_attendee_page totals for its 'confirmed' (registered or checked in) and
+// 'waitlisted' filters — the same rules the database uses for the capacity
+// floor (enforce_event_write_rules, migration 20261103000000) and for
+// promoting the waitlist. One row per call is enough: only the total is read.
+export type EventSeatCounts = { confirmed: number; waitlisted: number }
+
+export async function getEventSeatCounts(
+  eventId: string
+): Promise<{ data: EventSeatCounts | null; error: string | null }> {
+  const total = (filter: 'confirmed' | 'waitlisted') =>
+    supabase.rpc('event_attendee_page', {
+      target_event_id: eventId,
+      search: '',
+      status_filter: filter,
+      page_size: 1,
+      page_offset: 0,
+    })
+  const [confirmed, waitlisted] = await Promise.all([total('confirmed'), total('waitlisted')])
+  const failed = confirmed.error ?? waitlisted.error
+  if (failed) return { data: null, error: readableError(failed, 'Could not load registration counts.') }
+  return {
+    data: {
+      confirmed: parseAttendeePage(confirmed.data).total,
+      waitlisted: parseAttendeePage(waitlisted.data).total,
+    },
+    error: null,
+  }
 }
 
 // Lifecycle moves are ordinary column updates; the database trigger decides
