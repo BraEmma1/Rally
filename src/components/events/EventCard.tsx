@@ -14,6 +14,10 @@ interface EventCardProps {
   registeredCount: number
   // Past events cannot be registered for or left.
   past: boolean
+  // Registration is closed (by the organizer, its deadline or the event's end,
+  // as get_event_registration_states reports it): a short label replaces the
+  // Register button. People already registered or waitlisted keep their buttons.
+  closedLabel?: string | null
   busy: boolean
   // "list" puts the image beside the text from the sm breakpoint up; on
   // phones both layouts stack.
@@ -77,6 +81,14 @@ export function WaitlistPill() {
   )
 }
 
+export function ClosedPill({ label }: { label: string }) {
+  return (
+    <span className="inline-flex min-h-[44px] items-center rounded-xl bg-slate-100 px-3 text-sm font-semibold text-slate-600">
+      {label}
+    </span>
+  )
+}
+
 export function RegisteredPill() {
   return (
     <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-50 px-2.5 py-1 text-xs font-semibold text-accent-700">
@@ -95,6 +107,7 @@ export function EventCard({
   full = false,
   registeredCount,
   past,
+  closedLabel = null,
   busy,
   layout = 'grid',
   onRegister,
@@ -146,6 +159,8 @@ export function EventCard({
                 <Button size="lg" variant="ghost" className="rounded-xl" onClick={onUnregister} disabled={busy}>
                   {waitlisted ? 'Leave waitlist' : 'Unregister'}
                 </Button>
+              ) : closedLabel ? (
+                <ClosedPill label={closedLabel} />
               ) : (
                 <Button size="lg" className="rounded-xl" onClick={onRegister} disabled={busy}>
                   {full ? 'Join waitlist' : 'Register'}
