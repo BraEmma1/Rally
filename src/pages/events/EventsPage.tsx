@@ -13,14 +13,16 @@ import { SegmentedTabs } from '@/components/ui/SegmentedTabs'
 import { SearchField } from '@/components/ui/SearchField'
 import { Pagination } from '@/components/ui/Pagination'
 import { ViewToggle, type ViewMode } from '@/components/ui/ViewToggle'
-import { EventCard, NextEventCard, RegisteredPill, WaitlistPill } from '@/components/events/EventCard'
+import { ClosedPill, EventCard, NextEventCard, RegisteredPill, WaitlistPill } from '@/components/events/EventCard'
 import { CancelRegistrationDialog, RegistrationDialog } from '@/components/events/RegistrationDialog'
 import {
   fetchMyRegistrationStatuses,
+  fetchRegistrationWindows,
   isAttending,
   type RegistrationResult,
   type RegistrationStatus,
 } from '@/lib/registrations'
+import { registrationView, shortClosedLabel, type RegistrationWindow } from '@/lib/registrationWindow'
 import { formatClock, formatDateRange } from '@/lib/utils'
 
 const PAGE_SIZE = 6
@@ -74,6 +76,13 @@ export default function EventsPage() {
   const [registerEventId, setRegisterEventId] = useState<string | null>(null)
   const [cancelEventId, setCancelEventId] = useState<string | null>(null)
   const [registrationCounts, setRegistrationCounts] = useState<Record<string, number>>({})
+  // Whether registration is open, per event, as the database decides it. An
+  // event missing here (the lookup failed) falls back to the date rule, and
+  // register_for_event still has the final word.
+  const [windows, setWindows] = useState<Map<string, RegistrationWindow>>(new Map())
+  const canRegisterFor = (e: EventRow) => registrationView(windows.get(e.id), isEventPast(e)).open
+  // The label shown instead of Register; null while registration is open.
+  const closedLabelFor = (e: EventRow) => (canRegisterFor(e) ? null : shortClosedLabel(windows.get(e.id)))
   const [invitations, setInvitations] = useState<InvitationWithEvent[]>([])
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeTab, setActiveTabState] = useState<'upcoming' | 'past' | 'invitations'>(() => {
@@ -165,15 +174,20 @@ export default function EventsPage() {
       // Aggregate counts come from an RPC: registration rows are now visible
       // only to fellow attendees, and this is one call instead of one per event.
       const counts: Record<string, number> = {}
+      let states = new Map<string, RegistrationWindow>()
       if (eventList.length > 0) {
-        const { data: countRows } = await supabase.rpc('get_event_registration_counts', {
-          event_ids: eventList.map((e) => e.id),
-        })
+        const ids = eventList.map((e) => e.id)
+        const [{ data: countRows }, windowResult] = await Promise.all([
+          supabase.rpc('get_event_registration_counts', { event_ids: ids }),
+          fetchRegistrationWindows(ids),
+        ])
         for (const row of (countRows as { event_id: string; registration_count: number }[]) || []) {
           counts[row.event_id] = Number(row.registration_count) || 0
         }
+        states = windowResult.data
       }
       setRegistrationCounts(counts)
+      setWindows(states)
 
       // Enrich invitations with event + inviter data
       const inviteList = inviteRes.data as EventInvitation[]
@@ -266,7 +280,8 @@ export default function EventsPage() {
 
       // Accepting an invitation is not a registration: registering has a form and
       // may land on the waitlist, so hand over to the same dialog everyone else uses.
-      if (!registrations.has(inv.event_id)) setRegisterEventId(inv.event_id)
+      // Not when registration is closed: the card says so instead.
+      if (!registrations.has(inv.event_id) && inv.event && canRegisterFor(inv.event)) setRegisterEventId(inv.event_id)
 
       setInvitations((prev) =>
         prev.map((i) => (i.id === inv.id ? { ...i, status: 'Accepted', responded_at: new Date().toISOString() } : i))
@@ -489,7 +504,10 @@ export default function EventsPage() {
                       )}
                       {isAccepted && isRegistered && <RegisteredPill />}
                       {isAccepted && isWaitlisted && <WaitlistPill />}
-                      {isAccepted && !isRegistered && !isWaitlisted && (
+                      {isAccepted && !isRegistered && !isWaitlisted && closedLabelFor(event) && (
+                        <ClosedPill label={closedLabelFor(event) as string} />
+                      )}
+                      {isAccepted && !isRegistered && !isWaitlisted && canRegisterFor(event) && (
                         <Button size="lg" className="rounded-xl" onClick={() => handleRegister(event.id)}>
                           {isFull(event) ? 'Join waitlist' : 'Register'}
                         </Button>
@@ -551,6 +569,7 @@ export default function EventsPage() {
                     full={isFull(event)}
                     registeredCount={registrationCounts[event.id] || 0}
                     past={activeTab === 'past'}
+                    closedLabel={closedLabelFor(event)}
                     busy={false}
                     onRegister={() => handleRegister(event.id)}
                     onUnregister={() => handleUnregister(event.id)}
@@ -598,6 +617,7 @@ export default function EventsPage() {
             <CancelRegistrationDialog
               event={target}
               status={status}
+              registrationClosed={!canRegisterFor(target)}
               onClose={() => setCancelEventId(null)}
               onCancelled={(previous) => onCancelled(target.id, previous)}
             />

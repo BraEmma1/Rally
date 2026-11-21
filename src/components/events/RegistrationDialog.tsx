@@ -497,11 +497,15 @@ function QuestionField({
 export function CancelRegistrationDialog({
   event,
   status,
+  registrationClosed = false,
   onClose,
   onCancelled,
 }: {
   event: Pick<EventRow, 'id' | 'name'>
   status: RegistrationStatus
+  // Registration is closed now, so cancelling cannot be undone by registering
+  // again (register_for_event refuses a closed event, re-registration included).
+  registrationClosed?: boolean
   onClose: () => void
   onCancelled: (previous: RegistrationStatus | null) => void
 }) {
@@ -527,8 +531,15 @@ export function CancelRegistrationDialog({
         <p>
           {waitlisted
             ? `You’ll lose your place in the queue for ${event.name}.`
-            : `You’ll give up your place at ${event.name}, and the next person on the waitlist (if any) takes it. You can register again later if there is still room.`}
+            : registrationClosed
+              ? `You’ll give up your place at ${event.name}, and the next person on the waitlist (if any) takes it.`
+              : `You’ll give up your place at ${event.name}, and the next person on the waitlist (if any) takes it. You can register again later if there is still room.`}
         </p>
+        {registrationClosed && (
+          <p role="note" className="rounded-xl bg-amber-50 px-3 py-2 font-medium text-amber-900">
+            Registration for this event is closed, so you won’t be able to register or join the waitlist again.
+          </p>
+        )}
         {error && (
           <div role="alert" className="rounded-xl bg-error-50 px-3 py-2 text-error-700">
             {error}

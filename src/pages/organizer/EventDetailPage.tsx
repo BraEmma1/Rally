@@ -57,6 +57,7 @@ import { EventExhibitorsPanel } from '@/components/organizer/EventExhibitorsPane
 import { EventPartnersPanel } from '@/components/organizer/EventPartnersPanel'
 import { RegistrationFormPanel } from '@/components/organizer/RegistrationFormPanel'
 import { RegistrationAnswersPanel } from '@/components/organizer/RegistrationAnswersPanel'
+import { RegistrationWindowCard } from '@/components/organizer/RegistrationWindowCard'
 
 type Tab =
   | 'overview'
@@ -488,12 +489,15 @@ export default function EventDetailPage() {
             {!canCheckIn && can.changeLifecycle && lifecycle === 'draft' && (
               <Button
                 className="w-full"
-                disabled={busy}
+                disabled={busy || !event.timezone}
                 onClick={() => void act(() => publishEvent(event.id, 'published'))}
               >
                 <Globe className="h-4 w-4" aria-hidden="true" />
                 Publish publicly
               </Button>
+            )}
+            {!canCheckIn && can.changeLifecycle && lifecycle === 'draft' && !event.timezone && (
+              <p className="text-xs text-warning-700">Set the event timezone before publishing.</p>
             )}
           </div>
         </div>
@@ -642,6 +646,16 @@ export default function EventDetailPage() {
             </div>
           </div>
 
+          {!archived && (
+            <RegistrationWindowCard
+              event={event}
+              canChange={can.changeLifecycle}
+              confirmed={counts?.registrations ?? null}
+              waitlisted={waitlisted}
+              onChanged={load}
+            />
+          )}
+
           {can.changeLifecycle && (
             <Card>
               <CardHeader>
@@ -652,21 +666,37 @@ export default function EventDetailPage() {
                   {lifecycle === 'draft'
                     ? 'This event is a draft. Only your team can see it.'
                     : lifecycle === 'published'
-                      ? 'Published and open for registration.'
+                      ? 'Published. Attendees can find it and register while registration is open.'
                       : lifecycle === 'live'
                         ? 'Marked as running right now.'
                         : 'Marked as finished.'}
                 </p>
+                {/* Publishing needs a timezone (enforce_event_write_rules): it is
+                    what the event's end, and so the close of registration, is
+                    read in. */}
+                {lifecycle === 'draft' && !event.timezone && (
+                  <p className="text-sm text-warning-700">
+                    Set the event timezone before publishing.{' '}
+                    {can.editDetails && (
+                      <Link to={`/organizer/events/${event.id}/edit`} className="font-medium underline">
+                        Edit event
+                      </Link>
+                    )}
+                  </p>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {lifecycle === 'draft' && (
                     <>
-                      <Button disabled={busy} onClick={() => void act(() => publishEvent(event.id, 'published'))}>
+                      <Button
+                        disabled={busy || !event.timezone}
+                        onClick={() => void act(() => publishEvent(event.id, 'published'))}
+                      >
                         <Globe className="h-4 w-4" aria-hidden="true" />
                         Publish publicly
                       </Button>
                       <Button
                         variant="secondary"
-                        disabled={busy}
+                        disabled={busy || !event.timezone}
                         onClick={() => void act(() => publishEvent(event.id, 'unlisted'))}
                       >
                         Publish as unlisted
