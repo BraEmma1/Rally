@@ -92,6 +92,9 @@ const SAFE_MESSAGES = [
   'That event is not open for registration',
   'That event has already finished',
   'That event is full',
+  // Registration open/close controls (migration 20261104000000).
+  'Registration for this event is closed',
+  'The registration deadline for this event has passed',
   'You are already registered for this event',
   'You are not registered for this event',
   'You have already checked in to this event',

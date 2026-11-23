@@ -281,6 +281,13 @@ function rec(group, name, pass, detail = '') {
     await page.waitForSelector(`${dialog} [role=alert]`)
     rec('errors', 'a known rule is shown in the server’s own words', (await page.textContent(`${dialog} [role=alert]`)).trim() === 'That event is full')
     rec('errors', 'the dialog stays open and can be retried', await page.isEnabled(`${dialog} button:has-text("Confirm registration")`))
+    // Registration open/close controls (migration 20261104000000).
+    for (const message of ['Registration for this event is closed', 'The registration deadline for this event has passed']) {
+      ctl.error = message
+      await page.click(`${dialog} button:has-text("Confirm registration")`)
+      await page.waitForFunction((m) => (document.querySelector('[role=dialog] [role=alert]')?.textContent || '').trim() === m, message)
+      rec('errors', `"${message}" is shown in the server’s own words`, (await page.textContent(`${dialog} [role=alert]`)).trim() === message)
+    }
     ctl.error = 'duplicate key value violates unique constraint "event_registrations_pkey" (23505)'
     await page.click(`${dialog} button:has-text("Confirm registration")`)
     await page.waitForFunction(() => /Could not complete your registration/.test(document.querySelector('[role=dialog] [role=alert]')?.textContent || ''))

@@ -48,8 +48,8 @@ for (const k of ['mgr', 'idle']) {
 await sup(`SET session_replication_role = origin`)
 
 const mkEvent = async (name, capacity, visibility = 'published') => (await sup(
-  `INSERT INTO events (name, visibility, organization_id, created_by, start_date, end_date, capacity)
-   VALUES ($1,$2,$3,$4,'2030-01-01','2030-01-02',$5) RETURNING id`, [name, visibility, org, U.owner, capacity])).rows[0].id
+  `INSERT INTO events (name, visibility, organization_id, created_by, start_date, end_date, capacity, timezone)
+   VALUES ($1,$2,$3,$4,'2030-01-01','2030-01-02',$5,'Africa/Accra') RETURNING id`, [name, visibility, org, U.owner, capacity])).rows[0].id
 
 // People who register. Each gets an explicit created_at, because created_at is
 // what the waitlist is ordered by.
@@ -195,8 +195,8 @@ await seat(SMALL, take(3), 'cancelled', 20)
 {
   // INSERT: status forced, archived cleared, publishing needs a start date.
   const ins = (await as(U.owner,
-    `INSERT INTO events (name, visibility, organization_id, created_by, status, archived_at, start_date)
-     VALUES ('Fresh','published',$1,$2,'past',now(),'2030-02-01') RETURNING status, archived_at, published_at`,
+    `INSERT INTO events (name, visibility, organization_id, created_by, status, archived_at, start_date, timezone)
+     VALUES ('Fresh','published',$1,$2,'past',now(),'2030-02-01','Africa/Accra') RETURNING status, archived_at, published_at`,
     [org, U.owner])).rows[0]
   ok('insert forces upcoming, unarchived, stamps published_at',
     ins.status === 'upcoming' && ins.archived_at === null && ins.published_at !== null)
