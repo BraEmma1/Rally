@@ -171,7 +171,12 @@ const RLS_NO_POLICY = [
   'event_registration_questions',
   // Read-only IANA timezone catalogue, populated by migration-managed functions.
   'iana_time_zones',
+  // Identity stage S1 (migration 20261125000000): written only by the sync
+  // triggers, read by no client. Stages S2/S3 add read paths with their own tests.
+  'organization_capabilities',
+  'organization_capability_changes',
   'partnership_invitation_emails',
+  'platform_roles',
 ]
 
 // ---- facts about every function in public ---------------------------------
@@ -236,7 +241,7 @@ const noPolicy = (await sup(`SELECT c.relname FROM pg_class c JOIN pg_namespace 
     AND NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = 'public' AND p.tablename = c.relname)
   ORDER BY 1`)).map((r) => r.relname)
 const npDiff = diff(noPolicy, RLS_NO_POLICY)
-ok('only the four function-only tables have RLS with no policies', npDiff.same, npDiff.detail)
+ok(`only the ${RLS_NO_POLICY.length} listed function-only tables have RLS with no policies`, npDiff.same, npDiff.detail)
 
 // ---- the migration is safe to re-run ------------------------------------------
 const migFile = path.join(MIG, '20261123000000_pin_function_search_paths.sql')
