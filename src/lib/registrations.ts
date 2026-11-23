@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase'
 import type { RegistrationDetail } from '@/lib/registrationManagement'
+import { STATES_BATCH, parseRegistrationWindows, type RegistrationWindow } from '@/lib/registrationWindow'
 
 // Event registration. Backend: migration 20261026000000. Registering and
 // cancelling go through RPCs (the table cannot be written directly any more), so
@@ -123,6 +124,29 @@ export function friendlyRegistrationError(error: { message?: string } | null | u
   const message = error?.message?.trim() ?? ''
   if (message && SAFE_MESSAGES.some((s) => message.includes(s))) return message
   return fallback
+}
+
+// Whether registration is open for each event, as the database decides it
+// (get_event_registration_states, migration 20261104000000). Events the caller
+// may not see are simply absent. A failure leaves the map empty: pages then fall
+// back to their date rule and register_for_event still refuses a closed event.
+export async function fetchRegistrationWindows(
+  eventIds: string[]
+): Promise<{ data: Map<string, RegistrationWindow>; error: string | null }> {
+  const ids = [...new Set(eventIds)]
+  const data = new Map<string, RegistrationWindow>()
+  let error: string | null = null
+  for (let i = 0; i < ids.length; i += STATES_BATCH) {
+    const { data: rows, error: rpcError } = await supabase.rpc('get_event_registration_states', {
+      p_event_ids: ids.slice(i, i + STATES_BATCH),
+    })
+    if (rpcError) {
+      error = 'Could not load registration status.'
+      continue
+    }
+    for (const [id, row] of parseRegistrationWindows(rows)) data.set(id, row)
+  }
+  return { data, error }
 }
 
 export async function fetchRegistrationForm(eventId: string) {

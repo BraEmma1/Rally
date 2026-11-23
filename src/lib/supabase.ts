@@ -544,6 +544,16 @@ export type OrganizerEvent = {
   archived_at: string | null
   published_at: string | null
   created_at: string
+  // Registration open/close controls (migration 20261104000000). Optional so a
+  // row read before that migration is still this type. registration_closed_at
+  // and _by are written by the server's trigger, never chosen by a client: the
+  // closer is whoever made the change, at the server's time. Whether
+  // registration is open is not derived from these here; it comes from
+  // get_event_registration_states, which also applies the deadline and the
+  // event's actual end.
+  registration_closed_at?: string | null
+  registration_closed_by?: string | null
+  registration_deadline?: string | null
 }
 
 // Returned by event_attendee_list. The public professional card only — no

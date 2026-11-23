@@ -15,7 +15,19 @@ import { useAuth } from '@/context/AuthContext'
 import { useNotifications } from '@/context/NotificationContext'
 import { CancelRegistrationDialog, RegistrationDialog } from '@/components/events/RegistrationDialog'
 import { MarketingConsentCard } from '@/components/events/MarketingConsentCard'
-import { fetchMyRegistration, isAttending, type RegistrationResult, type RegistrationStatus } from '@/lib/registrations'
+import {
+  fetchMyRegistration,
+  fetchRegistrationWindows,
+  isAttending,
+  type RegistrationResult,
+  type RegistrationStatus,
+} from '@/lib/registrations'
+import {
+  attendeeClosedMessage,
+  attendeeDeadlineNote,
+  registrationView,
+  type RegistrationWindow,
+} from '@/lib/registrationWindow'
 import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -41,6 +53,9 @@ import { listEventExhibitors, type EventExhibitor } from '@/lib/exhibitors'
 import { QRScanner } from '@/components/ui/QRScanner'
 import { normalizeUrl } from '@/lib/utils'
 
+// Only used when the server's registration state could not be read; see
+// registrationView. (It looks at the start date alone, so it calls a multi-day
+// event past from its second day.)
 function isEventPast(event: EventRow): boolean {
   if (!event.start_date) return false
   const today = new Date(new Date().toDateString())
@@ -75,6 +90,9 @@ export default function EventDetailPage() {
   const [showRegister, setShowRegister] = useState(false)
   const [showCancel, setShowCancel] = useState(false)
   const [attendeeCount, setAttendeeCount] = useState(0)
+  // Whether registration is open, as the database decides it. Undefined when it
+  // could not be read: the page then falls back to its date rule.
+  const [regWindow, setRegWindow] = useState<RegistrationWindow | undefined>(undefined)
   const [attendees, setAttendees] = useState<PublicProfile[]>([])
   const [attendeeLoading, setAttendeeLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -126,11 +144,13 @@ export default function EventDetailPage() {
 
       // Aggregate-only RPC: the count stays public while the registration rows
       // behind it are visible to fellow attendees only.
-      const { data: countRows } = await supabase.rpc('get_event_registration_counts', {
-        event_ids: [id],
-      })
+      const [{ data: countRows }, windows] = await Promise.all([
+        supabase.rpc('get_event_registration_counts', { event_ids: [id] }),
+        fetchRegistrationWindows([id]),
+      ])
       const countRow = (countRows as { event_id: string; registration_count: number }[] | null)?.[0]
       setAttendeeCount(Number(countRow?.registration_count) || 0)
+      setRegWindow(windows.data.get(id))
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load event.')
     } finally {
@@ -366,7 +386,14 @@ export default function EventDetailPage() {
   if (error) return <ErrorState message={error} onRetry={loadData} />
   if (!event) return <ErrorState message="Event not found." />
 
-  const past = isEventPast(event)
+  // The server's registration state drives every Register control: it is open
+  // after the event starts and until it actually ends, unless an organizer
+  // closed it or its deadline passed.
+  const view = registrationView(regWindow, isEventPast(event))
+  const past = view.ended
+  const canRegister = view.open
+  const closedNotice = !past && !canRegister ? attendeeClosedMessage(regWindow, event.timezone) : null
+  const deadlineNote = attendeeDeadlineNote(regWindow, event.timezone)
   const full = !!event.capacity && attendeeCount >= event.capacity
   const filteredAttendees = attendees.filter((a) => {
     if (!search) return true
@@ -384,11 +411,20 @@ export default function EventDetailPage() {
   // The pass options are for people who have not registered. A registered
   // attendee's pass (badge QR) lives in Event Mode, not on this page.
   const passCard = isRegistered || isWaitlisted ? null : (
-    <SecurePass event={event} past={past} full={full} onRegister={handleRegister} />
+    <SecurePass
+      event={event}
+      past={past}
+      full={full}
+      closedNotice={closedNotice}
+      deadlineNote={deadlineNote}
+      onRegister={handleRegister}
+    />
   )
+  // The phone bar with the Register button; only when there is something to press.
+  const stickyRegister = !isRegistered && !isWaitlisted && !past && canRegister
 
   return (
-    <div className={`space-y-6 ${!isRegistered && !past ? 'pb-24 md:pb-0' : ''}`}>
+    <div className={`space-y-6 ${stickyRegister ? 'pb-24 md:pb-0' : ''}`}>
       {/* Breadcrumb + status */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <nav aria-label="Breadcrumb" className="flex min-w-0 flex-wrap items-center gap-1.5 text-sm text-rally-muted">
@@ -414,9 +450,14 @@ export default function EventDetailPage() {
               On the waitlist
             </span>
           )}
-          {!isRegistered && !isWaitlisted && !past && (
+          {!isRegistered && !isWaitlisted && !past && canRegister && (
             <span className="inline-flex items-center gap-1.5 rounded-full bg-accent-50 px-3 py-1 text-xs font-semibold text-accent-700">
               <span className="h-1.5 w-1.5 rounded-full bg-accent-500" aria-hidden="true" /> {full ? 'Event full · waitlist open' : 'Registration open'}
+            </span>
+          )}
+          {!past && !canRegister && (
+            <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+              Registration closed
             </span>
           )}
           {past && (
@@ -451,6 +492,9 @@ export default function EventDetailPage() {
         registered={isRegistered}
         waitlisted={isWaitlisted}
         full={full}
+        registrationOpen={canRegister}
+        closedNotice={closedNotice}
+        deadlineNote={deadlineNote}
         attendeeCount={attendeeCount}
         host={host}
         onRegister={handleRegister}
@@ -482,7 +526,9 @@ export default function EventDetailPage() {
               sessions={agenda}
               registered={isRegistered}
               registering={false}
-              past={past}
+              // `past` only hides the "register to unlock" prompt, which a
+              // closed event cannot offer either.
+              past={past || !canRegister}
               onUnlock={handleRegister}
               fullAgendaPath={`${basePath}/agenda`}
             />
@@ -749,7 +795,7 @@ export default function EventDetailPage() {
       )}
 
       {/* Phones: keep the main action in reach while the long page scrolls. */}
-      {!isRegistered && !isWaitlisted && !past && (
+      {stickyRegister && (
         <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-rally-line bg-white/95 p-3 backdrop-blur md:hidden">
           <div className="mx-auto flex max-w-xl items-center justify-between gap-3">
             <div className="min-w-0">
@@ -775,6 +821,7 @@ export default function EventDetailPage() {
         <CancelRegistrationDialog
           event={event}
           status={regStatus}
+          registrationClosed={!canRegister}
           onClose={() => setShowCancel(false)}
           onCancelled={onCancelled}
         />

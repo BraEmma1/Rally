@@ -142,6 +142,9 @@ export function EventHero({
   registered,
   waitlisted,
   full,
+  registrationOpen = true,
+  closedNotice = null,
+  deadlineNote = null,
   attendeeCount,
   host,
   onRegister,
@@ -155,6 +158,12 @@ export function EventHero({
   waitlisted: boolean
   // At capacity: registering joins the waitlist.
   full: boolean
+  // The server's decision (get_event_registration_states). False: no Register
+  // button, and closedNotice says why.
+  registrationOpen?: boolean
+  closedNotice?: string | null
+  // "Registration closes …" when a deadline comes before the event's end.
+  deadlineNote?: string | null
   attendeeCount: number
   // null until loaded, and when the event has no public host to show.
   host: EventHost | null
@@ -285,10 +294,15 @@ export function EventHero({
                     You’re on the waitlist. We’ll register you if a place opens.
                   </p>
                 )}
-                {!past && !waitlisted && (
+                {!past && !waitlisted && registrationOpen && (
                   <Button size="lg" className="rounded-xl" onClick={onRegister}>
                     {full ? 'Join waitlist' : 'Register for Event'} <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </Button>
+                )}
+                {!past && !waitlisted && !registrationOpen && closedNotice && (
+                  <p className="inline-flex min-h-[44px] items-center rounded-xl bg-slate-100 px-4 text-sm font-semibold text-slate-700" role="status">
+                    {closedNotice}
+                  </p>
                 )}
                 <ComingSoonButton size="lg" variant="secondary">
                   <Bookmark className="h-4 w-4" aria-hidden="true" /> Save to Watchlist
@@ -325,6 +339,9 @@ export function EventHero({
               </Button>
             )}
           </div>
+          {!past && !registered && !waitlisted && registrationOpen && deadlineNote && (
+            <p className="text-sm text-rally-muted">{deadlineNote}</p>
+          )}
           <p className="min-h-[1.25rem] text-sm" role="status" aria-live="polite">
             {shareState === 'copied' && <span className="text-accent-700">Link copied to clipboard.</span>}
             {shareState === 'failed' && <span className="text-error-700">Could not copy the link. Copy it from the address bar.</span>}
@@ -628,13 +645,20 @@ export function SecurePass({
   event,
   past,
   full,
+  closedNotice = null,
+  deadlineNote = null,
   onRegister,
 }: {
   event: EventRow
   past: boolean
   full: boolean
+  // Set when registration is closed before the event's end (closed by the
+  // organizer, or the deadline passed): no Register button, this sentence instead.
+  closedNotice?: string | null
+  deadlineNote?: string | null
   onRegister: () => void
 }) {
+  const closed = !past && closedNotice !== null
   return (
     <section className="rounded-2xl border-2 border-primary-200 bg-white p-5 shadow-card md:p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -642,14 +666,16 @@ export function SecurePass({
         <span
           className={cn(
             'rounded-full px-2.5 py-1 text-xs font-semibold',
-            past ? 'bg-slate-100 text-slate-600' : 'bg-accent-50 text-accent-700'
+            past || closed ? 'bg-slate-100 text-slate-600' : 'bg-accent-50 text-accent-700'
           )}
         >
-          {past ? 'Event ended' : 'Registration open'}
+          {past ? 'Event ended' : closed ? 'Registration closed' : 'Registration open'}
         </span>
       </div>
       {past ? (
         <p className="text-sm text-rally-muted">This event has already taken place, so registration is closed.</p>
+      ) : closed ? (
+        <p className="text-sm text-rally-muted">{closedNotice}</p>
       ) : (
         <>
           <div className="rounded-xl border-2 border-primary-600 bg-rally-tint p-4">
@@ -674,6 +700,7 @@ export function SecurePass({
           <Button size="lg" className="mt-4 w-full rounded-xl" onClick={onRegister}>
             {full ? 'Join the waitlist' : 'Proceed to registration'} <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </Button>
+          {deadlineNote && <p className="mt-2 text-sm text-rally-muted">{deadlineNote}</p>}
           <ul className="mt-3 space-y-1.5 text-xs text-slate-500">
             <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary-600" aria-hidden="true" /> Instant confirmation</li>
             <li className="flex items-center gap-2"><CheckCircle2 className="h-3.5 w-3.5 text-primary-600" aria-hidden="true" /> Change your mind? Unregister from this page</li>

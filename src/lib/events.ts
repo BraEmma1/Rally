@@ -144,6 +144,9 @@ export type EventInput = {
   image_url: string
   timezone: string | null
   visibility: EventVisibility
+  // Sent only when the organizer changed it, so an edit that leaves the
+  // deadline alone never rewrites it. An instant (timestamptz); null removes it.
+  registration_deadline?: string | null
 }
 
 export async function createEvent(
@@ -226,6 +229,25 @@ export async function setEventTimeStatus(
 ): Promise<{ error: string | null }> {
   const { error } = await supabase.from('events').update({ status }).eq('id', eventId)
   if (error) return { error: readableError(error, 'Could not update that event.') }
+  return { error: null }
+}
+
+// Closing and reopening registration by hand. The trigger records the moment
+// and who did it (enforce_event_write_rules, migration 20261104000000), so the
+// value sent for registration_closed_at only says "closed"; the browser's clock
+// is never stored. Closing an already closed event keeps the original record.
+export async function closeEventRegistration(eventId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('events')
+    .update({ registration_closed_at: new Date().toISOString() })
+    .eq('id', eventId)
+  if (error) return { error: readableError(error, 'Could not close registration.') }
+  return { error: null }
+}
+
+export async function reopenEventRegistration(eventId: string): Promise<{ error: string | null }> {
+  const { error } = await supabase.from('events').update({ registration_closed_at: null }).eq('id', eventId)
+  if (error) return { error: readableError(error, 'Could not reopen registration.') }
   return { error: null }
 }
 
