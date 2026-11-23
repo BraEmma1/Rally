@@ -318,8 +318,8 @@ ok('a suspended admin cannot write event partnerships directly', (await as(U.sus
 ok('a suspended admin cannot update the organization\'s events', (await as(U.suspAdmin, `UPDATE events SET description = 'x' WHERE id = $1`, [EV])).affectedRows === 0)
 // can_manage_event() is a membership test only; write policies and RPCs add account_is_active()
 // themselves, most read policies do not. So suspension stops writes but not reads.
-gap('GAP-2d', 'can_manage_event() is still true for a suspended admin (writes re-check status; most reads do not)',
-  (await as(U.suspAdmin, `SELECT can_manage_event($1) v`, [EV])).rows[0].v === true)
+ok('GAP-2d fixed: a suspended admin cannot manage an event',
+  (await as(U.suspAdmin, `SELECT can_manage_event($1) v`, [EV])).rows[0].v === false)
 await sup(`SET session_replication_role = replica`)
 await sup(`INSERT INTO event_registrations (event_id, user_id, status, contact_email) VALUES ($1, $2, 'registered', 'reg@t.test')`, [EV, U.rep])
 await sup(`SET session_replication_role = origin`)
@@ -330,12 +330,12 @@ const invS = await invite(U.owner2, ORG2, 'suspadmin@t.test')
 ok('a suspended account cannot accept an invitation', refused(await accept(U.suspAdmin, invS), /not active/) && (await memberRole(ORG2, U.suspAdmin)) === null)
 ok('a suspended admin cannot INSERT an invitation directly either (GAP-1c fixed)',
   refused(await directInvite(U.suspAdmin, ORG, 'suspended-direct@t.test'), /permission denied/))
-gap('GAP-2a', 'a suspended member can still read their organization and its member list',
-  (await as(U.suspAdmin, `SELECT id FROM organizations WHERE id = $1`, [ORG])).rows.length === 1 && (await as(U.suspAdmin, `SELECT user_id FROM organization_members WHERE organization_id = $1`, [ORG])).rows.length > 0)
-gap('GAP-2b', 'a suspended admin can still read the organization\'s invitations',
-  (await as(U.suspAdmin, `SELECT id FROM organization_invitations WHERE organization_id = $1`, [ORG])).rows.length > 0)
-gap('GAP-2c', 'get_my_organization_access still lists organizations for a suspended account',
-  (await as(U.suspAdmin, `SELECT organization_id FROM get_my_organization_access()`)).rows.length > 0)
+ok('GAP-2a fixed: suspended accounts cannot read their organization or members',
+  (await as(U.suspAdmin, `SELECT id FROM organizations WHERE id = $1`, [ORG])).rows.length === 0 && (await as(U.suspAdmin, `SELECT user_id FROM organization_members WHERE organization_id = $1`, [ORG])).rows.length === 0)
+ok('GAP-2b fixed: suspended admins cannot read organization invitations',
+  (await as(U.suspAdmin, `SELECT id FROM organization_invitations WHERE organization_id = $1`, [ORG])).rows.length === 0)
+ok('GAP-2c fixed: suspended accounts see no organization access',
+  (await as(U.suspAdmin, `SELECT organization_id FROM get_my_organization_access()`)).rows.length === 0)
 await setAccount(U.suspAdmin, 'attendee', 'active')
 
 // Removed membership: every path closes.
