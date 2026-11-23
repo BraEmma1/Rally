@@ -106,11 +106,17 @@ for (const [who, type] of [['organizerTwo', 'organizer'], ['sponsorUser', 'spons
 const myInvitation = (await one(`SELECT id FROM event_invitations WHERE event_id = $1 AND invited_user_id = $2`, [PUB, U.attendee])).id
 ok('the invitee accepts their own invitation', (await as(U.attendee, `UPDATE event_invitations SET status = 'Accepted', responded_at = now() WHERE id = $1`, [myInvitation])).affectedRows === 1)
 ok('nobody else can update it', (await as(U.invitee, `UPDATE event_invitations SET status = 'Declined' WHERE id = $1`, [myInvitation])).affectedRows === 0)
-gap('GAP-6a', 'the invitee can move their invitation to another organization\'s event (it then appears in that organizer\'s invitation list)',
-  (await as(U.attendee, `UPDATE event_invitations SET event_id = $1 WHERE id = $2`, [OTHER, myInvitation])).affectedRows === 1)
-gap('GAP-6b', 'the invitee can rewrite who the invitation is from (the response notification goes to that user)',
-  (await as(U.attendee, `UPDATE event_invitations SET invited_by = $1 WHERE id = $2`, [U.owner2, myInvitation])).affectedRows === 1)
-await sup(`UPDATE event_invitations SET event_id = $1, invited_by = $2 WHERE id = $3`, [PUB, U.owner, myInvitation])
+// GAP-6, fixed by migration 20261123000100: UPDATE is granted on (status, responded_at) only.
+ok('the invitee cannot move their invitation to another event (GAP-6a fixed)',
+  refused(await err(U.attendee, `UPDATE event_invitations SET event_id = $1 WHERE id = $2`, [OTHER, myInvitation]), /permission denied/))
+ok('the invitee cannot rewrite who the invitation is from (GAP-6b fixed)',
+  refused(await err(U.attendee, `UPDATE event_invitations SET invited_by = $1 WHERE id = $2`, [U.owner2, myInvitation]), /permission denied/))
+ok('the invitee cannot rewrite the invited address or the timestamps either',
+  refused(await err(U.attendee, `UPDATE event_invitations SET invited_email = 'x@t.test' WHERE id = $1`, [myInvitation]), /permission denied/) &&
+  refused(await err(U.attendee, `UPDATE event_invitations SET created_at = now() WHERE id = $1`, [myInvitation]), /permission denied/))
+const row = await one(`SELECT event_id, invited_by, status FROM event_invitations WHERE id = $1`, [myInvitation])
+ok('...and the invitation is unchanged apart from the response', row.event_id === PUB && row.invited_by === U.owner && row.status === 'Accepted', JSON.stringify(row))
+ok('the invitee can still decline (status and responded_at stay writable)', (await as(U.attendee, `UPDATE event_invitations SET status = 'Declined', responded_at = now() WHERE id = $1`, [myInvitation])).affectedRows === 1)
 
 // ---- admin_get_event ------------------------------------------------------
 ok('admin_get_event is refused to the event owner', refused(await err(U.owner, `SELECT admin_get_event($1)`, [PUB]), /platform administrator/))

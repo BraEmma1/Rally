@@ -159,12 +159,13 @@ const created = (await as(U.owner, `SELECT create_organizer_organization('Create
 const createdRow = await one(`SELECT org_type, approval_status, approved_by FROM organizations WHERE id = $1`, [created])
 ok('an active organizer creates an organizer organization that starts pending', createdRow.org_type === 'organizer' && createdRow.approval_status === 'pending' && createdRow.approved_by === null, JSON.stringify(createdRow))
 ok('...and becomes its owner', (await memberRole(created, U.owner)) === 'owner')
-ok('an attendee cannot insert an organization directly', refused(await err(U.attendee, `INSERT INTO organizations (name, org_type, created_by) VALUES ('X', 'organizer', $1)`, [U.attendee]), /row-level security/))
-ok('nobody can insert a sponsor organization directly', refused(await err(U.owner, `INSERT INTO organizations (name, org_type, created_by) VALUES ('X', 'sponsor', $1)`, [U.owner]), /row-level security/))
+ok('an attendee cannot insert an organization directly', refused(await err(U.attendee, `INSERT INTO organizations (name, org_type, created_by) VALUES ('X', 'organizer', $1)`, [U.attendee]), /permission denied/))
+ok('nobody can insert a sponsor organization directly', refused(await err(U.owner, `INSERT INTO organizations (name, org_type, created_by) VALUES ('X', 'sponsor', $1)`, [U.owner]), /permission denied/))
 const forgeErr = await err(U.owner, `INSERT INTO organizations (name, org_type, created_by, approval_status, approved_by, approved_at) VALUES ('Self-approved', 'organizer', $1, 'approved', $1, now())`, [U.owner])
 const forged = await one(`SELECT approval_status, approved_by FROM organizations WHERE name = 'Self-approved'`)
-gap('GAP-5', 'an active organizer can INSERT an organization directly with approval_status = approved and approved_by = themselves',
-  forgeErr === null && forged?.approval_status === 'approved' && forged?.approved_by === U.owner, String(forgeErr))
+// GAP-5, fixed by migration 20261123000100: no client INSERT on organizations at all.
+ok('an active organizer cannot INSERT an organization directly, so cannot forge approval (GAP-5 fixed)',
+  refused(forgeErr, /permission denied/) && forged === undefined, String(forgeErr))
 
 // ---- 4. organization roles ------------------------------------------------
 const setRole = (caller, org, target, role) => err(caller, `SELECT set_organization_member_role($1, $2, $3)`, [org, target, role])
@@ -251,15 +252,17 @@ ok('...the activation is audited as such', /Activated by accepting an organizati
 // Direct table writes on organization_invitations bypass the RPC's checks.
 const directInvite = (caller, org, email, role = 'manager', expires = '30 days') =>
   err(caller, `INSERT INTO organization_invitations (organization_id, invited_email, role, status, invited_by, expires_at) VALUES ($1, $2, $3, 'pending', $4, now() + $5::interval)`, [org, email, role, caller, expires])
-ok('a manager cannot insert an invitation directly', refused(await directInvite(U.manager, ORG, 'direct@t.test'), /row-level security/))
-ok('an admin cannot insert an owner invitation directly', refused(await directInvite(U.admin, ORG, 'direct@t.test', 'owner'), /row-level security/))
-ok('an owner of another organization cannot insert one directly', refused(await directInvite(U.owner2, ORG, 'direct@t.test'), /row-level security/))
-gap('GAP-1a', 'an admin can INSERT an invitation directly, choosing any expiry (here 10 years) and skipping the RPC\'s checks',
-  (await directInvite(U.admin, ORG, 'ten-years@t.test', 'manager', '10 years')) === null &&
-  Number((await one(`SELECT extract(year FROM age(expires_at, now())) y FROM organization_invitations WHERE invited_email = 'ten-years@t.test'`)).y) >= 9)
-gap('GAP-1b', 'an admin can UPDATE an invitation directly (here: re-open a revoked one)',
-  (await as(U.admin, `UPDATE organization_invitations SET status = 'pending', expires_at = now() + interval '10 years' WHERE id = $1`, [invR])).affectedRows === 1 && (await invStatus(invR)) === 'pending')
-await sup(`UPDATE organization_invitations SET status = 'revoked' WHERE id = $1`, [invR])
+// GAP-1, fixed by migration 20261123000100: invitations are written only through the RPCs.
+ok('a manager cannot insert an invitation directly', refused(await directInvite(U.manager, ORG, 'direct@t.test'), /permission denied/))
+ok('an admin cannot insert an owner invitation directly', refused(await directInvite(U.admin, ORG, 'direct@t.test', 'owner'), /permission denied/))
+ok('an owner of another organization cannot insert one directly', refused(await directInvite(U.owner2, ORG, 'direct@t.test'), /permission denied/))
+ok('an admin cannot INSERT an invitation directly, so cannot choose its expiry (GAP-1a fixed)',
+  refused(await directInvite(U.admin, ORG, 'ten-years@t.test', 'manager', '10 years'), /permission denied/) &&
+  (await one(`SELECT id FROM organization_invitations WHERE invited_email = 'ten-years@t.test'`)) === undefined)
+ok('an admin cannot UPDATE an invitation directly, so cannot re-open a revoked one (GAP-1b fixed)',
+  refused(await err(U.admin, `UPDATE organization_invitations SET status = 'pending', expires_at = now() + interval '10 years' WHERE id = $1`, [invR]), /permission denied/) && (await invStatus(invR)) === 'revoked')
+ok('an admin cannot DELETE an invitation directly', refused(await err(U.admin, `DELETE FROM organization_invitations WHERE id = $1`, [invR]), /permission denied/) && (await invStatus(invR)) === 'revoked')
+ok('admins still read their organization\'s invitations', (await as(U.admin, `SELECT id FROM organization_invitations WHERE id = $1`, [invR])).rows.length === 1)
 
 // ---- 6. partnership invitations -----------------------------------------
 await sup(`SET session_replication_role = replica`)
@@ -325,8 +328,8 @@ ok('a suspended admin cannot read registrations directly (no client SELECT on th
 ok('...nor through the attendee page RPC', refused(await err(U.suspAdmin, `SELECT * FROM event_attendee_page($1)`, [EV])))
 const invS = await invite(U.owner2, ORG2, 'suspadmin@t.test')
 ok('a suspended account cannot accept an invitation', refused(await accept(U.suspAdmin, invS), /not active/) && (await memberRole(ORG2, U.suspAdmin)) === null)
-gap('GAP-1c', 'a suspended admin can still INSERT an invitation directly',
-  (await directInvite(U.suspAdmin, ORG, 'suspended-direct@t.test')) === null)
+ok('a suspended admin cannot INSERT an invitation directly either (GAP-1c fixed)',
+  refused(await directInvite(U.suspAdmin, ORG, 'suspended-direct@t.test'), /permission denied/))
 gap('GAP-2a', 'a suspended member can still read their organization and its member list',
   (await as(U.suspAdmin, `SELECT id FROM organizations WHERE id = $1`, [ORG])).rows.length === 1 && (await as(U.suspAdmin, `SELECT user_id FROM organization_members WHERE organization_id = $1`, [ORG])).rows.length > 0)
 gap('GAP-2b', 'a suspended admin can still read the organization\'s invitations',
