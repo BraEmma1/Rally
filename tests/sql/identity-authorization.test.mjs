@@ -219,8 +219,11 @@ ok('a manager cannot revoke it', refused(await err(U.manager, `SELECT revoke_org
 ok('an admin revokes it', (await err(U.admin, `SELECT revoke_organization_invitation($1)`, [invR])) === null && (await invStatus(invR)) === 'revoked')
 ok('a revoked invitation cannot be accepted', refused(await accept(U.rep, invR), /No pending invitation/) && (await memberRole(ORG, U.rep)) === null)
 const reinvite = await invite(U.owner, ORG, 'rep@t.test')
-gap('BUG-1', 'someone whose invitation was revoked can never be invited to that organization again (raw unique-constraint error)',
-  /organization_invitations_organization_id_invited_user_id_key/.test(reinvite.error ?? ''), JSON.stringify(reinvite))
+ok('BUG-1 fixed: revoked invitation may be replaced with a fresh token',
+  reinvite.error === null && reinvite.id !== invR, JSON.stringify(reinvite))
+ok('revoked old token remains unusable after replacement', refused(await accept(U.rep, invR), /No pending invitation/))
+ok('replacement invitation can be accepted once', (await accept(U.rep, reinvite.id)) === null && (await memberRole(ORG, U.rep)) !== null)
+ok('replacement invitation cannot be replayed', refused(await accept(U.rep, reinvite.id), /No pending invitation/))
 const invOwner = await invite(U.owner, ORG, 'future-owner@t.test', 'owner')
 ok('an admin cannot revoke an owner invitation', refused(await err(U.admin, `SELECT revoke_organization_invitation($1)`, [invOwner]), /owner/))
 await err(U.owner, `SELECT revoke_organization_invitation($1)`, [invOwner])
@@ -229,6 +232,13 @@ U.expiring = await user('expiring@t.test')
 const invE = await invite(U.owner, ORG, 'expiring@t.test')
 await sup(`UPDATE organization_invitations SET expires_at = now() - interval '1 minute' WHERE id = $1`, [invE])
 ok('an expired invitation cannot be accepted', refused(await accept(U.expiring, invE), /No pending invitation/) && (await memberRole(ORG, U.expiring)) === null)
+
+
+// BUG-1: expired invitation remains unusable after a new one is issued.
+const renewedExpired = await invite(U.owner, ORG, 'expiring@t.test')
+ok('an expired invitation is replaced with a new token', renewedExpired.error === null && renewedExpired.id !== invE, JSON.stringify(renewedExpired))
+ok('expired old link stays invalid after renewal', refused(await accept(U.expiring, invE), /No pending invitation/))
+ok('renewed expired invitation is accepted', (await accept(U.expiring, renewedExpired.id)) === null)
 
 const ARCH = await mkOrg('Archived Org', U.owner2)
 const invX = await invite(U.owner2, ARCH, 'rep@t.test')
