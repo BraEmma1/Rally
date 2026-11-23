@@ -1,19 +1,17 @@
-/* BUG-1: historical invitation uniqueness must not block a fresh invitation.
-   The existing partial unique index on pending organization/email preserves the
-   single-live-invitation invariant. UUID primary key remains unique.
-   Prevent expired invitation reactivation and serialize same-address invites.
-   Keep old accepted/revoked/expired rows for audit. */
+/* BUG-1: allow reinvitation after revocation or expiry.
+   Preserve the currently deployed invite_organization_member authorization
+   behavior (including attendee membership compatibility) and all grants.
+   Keep the pending-email uniqueness index and historical rows. Concurrent
+   attempts cannot produce two pending invitations because of the index. */
 ALTER TABLE public.organization_invitations
   DROP CONSTRAINT IF EXISTS organization_invitations_organization_id_invited_user_id_key;
 
-CREATE OR REPLACE FUNCTION public.invite_organization_member(
-  org_id uuid,
-  invitee_email text,
-  invitee_role org_role DEFAULT 'manager'
-)
-RETURNS uuid
-LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
-AS $$
+CREATE OR REPLACE FUNCTION public.invite_organization_member(org_id uuid, invitee_email text, invitee_role org_role DEFAULT 'manager'::org_role)
+ RETURNS uuid
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
 DECLARE
   v_caller_role org_role;
   v_email text := lower(btrim(invitee_email));
@@ -43,17 +41,18 @@ BEGIN
     RAISE EXCEPTION 'You are already a member of this organization';
   END IF;
 
-  -- Resolve an account if one exists. Not finding one is fine: the invitation
-  -- is addressed to the email, and they can sign up afterwards.
   SELECT u.id, a.account_type INTO v_target, v_account
   FROM auth.users u
   LEFT JOIN user_accounts a ON a.user_id = u.id
   WHERE lower(u.email) = v_email;
 
-  -- If an account does exist, it has to be one that could ever hold this
-  -- membership. Saying so now beats a confusing failure at accept time.
+  -- Attendees now pass this; only a genuinely incompatible account is refused,
+  -- and saying so at invite time beats a confusing failure at accept time.
   IF v_target IS NOT NULL AND v_account IS NOT NULL
-     AND v_account::text <> v_org_type::text THEN
+     AND NOT public.account_type_may_join_org(v_account, v_org_type) THEN
+    IF v_account = 'platform_admin' THEN
+      RAISE EXCEPTION 'A platform administrator account cannot join an organization';
+    END IF;
     RAISE EXCEPTION 'That email belongs to a % account, which cannot join a % organization', v_account, v_org_type;
   END IF;
 
@@ -64,20 +63,14 @@ BEGIN
     RAISE EXCEPTION 'That person is already on the team';
   END IF;
 
-  -- Serialize invitations per organization/address to prevent duplicate pending
-  -- rows during concurrent invitation attempts.
-  PERFORM pg_advisory_xact_lock(hashtextextended(org_id::text || ':' || v_email, 0));
-
-  -- An expired invitation must stay invalid forever. Retire its pending status
-  -- before creating a fresh invitation with a new ID and expiry.
+  -- Retire expired pending links without reopening old bearer tokens.
   UPDATE public.organization_invitations
-  SET status = 'revoked', responded_at = now()
-  WHERE organization_id = org_id AND invited_email = v_email
-    AND status = 'pending' AND expires_at <= now();
+     SET status = 'revoked', responded_at = now()
+   WHERE organization_id = org_id
+     AND invited_email = v_email
+     AND status = 'pending'
+     AND expires_at <= now();
 
-  -- Re-inviting an address that has a live invitation refreshes it rather than
-  -- failing on the partial unique index, and re-inviting after a decline or a
-  -- revocation opens a new one.
   UPDATE organization_invitations
      SET role            = invitee_role,
          invited_user_id = v_target,
@@ -104,6 +97,5 @@ BEGIN
 
   RETURN v_invitation_id;
 END;
-$$;
-
-
+$function$
+;
