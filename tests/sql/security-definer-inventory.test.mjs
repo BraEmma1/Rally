@@ -81,6 +81,8 @@ const AUTHENTICATED_DEFINER = [
   'get_event_host(uuid)',
   'get_event_registration_answers(uuid,integer,integer)',
   'get_event_registration_counts(uuid[])',
+  // Registration open/close migration: scoped event status metadata for signed-in users.
+  'get_event_registration_states(uuid[])',
   'get_event_registration_form(uuid)',
   'get_my_conversations()',
   'get_my_organization_access()',
@@ -167,6 +169,8 @@ const RLS_NO_POLICY = [
   'event_marketing_consents',
   'event_registration_answers',
   'event_registration_questions',
+  // Read-only IANA timezone catalogue, populated by migration-managed functions.
+  'iana_time_zones',
   'partnership_invitation_emails',
 ]
 
