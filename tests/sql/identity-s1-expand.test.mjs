@@ -65,7 +65,7 @@ const cap = async (org) => (await one(`SELECT capability, status, requested_by, 
 const caps = (org) => sup(`SELECT capability::text c, status::text s FROM organization_capabilities WHERE organization_id = $1 ORDER BY capability`, [org])
 const activeGrants = (uid) => n(`SELECT count(*) FROM platform_roles WHERE user_id = $1 AND role = 'platform_admin' AND revoked_at IS NULL`, [uid])
 const drift = () => sup(`SELECT * FROM identity_s1_drift()`)
-const history = (org) => sup(`SELECT capability::text c, previous_status::text p, new_status::text s, changed_by, reason FROM organization_capability_changes WHERE organization_id = $1 ORDER BY created_at, id`, [org])
+const history = (org) => sup(`SELECT capability::text c, previous_status::text p, new_status::text s, changed_by, reason FROM organization_capability_changes WHERE organization_id = $1 ORDER BY seq`, [org])
 
 // ---- seed: existing data, written before S1 exists --------------------------
 ok('(setup) S1 is not applied yet', (await one(`SELECT to_regclass('public.platform_roles') r`)).r === null)
@@ -265,6 +265,7 @@ ok('org_has_capability is false for a capability the organization does not hold,
 const tryRaw = async (sql, params = []) => { try { await sup(sql, params); return null } catch (e) { return String(e.message) } }
 ok('a second active grant of the same role is impossible', refused(await tryRaw(`INSERT INTO platform_roles (user_id, role, grant_reason) VALUES ($1, 'platform_admin', 'dup')`, [U.admin1]), /platform_roles_one_active_grant/))
 ok('a revocation must say why', refused(await tryRaw(`UPDATE platform_roles SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL`, [U.admin1]), /platform_roles_revocation_complete/))
+ok('history order cannot be rewritten (seq is generated)', refused(await tryRaw(`INSERT INTO organization_capability_changes (seq, organization_id, capability, new_status, reason) VALUES (0, $1, 'sponsor', 'active', 'x')`, [O.approved]), /GENERATED ALWAYS|cannot insert/i))
 ok('a history row must be a real change', refused(await tryRaw(`INSERT INTO organization_capability_changes (organization_id, capability, previous_status, new_status, reason) VALUES ($1, 'organize_events', 'active', 'active', 'x')`, [O.approved]), /is_a_change/))
 ok('an organization holds each capability at most once', refused(await tryRaw(`INSERT INTO organization_capabilities (organization_id, capability, status) VALUES ($1, 'organize_events', 'active')`, [O.approved]), /duplicate key/))
 

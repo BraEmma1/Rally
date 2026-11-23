@@ -125,22 +125,23 @@ COMMENT ON TABLE public.organization_capabilities IS
 
 CREATE TABLE IF NOT EXISTS public.organization_capability_changes (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  -- Strict order of changes. Timestamps alone cannot order two changes made in
+  -- the same instant (an organization type change revokes one capability and
+  -- creates another in the same statement).
+  seq             bigint GENERATED ALWAYS AS IDENTITY UNIQUE,
   organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
   capability      public.org_capability NOT NULL,
   previous_status public.org_capability_status,   -- NULL: the capability was created
   new_status      public.org_capability_status NOT NULL,
   changed_by      uuid REFERENCES auth.users(id) ON DELETE SET NULL,
   reason          text NOT NULL,
-  -- clock_timestamp(), not now(): several changes in one transaction (an
-  -- organization type change revokes one capability and creates another) must
-  -- still sort in the order they happened.
   created_at      timestamptz NOT NULL DEFAULT clock_timestamp(),
   CONSTRAINT organization_capability_changes_is_a_change
     CHECK (previous_status IS DISTINCT FROM new_status)
 );
 
 CREATE INDEX IF NOT EXISTS organization_capability_changes_by_org
-  ON public.organization_capability_changes (organization_id, created_at);
+  ON public.organization_capability_changes (organization_id, seq);
 
 COMMENT ON TABLE public.organization_capability_changes IS
   'Append-only history of organization capability status changes (Approach C, stage S1). No client access.';
