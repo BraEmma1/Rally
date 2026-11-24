@@ -15,7 +15,9 @@ import {
   type PartnershipStatus,
   type PartnershipSummary,
 } from '@/lib/partnerships'
+import { cn } from '@/lib/utils'
 import { AddPartnerDialog } from './AddPartnerDialog'
+import { EventPackagesPanel } from './EventPackagesPanel'
 import {
   ArchivedNotice,
   PartnerLogo,
@@ -48,8 +50,12 @@ type EventLike = {
 
 type StatusFilter = 'all' | PartnershipStatus
 type RoleFilter = 'all' | PartnershipRole
+// Packages are templates for this event's partnerships, so they live beside the
+// partners rather than in another event tab. Organizer-only, like the tables.
+type View = 'partners' | 'packages'
 
 export function EventPartnersPanel({ event, manages }: { event: EventLike; manages: boolean }) {
+  const [view, setView] = useState<View>('partners')
   const [partners, setPartners] = useState<PartnershipSummary[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -112,7 +118,7 @@ export function EventPartnersPanel({ event, manages }: { event: EventLike; manag
             Manage sponsors, exhibitors and other event partners.
           </p>
         </div>
-        {editable && (
+        {editable && view === 'partners' && (
           <Button onClick={() => setAddOpen(true)} className="shrink-0">
             <Plus className="h-4 w-4" />
             Add Partner
@@ -122,7 +128,11 @@ export function EventPartnersPanel({ event, manages }: { event: EventLike; manag
 
       {archived && <ArchivedNotice />}
 
-      {notice && (
+      {manages && <ViewSwitch view={view} onChange={setView} />}
+
+      {view === 'packages' && <EventPackagesPanel event={event} editable={editable} />}
+
+      {view === 'partners' && notice && (
         <div
           className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-warning-200 bg-warning-50 px-3 py-2 text-sm text-warning-700"
           role="alert"
@@ -137,11 +147,11 @@ export function EventPartnersPanel({ event, manages }: { event: EventLike; manag
         </div>
       )}
 
-      {error && <ErrorState message={error} onRetry={() => void load()} />}
+      {view === 'partners' && error && <ErrorState message={error} onRetry={() => void load()} />}
 
-      {loading && <PartnersSkeleton />}
+      {view === 'partners' && loading && <PartnersSkeleton />}
 
-      {!loading && !error && partners !== null && partners.length === 0 && (
+      {view === 'partners' && !loading && !error && partners !== null && partners.length === 0 && (
         <Card>
           <CardContent>
             <EmptyState
@@ -154,7 +164,7 @@ export function EventPartnersPanel({ event, manages }: { event: EventLike; manag
         </Card>
       )}
 
-      {!loading && !error && partners !== null && partners.length > 0 && (
+      {view === 'partners' && !loading && !error && partners !== null && partners.length > 0 && (
         <>
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative sm:max-w-xs sm:flex-1">
@@ -231,6 +241,39 @@ export function EventPartnersPanel({ event, manages }: { event: EventLike; manag
           }}
         />
       )}
+    </div>
+  )
+}
+
+/** Two views of one tab. Toggle buttons rather than tabs: there is no tab panel to name. */
+function ViewSwitch({ view, onChange }: { view: View; onChange: (next: View) => void }) {
+  const options: { key: View; label: string }[] = [
+    { key: 'partners', label: 'Partners' },
+    { key: 'packages', label: 'Packages' },
+  ]
+  return (
+    <div
+      role="group"
+      aria-label="Show partners or packages"
+      className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-0.5"
+    >
+      {options.map((option) => {
+        const active = option.key === view
+        return (
+          <button
+            key={option.key}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(option.key)}
+            className={cn(
+              'min-h-9 rounded-md px-4 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600',
+              active ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            )}
+          >
+            {option.label}
+          </button>
+        )
+      })}
     </div>
   )
 }
