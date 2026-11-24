@@ -78,9 +78,33 @@ function LostAccessNotice() {
   )
 }
 
+// Another tab signed a different person in, and this tab's requests now go out
+// as them while the page still shows the previous person's workspace. Show
+// nothing of either; a reload starts this tab cleanly as whoever is signed in.
+function ForeignSessionNotice() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 p-6">
+      <div role="alert" className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-6 text-center shadow-sm">
+        <ShieldAlert className="mx-auto h-8 w-8 text-warning-600" aria-hidden="true" />
+        <h1 className="mt-3 text-base font-semibold text-gray-900">Your sign-in changed in another tab</h1>
+        <p className="mt-2 text-sm text-gray-600">
+          Someone else is now signed in to Rally in this browser. Reload this tab to continue as them.
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="mt-4 inline-flex min-h-[44px] items-center justify-center rounded-md bg-primary-600 px-4 text-sm font-medium text-white hover:bg-primary-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-2"
+        >
+          Reload
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function OrganizerLayout() {
   const { signOut, account, profile, user } = useAuth()
-  const { organization, lostAccess } = useOrganizer()
+  const { organization, lostAccess, revalidate, foreignSession } = useOrganizer()
   const { unreadCount } = useNotifications()
   const navigate = useNavigate()
   const location = useLocation()
@@ -88,6 +112,14 @@ export default function OrganizerLayout() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const closeSheet = useCallback(() => setSheetOpen(false), [])
   const [searchOpen, setSearchOpen] = useState(false)
+
+  // A membership can be removed while the person works in this tab. Re-check as
+  // they move between pages (at most once per interval; quiet on failure), so a
+  // revoked organization does not stay selected until they leave the tab. The
+  // database refuses its data either way; this keeps the screen honest.
+  useEffect(() => {
+    revalidate()
+  }, [location.pathname, revalidate])
 
   // Access to the organization on screen was removed. Section pages have
   // already re-mounted for the organization shown instead (see the Outlet key);
@@ -115,6 +147,10 @@ export default function OrganizerLayout() {
   // An attendee on the team gets a way back to their own Rally; a full
   // organizer account has no attendee home to return to.
   const isAttendeeAccount = account?.account_type === 'attendee'
+
+  // After every hook: nothing of the workspace renders while this tab's
+  // requests belong to someone else.
+  if (foreignSession) return <ForeignSessionNotice />
 
   async function handleSignOut() {
     await signOut()

@@ -5,11 +5,14 @@
 // Covers: the list is exactly the memberships the API returns; selecting opens
 // that organization's workspace and data; a slow response from the previous
 // organization cannot land after a switch; sections are kept, event pages are
-// left; direct links follow the event's organization; refresh keeps the choice
-// (per person); a revoked membership is detected on return to the tab and leaves
-// the workspace; losing every membership; a failed or expired-session check;
-// Personal for an attendee account; every existing organizer route; keyboard;
-// phone (390 and 320px) with the top-bar sheet, the drawer and the bottom nav.
+// left; direct links follow the event's organization (also when the membership
+// was granted after the list loaded); refresh keeps the choice (per person); a
+// revoked membership is detected on return to the tab or on moving between
+// pages, and leaves the workspace; losing every membership; a failed or
+// expired-session check; a second tab (switching, signing out, another person's
+// session arriving); Personal for an attendee account; every existing organizer
+// route; keyboard; phone (390 and 320px) with the top-bar sheet, the drawer and
+// the bottom nav.
 //
 // Runs against a STUBBED API, like every suite here. Nothing reaches a real
 // Supabase project and no credential is used: the session is a fabricated token
@@ -24,6 +27,7 @@ const path = require('path')
 const BASE = process.env.BASE_URL || process.argv[2]
 const OUT = process.env.SHOTS_DIR || process.argv[3] || path.join(require('os').tmpdir(), 'rally-browser-shots')
 const UID = '22222222-2222-2222-2222-222222222222'
+const UID2 = '33333333-3333-3333-3333-333333333333' // a different person, for account changes
 const API = 'http://localhost:54321'
 const STORE = 'rally.organizer.active_org:' + UID
 fs.mkdirSync(OUT, { recursive: true })
@@ -33,6 +37,7 @@ const ORGS = {
   'org-a': { name: 'Accra Events', logo: '' },
   'org-b': { name: 'Kente Foods', logo: '' },
   'org-c': { name: 'TechGhana Summit', logo: '' },
+  'org-v': { name: 'Volta Ventures', logo: '' }, // the second person's organization
 }
 const ev = (id, org, name, over = {}) => ({
   id, name, description: '', location: 'Accra', start_date: '2030-03-01', end_date: null, start_time: null, end_time: null,
@@ -45,13 +50,17 @@ const EVENTS = [
   ev('e-b1', 'org-b', 'Kente Harvest Expo'),
   ev('e-b2', 'org-b', 'Kente Supplier Day', { visibility: 'draft', published_at: null }),
   ev('e-c1', 'org-c', 'TechGhana Hidden Draft', { visibility: 'draft', published_at: null }),
+  ev('e-v1', 'org-v', 'Volta Night Market', { visibility: 'draft', published_at: null }),
 ]
 const PRIVATE = {
   'org-a': ['Accra Launch Night', 'Accra Founders Summit', 'Kofi Accra-Teammate'],
   'org-b': ['Kente Harvest Expo', 'Kente Supplier Day', 'Esi Kente-Teammate'],
   'org-c': ['TechGhana Hidden Draft', 'Yaw Tech-Teammate'],
+  'org-v': ['Volta Night Market', 'Kwame Volta-Teammate'],
 }
-const TEAMMATE = { 'org-a': 'Kofi Accra-Teammate', 'org-b': 'Esi Kente-Teammate', 'org-c': 'Yaw Tech-Teammate' }
+const TEAMMATE = { 'org-a': 'Kofi Accra-Teammate', 'org-b': 'Esi Kente-Teammate', 'org-c': 'Yaw Tech-Teammate', 'org-v': 'Kwame Volta-Teammate' }
+// Everything that identifies the first person's workspace.
+const FIRST_PERSON_TEXT = ['Accra Events', 'Kente Foods', ...PRIVATE['org-a'], ...PRIVATE['org-b']]
 const member = (org, uid, name, role, self = false) => ({ user_id: uid, role, created_at: '2026-01-01', full_name: name, job_title: 'Lead', company: ORGS[org].name, photo_url: '', is_self: self })
 
 // ---- mock state --------------------------------------------------------------
@@ -61,6 +70,7 @@ function reset(over = {}) {
   Object.assign(ctl, {
     accountType: 'organizer',
     memberships: [['org-a', 'owner'], ['org-b', 'manager']],
+    memberships2: [['org-v', 'owner']], // the second person's
     assigned: ['e-b1'], // the caller's event_team rows (manager in B)
     accessFailNext: 0, // fail the next N get_my_organization_access calls
     accessFailing: false, // fail every call until cleared
@@ -73,11 +83,18 @@ function reset(over = {}) {
 }
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const err = (code, message) => ({ code, message, details: null, hint: null })
-const isMember = (org) => ctl.memberships.some(([o]) => o === org)
-const roleIn = (org) => (ctl.memberships.find(([o]) => o === org) || [])[1]
+// Who is calling: the stub reads the person from the bearer token, so each
+// person only ever gets their own memberships, as the real function does.
+function callerOf(req) {
+  const auth = req.headers()['authorization'] || ''
+  try { return JSON.parse(Buffer.from(auth.replace(/^Bearer /, '').split('.')[1], 'base64').toString()).sub } catch { return null }
+}
+const membershipsOf = (uid) => (uid === UID2 ? ctl.memberships2 : uid === UID ? ctl.memberships : [])
+const isMember = (org, uid = UID) => membershipsOf(uid).some(([o]) => o === org)
+const roleIn = (org, uid = UID) => (membershipsOf(uid).find(([o]) => o === org) || [])[1]
 
-function accessRows() {
-  return ctl.memberships.map(([org, role]) => ({
+function accessRows(uid = UID) {
+  return membershipsOf(uid).map(([org, role]) => ({
     organization_id: org, organization_name: ORGS[org].name, organization_slug: org, organization_description: '',
     organization_logo_url: ORGS[org].logo, organization_website: '', organization_type: 'organizer', approval_status: 'approved',
     archived_at: null, organization_created_by: UID, organization_created_at: '2026-01-01T00:00:00Z',
@@ -86,16 +103,16 @@ function accessRows() {
   })).sort((x, y) => x.organization_name.localeCompare(y.organization_name))
 }
 
-function rawRows(url) {
+function rawRows(url, uid = UID) {
   const p = new URL(url).pathname
-  if (p.endsWith('/profiles')) return [{ id: UID, full_name: 'Abena Mensah', photo_url: '', job_title: 'Producer', company: 'Freelance', industry: '', location: '', bio: 'Runs events.', looking_for: '', can_offer: '', linkedin: '', website: '', email: 'abena@example.test', phone: '', created_at: '2026-01-01', updated_at: '2026-01-01' }]
+  if (p.endsWith('/profiles')) return [{ id: uid, full_name: uid === UID2 ? 'Kojo Asante' : 'Abena Mensah', photo_url: '', job_title: 'Producer', company: 'Freelance', industry: '', location: '', bio: 'Runs events.', looking_for: '', can_offer: '', linkedin: '', website: '', email: 'abena@example.test', phone: '', created_at: '2026-01-01', updated_at: '2026-01-01' }]
   if (p.endsWith('/user_accounts')) return [{ account_type: ctl.accountType, status: 'active' }]
-  if (p.endsWith('/events')) return EVENTS.filter((e) => isMember(e.organization_id) || e.visibility === 'published')
+  if (p.endsWith('/events')) return EVENTS.filter((e) => isMember(e.organization_id, uid) || e.visibility === 'published')
   if (p.endsWith('/event_team')) return ctl.assigned.map((event_id) => ({ event_id, user_id: UID }))
   return []
 }
-function rows(url, single) {
-  let r = rawRows(url)
+function rows(url, single, uid = UID) {
+  let r = rawRows(url, uid)
   if (Array.isArray(r) && r.length) {
     for (const [k, v] of new URL(url).searchParams) {
       if (!(k in r[0])) continue
@@ -106,6 +123,15 @@ function rows(url, single) {
   return single ? (Array.isArray(r) ? r[0] ?? null : r) : r
 }
 
+function sessionFor(uid, email, exp = 4102444800) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64')
+  return {
+    access_token: b64({ alg: 'none', typ: 'JWT' }) + '.' + b64({ sub: uid, exp, role: 'authenticated' }) + '.fake',
+    refresh_token: 'r-' + uid, token_type: 'bearer', expires_in: 3600, expires_at: exp,
+    user: { id: uid, aud: 'authenticated', role: 'authenticated', email, app_metadata: {}, user_metadata: {} },
+  }
+}
+
 async function wire(ctx) {
   await ctx.route(API + '/**', async (route) => {
     const req = route.request(); const url = req.url(); const m = req.method()
@@ -113,18 +139,23 @@ async function wire(ctx) {
     const json = (status, b) => route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json' }, body: JSON.stringify(b) })
     if (m === 'OPTIONS') return route.fulfill({ status: 204, headers: cors })
     const p = new URL(url).pathname
-    // An expired session whose refresh token is no longer accepted.
-    if (p.endsWith('/auth/v1/token')) return json(400, { error: 'invalid_grant', error_description: 'Invalid Refresh Token: Refresh Token Not Found' })
+    const caller = callerOf(req)
+    if (p.endsWith('/auth/v1/token')) {
+      // Signing in with a password (another tab, later) signs in the SECOND person.
+      if (new URL(url).searchParams.get('grant_type') === 'password') return json(200, sessionFor(UID2, 'kojo@example.test'))
+      // An expired session whose refresh token is no longer accepted.
+      return json(400, { error: 'invalid_grant', error_description: 'Invalid Refresh Token: Refresh Token Not Found' })
+    }
     if (p.endsWith('/auth/v1/logout')) return route.fulfill({ status: 204, headers: cors })
-    if (m === 'HEAD') return route.fulfill({ status: 200, headers: { ...cors, 'content-range': `0-0/${rows(url).length}` } })
+    if (m === 'HEAD') return route.fulfill({ status: 200, headers: { ...cors, 'content-range': `0-0/${rows(url, false, caller).length}` } })
     if (m === 'GET') {
       const org = new URL(url).searchParams.get('organization_id')
       if (p.endsWith('/events') && org) {
         const id = org.slice(3)
-        log.orgReads.push({ what: 'events', org: id })
+        log.orgReads.push({ what: 'events', org: id, caller })
         if (ctl.eventsDelay[id]) await sleep(ctl.eventsDelay[id])
       }
-      return json(200, rows(url, (req.headers()['accept'] || '').includes('pgrst.object')))
+      return json(200, rows(url, (req.headers()['accept'] || '').includes('pgrst.object'), caller))
     }
     if (m === 'POST' && url.includes('/rpc/')) {
       const body = JSON.parse(req.postData() || '{}')
@@ -135,18 +166,18 @@ async function wire(ctx) {
           if (ctl.accessFailNext > 0) ctl.accessFailNext--
           return json(ctl.accessStatus, ctl.accessStatus === 401 ? { code: 'PGRST301', message: 'JWT expired' } : err('XX000', 'Could not load your organizations.'))
         }
-        return json(200, accessRows())
+        return json(200, accessRows(caller))
       }
       if (body.org_id) {
-        log.orgReads.push({ what: name, org: body.org_id })
-        if (!isMember(body.org_id)) return json(403, err('42501', 'You are not a member of this organization'))
-        if (name === 'organization_member_directory') return json(200, [member(body.org_id, UID, 'Abena Mensah', roleIn(body.org_id), true), member(body.org_id, 'u-' + body.org_id, TEAMMATE[body.org_id], 'admin')])
+        log.orgReads.push({ what: name, org: body.org_id, caller })
+        if (!isMember(body.org_id, caller)) return json(403, err('42501', 'You are not a member of this organization'))
+        if (name === 'organization_member_directory') return json(200, [member(body.org_id, caller, caller === UID2 ? 'Kojo Asante' : 'Abena Mensah', roleIn(body.org_id, caller), true), member(body.org_id, 'u-' + body.org_id, TEAMMATE[body.org_id], 'admin')])
         if (name === 'organization_people') return json(200, [])
         return json(200, [])
       }
       if (name === 'can_manage_event') {
         const e = EVENTS.find((x) => x.id === body.target_event_id)
-        const role = e && roleIn(e.organization_id)
+        const role = e && roleIn(e.organization_id, caller)
         return json(200, Boolean(role && (role !== 'manager' || ctl.assigned.includes(e.id))))
       }
       if (name === 'account_is_active') return json(200, true)
@@ -163,6 +194,24 @@ async function wire(ctx) {
     return route.fulfill({ status: 204, headers: cors, body: '' })
   })
 }
+
+// Records, across navigations of one tab, every screen that shows the second
+// person's organization together with anything of the first person's workspace.
+function watchForMixing(first) {
+  const start = () => {
+    if (!document.body || window.__watching) return
+    window.__watching = true
+    new MutationObserver(() => {
+      const text = document.body.innerText
+      if (!text.includes('Volta')) return
+      const seen = first.filter((x) => text.includes(x))
+      if (seen.length) sessionStorage.setItem('__mixed', JSON.stringify([...JSON.parse(sessionStorage.getItem('__mixed') || '[]'), seen]))
+    }).observe(document.body, { childList: true, subtree: true, characterData: true })
+  }
+  if (document.body) start()
+  else document.addEventListener('DOMContentLoaded', start)
+}
+const mixed = (page) => page.evaluate(() => JSON.parse(sessionStorage.getItem('__mixed') || '[]'))
 
 const results = []
 let fails = 0
@@ -183,8 +232,8 @@ function rec(group, name, pass, detail = '') {
     await ctx.addInitScript(([uid, store, storedOrg, isExpired]) => {
       const exp = isExpired ? 1700000000 : 4102444800
       const session = { access_token: btoa(JSON.stringify({ alg: 'none', typ: 'JWT' })) + '.' + btoa(JSON.stringify({ sub: uid, exp, role: 'authenticated' })) + '.fake', refresh_token: 'r', token_type: 'bearer', expires_in: 3600, expires_at: exp, user: { id: uid, aud: 'authenticated', role: 'authenticated', email: 'abena@example.test', app_metadata: {}, user_metadata: {} } }
-      if (!sessionStorage.getItem('__seeded')) {
-        sessionStorage.setItem('__seeded', '1')
+      if (!localStorage.getItem('__seeded')) {
+        localStorage.setItem('__seeded', '1')
         localStorage.setItem('sb-localhost-auth-token', JSON.stringify(session))
         if (storedOrg) localStorage.setItem(store, storedOrg)
       }
@@ -232,9 +281,10 @@ function rec(group, name, pass, detail = '') {
     rec('list', 'an organizer account is offered no Personal workspace (its guard would refuse)', (await page.getByRole('menuitemradio', { name: /^Personal/ }).count()) === 0)
     rec('list', 'opening the menu right after the page loaded does not re-ask (one check per interval)', log.access === callsBeforeOpen, `${callsBeforeOpen} -> ${log.access}`)
     await page.keyboard.press('Escape')
-    rec('keyboard', 'Escape closes the menu and returns focus to the trigger', (await page.getByRole('menu').count()) === 0 && (await page.evaluate(() => document.activeElement?.getAttribute('aria-haspopup'))) === 'menu')
+    const focusBack = await page.waitForFunction(() => document.activeElement?.getAttribute('aria-haspopup') === 'menu', null, { timeout: 2000 }).then(() => true, () => false)
+    rec('keyboard', 'Escape closes the menu and returns focus to the trigger', (await page.getByRole('menu').count()) === 0 && focusBack)
     await page.keyboard.press('ArrowDown')
-    await page.waitForTimeout(100)
+    await page.waitForFunction(() => document.activeElement?.getAttribute('role') === 'menuitemradio', null, { timeout: 2000 }).catch(() => {})
     const focused1 = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))
     await page.keyboard.press('ArrowDown')
     const focused2 = await page.evaluate(() => document.activeElement?.getAttribute('aria-label'))
@@ -305,6 +355,17 @@ function rec(group, name, pass, detail = '') {
     await settle(page)
     rec('links', 'a link to another organization\'s event shows nothing of it and changes no workspace', !(await main(page)).includes('TechGhana') && (await headerName(page)).includes('Accra Events'))
     await ctx.close()
+
+    // Added to B after this tab loaded its list, then following a link to B's event.
+    reset({ memberships: [['org-a', 'owner']] })
+    const late = await open('/organizer', { stored: 'org-a' })
+    ctl.memberships = [['org-a', 'owner'], ['org-b', 'manager']]
+    const before = log.access
+    await late.page.evaluate(() => { history.pushState({}, '', '/organizer/events/e-b1'); dispatchEvent(new PopStateEvent('popstate')) })
+    await settle(late.page, 800)
+    rec('links', 'a link to an event of an organization joined after the list loaded: shown, and the header follows once the list is re-checked',
+      (await main(late.page)).includes('Kente Harvest Expo') && (await headerName(late.page)).includes('Kente Foods') && log.access > before, `access calls ${before} -> ${log.access}`)
+    await late.ctx.close()
   }
 
   // ---- 5. every existing organizer route still works -----------------------------------
@@ -340,6 +401,16 @@ function rec(group, name, pass, detail = '') {
     await page.reload({ waitUntil: 'networkidle' })
     rec('revoked', 'after a refresh the stale choice is replaced', (await page.evaluate((k) => localStorage.getItem(k), STORE)) === 'org-a' && (await headerName(page)).includes('Accra Events'))
     await ctx.close()
+
+    reset()
+    const nav = await open('/organizer', { stored: 'org-b' })
+    ctl.memberships = [['org-a', 'owner']]
+    await nav.page.evaluate(() => { window.__clockOffset += 60_000 }) // past the interval; no focus event
+    await nav.page.locator('aside').getByRole('link', { name: 'Events' }).click()
+    await settle(nav.page, 700)
+    rec('revoked', 'moving to another page re-checks too: B is gone, the Events page shown is A\'s',
+      /no longer have access to Kente Foods/.test(await nav.page.getByRole('alert').innerText().catch(() => '')) && (await headerName(nav.page)).includes('Accra Events') && nav.page.url().endsWith('/organizer/events') && !(await shows(nav.page, 'org-b')))
+    await nav.ctx.close()
 
     reset()
     const second = await open('/organizer/events/e-b1', { stored: 'org-b' })
@@ -405,6 +476,109 @@ function rec(group, name, pass, detail = '') {
     rec('session', 'an expired session that cannot be refreshed lands on sign-in, with no organization shown', expired.page.url().includes('/login') && !t.includes('Accra Events') && !t.includes('Kente Foods'), expired.page.url())
     rec('session', '...and no organization data was requested', log.orgReads.length === 0, JSON.stringify(log.orgReads))
     await expired.ctx.close()
+  }
+
+  // ---- 7a. a quiet re-check that finds nothing new changes nothing ------------------------
+  {
+    reset()
+    const { page, ctx } = await open('/organizer/settings', { stored: 'org-a' })
+    await page.fill('#name', 'Accra Events (unsaved edit)')
+    const readsBefore = log.orgReads.length
+    await returnToTab(page)
+    await settle(page)
+    rec('quiet', 'an unsaved Settings edit survives a re-check that finds the same memberships', (await page.inputValue('#name')) === 'Accra Events (unsaved edit)', await page.inputValue('#name'))
+    await page.goto(BASE + '/organizer', { waitUntil: 'networkidle' })
+    await settle(page)
+    const dashReads = log.orgReads.length
+    await returnToTab(page)
+    await settle(page)
+    rec('quiet', '...and makes the dashboard reload nothing', log.orgReads.length === dashReads, `${dashReads} -> ${log.orgReads.length}`)
+    rec('quiet', '...while the re-check itself did happen', log.access >= 3 && readsBefore >= 0)
+    await ctx.close()
+  }
+
+  // ---- 7b. a second tab, signing out, and a different person ----------------------------
+  {
+    reset()
+    const t = await open('/organizer', { stored: 'org-a' })
+    const tab2 = await t.ctx.newPage()
+    await tab2.goto(BASE + '/organizer', { waitUntil: 'networkidle' })
+    await settle(tab2)
+    rec('tabs', 'a second tab opens in the remembered organization', (await headerName(tab2)).includes('Accra Events'))
+    await pick(tab2, 'Kente Foods')
+    rec('tabs', 'switching in one tab leaves the other tab\'s page and data as they were (no mixing)',
+      (await headerName(t.page)).includes('Accra Events') && (await shows(t.page, 'org-a')) && !(await shows(t.page, 'org-b')))
+    await returnToTab(t.page)
+    await settle(t.page)
+    rec('tabs', 'returning to that tab after a while re-checks quietly and keeps its workspace and page',
+      (await headerName(t.page)).includes('Accra Events') && t.page.url().endsWith('/organizer') && (await t.page.getByRole('alert').count()) === 0)
+    await t.page.reload({ waitUntil: 'networkidle' })
+    await settle(t.page)
+    rec('tabs', 'a reload opens the organization chosen last, in either tab', (await headerName(t.page)).includes('Kente Foods'))
+    const later = await t.ctx.newPage()
+    await later.goto(BASE + '/organizer/events', { waitUntil: 'networkidle' })
+    await settle(later)
+    rec('tabs', 'a tab opened later restores the session and the workspace', (await headerName(later)).includes('Kente Foods') && (await shows(later, 'org-b')))
+    await later.close()
+
+    await tab2.locator('aside').getByRole('button', { name: 'Sign out' }).click()
+    await t.page.waitForURL(/\/login/, { timeout: 8000 }).catch(() => {})
+    await settle(t.page)
+    const bodyOut = await t.page.locator('body').innerText()
+    rec('sign-out', 'signing out in one tab signs the other out too, with nothing of the workspace left',
+      t.page.url().includes('/login') && !FIRST_PERSON_TEXT.some((x) => bodyOut.includes(x)), t.page.url())
+
+    // A different person signs in, in the other tab. Watch the first tab: from the
+    // moment the new person's workspace appears, nothing of the first may appear.
+    await t.page.addInitScript(watchForMixing, FIRST_PERSON_TEXT)
+    await t.page.evaluate(watchForMixing, FIRST_PERSON_TEXT)
+    await tab2.waitForURL(/\/login/, { timeout: 8000 }).catch(() => {})
+    await tab2.fill('#email', 'kojo@example.test')
+    await tab2.fill('#password', 'not-a-real-password')
+    await tab2.getByRole('button', { name: 'Sign in' }).click()
+    await tab2.waitForURL(/\/organizer/, { timeout: 8000 }).catch(() => {})
+    await settle(tab2, 600)
+    rec('account', 'the second person lands in their own organization', (await headerName(tab2)).includes('Volta Ventures'), tab2.url())
+    // The first tab follows the sign-in by itself (supabase-js tells other tabs);
+    // if it has not within a few seconds, open the app again in it.
+    await t.page.waitForURL(/\/organizer/, { timeout: 5000 }).catch(() => t.page.goto(BASE + '/organizer', { waitUntil: 'networkidle' }))
+    await settle(t.page, 600)
+    const bodyY = await t.page.locator('body').innerText()
+    rec('account', 'the first tab now shows only the second person\'s workspace', (await headerName(t.page)).includes('Volta Ventures') && !FIRST_PERSON_TEXT.some((x) => bodyY.includes(x)))
+    rec('account', 'no screen showed the second person\'s workspace with anything of the first', (await mixed(t.page)).length === 0, JSON.stringify((await mixed(t.page)).slice(0, 3)))
+    rec('account', 'nothing was requested for the first person\'s organizations with the second person\'s session',
+      !log.orgReads.some((r) => r.caller === UID2 && (r.org === 'org-a' || r.org === 'org-b')) && log.orgReads.some((r) => r.caller === UID2 && r.org === 'org-v'))
+    const stores = await t.page.evaluate(([a, b]) => [localStorage.getItem(a), localStorage.getItem(b)], [STORE, 'rally.organizer.active_org:' + UID2])
+    rec('account', 'each person\'s choice is kept apart in storage', stores[0] === 'org-b' && stores[1] === 'org-v', JSON.stringify(stores))
+    await t.ctx.close()
+
+    // The same person's tab picks up a different person's session without a
+    // sign-out in between (another tab signed in over it).
+    reset()
+    const d = await open('/organizer', { stored: 'org-b' })
+    await d.page.addInitScript(watchForMixing, FIRST_PERSON_TEXT)
+    await d.page.evaluate(watchForMixing, FIRST_PERSON_TEXT)
+    await d.page.evaluate((sess) => localStorage.setItem('sb-localhost-auth-token', JSON.stringify(sess)), sessionFor(UID2, 'kojo@example.test'))
+    await d.page.evaluate(() => { window.__clockOffset += 60_000; document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')) })
+    await settle(d.page, 1000)
+    // supabase-js adopts the new token from storage with no auth event, so the app
+    // still believes the first person is signed in. The workspace must not show
+    // the first person's organizations to the new token, nor file the new
+    // person's organizations under the first.
+    const bodyD = await d.page.locator('body').innerText()
+    rec('account', 'a different person\'s session arriving without a sign-out: the organizer area shows neither workspace, only a reload notice',
+      /sign-in changed in another tab/i.test(bodyD) && !FIRST_PERSON_TEXT.some((x) => bodyD.includes(x)) && !bodyD.includes('Volta'), bodyD.slice(0, 200))
+    rec('account', '...no false "lost access", and the first person\'s remembered choice is untouched',
+      !/no longer have access/.test(bodyD) && (await d.page.evaluate((k) => localStorage.getItem(k), STORE)) === 'org-b')
+    await d.page.getByRole('button', { name: 'Reload' }).click()
+    await d.page.waitForLoadState('networkidle')
+    await settle(d.page, 800)
+    const bodyD2 = await d.page.locator('body').innerText()
+    rec('account', '...and Reload opens the new person\'s own workspace, with nothing of the first',
+      (await headerName(d.page)).includes('Volta Ventures') && !FIRST_PERSON_TEXT.some((x) => bodyD2.includes(x)), await headerName(d.page))
+    rec('account', '...and no screen at any point mixed the two', (await mixed(d.page)).length === 0, JSON.stringify((await mixed(d.page)).slice(0, 3)))
+    rec('account', '...and nothing of the first person\'s organizations was requested with the second person\'s session', !log.orgReads.some((r) => r.caller === UID2 && (r.org === 'org-a' || r.org === 'org-b')), JSON.stringify(log.orgReads.filter((r) => r.caller === UID2)))
+    await d.ctx.close()
   }
 
   // ---- 8. accepting an invitation switches to the new organization ----------------------

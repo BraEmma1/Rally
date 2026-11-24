@@ -9,13 +9,14 @@ import {
 } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { listMyOrganizations } from '@/lib/organizer'
-import type { Organization, OrganizationMembership, OrgRole } from '@/lib/supabase'
+import { supabase, type Organization, type OrganizationMembership, type OrgRole } from '@/lib/supabase'
 import {
   LEGACY_ACTIVE_ORG_KEY,
   activeOrganizationStorageKey,
   isMemberOf,
   lostOrganization,
   resolveActiveMembership,
+  reuseUnchanged,
 } from '@/lib/workspaces'
 
 // Which organization the person is currently working in. They may belong to
@@ -51,7 +52,36 @@ function writeStored(userId: string | null, value: string | null) {
   }
 }
 
-// Background re-checks (tab regains focus, the switcher opens) at most this often.
+// The person the API token currently belongs to. supabase-js reads the session
+// from shared storage on every request, so when another tab signs a different
+// person in, this tab's requests go out as that person — without any auth event
+// telling the app. A membership answer is only ever filed under the person whose
+// token produced it.
+//
+// Read straight from that storage, not through supabase.auth.getSession(): that
+// takes supabase-js's auth lock, which every API request also takes, and calling
+// it on every focus measurably delayed other requests. Returns undefined when it
+// cannot tell (no storage, an unexpected format): then nothing is blocked.
+function tokenOwner(): string | null | undefined {
+  try {
+    const key = (supabase.auth as unknown as { storageKey?: unknown }).storageKey
+    if (typeof key !== 'string') return undefined
+    const raw = window.localStorage.getItem(key)
+    if (!raw) return null
+    const stored = JSON.parse(raw) as { user?: { id?: unknown }; access_token?: unknown }
+    if (typeof stored.user?.id === 'string') return stored.user.id
+    if (typeof stored.access_token === 'string') {
+      const payload = JSON.parse(atob(stored.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as { sub?: unknown }
+      if (typeof payload.sub === 'string') return payload.sub
+    }
+    return undefined
+  } catch {
+    return undefined
+  }
+}
+
+// Background re-checks (tab focus or visibility, opening the switcher, moving
+// between organizer pages) run at most this often.
 const REVALIDATE_INTERVAL_MS = 15_000
 
 export type LostOrganizationAccess = { id: string; name: string }
@@ -74,6 +104,10 @@ type OrganizerContextValue = {
   // Set when a successful reload no longer contains the organization that was on
   // screen: the membership was removed, or the account lost access.
   lostAccess: LostOrganizationAccess | null
+  // This tab's API token now belongs to a different person than the one the app
+  // shows (another tab signed someone else in). The organizer area shows nothing
+  // of either workspace until the tab is reloaded as the new person.
+  foreignSession: boolean
   dismissLostAccess: () => void
   selectOrganization: (id: string) => void
   refresh: () => Promise<void>
@@ -85,44 +119,62 @@ type OrganizerContextValue = {
 
 const OrganizerContext = createContext<OrganizerContextValue | undefined>(undefined)
 
+const NO_MEMBERSHIPS: OrganizationMembership[] = []
+
 export function OrganizerProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth()
   const userId = user?.id ?? null
 
-  const [memberships, setMemberships] = useState<OrganizationMembership[]>([])
-  const [activeId, setActiveId] = useState<string | null>(() => (userId ? readStored(userId) : null))
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [revalidationError, setRevalidationError] = useState<string | null>(null)
-  const [lostAccess, setLostAccess] = useState<LostOrganizationAccess | null>(null)
+  // Everything below belongs to the person it was loaded for, and `owner` says
+  // who that is. When the signed-in person changes — another tab signs out and
+  // someone else signs in, and this tab picks up their session — there is a render
+  // before the new load starts. In it, every value of the previous person reads
+  // as empty and loading, so none of their organizations, selection, notices or
+  // errors reaches the new person's screen, not even for one render.
+  const [owner, setOwner] = useState<string | null>(null)
+  const [ownMemberships, setMemberships] = useState<OrganizationMembership[]>(NO_MEMBERSHIPS)
+  const [selection, setSelection] = useState<{ userId: string | null; id: string | null }>(() => ({
+    userId,
+    id: userId ? readStored(userId) : null,
+  }))
+  const [ownLoading, setLoading] = useState(true)
+  const [ownRefreshing, setRefreshing] = useState(false)
+  const [ownError, setError] = useState<string | null>(null)
+  const [ownRevalidationError, setRevalidationError] = useState<string | null>(null)
+  const [ownLost, setLostAccess] = useState<LostOrganizationAccess | null>(null)
+  const [ownForeign, setForeignSession] = useState(false)
+
+  const mine = userId !== null && owner === userId
+  const memberships = mine ? ownMemberships : NO_MEMBERSHIPS
+  const loading = userId === null ? false : !mine || ownLoading
+  const refreshing = mine && ownRefreshing
+  const error = mine ? ownError : null
+  const revalidationError = mine ? ownRevalidationError : null
+  const lostAccess = mine ? ownLost : null
+  const foreignSession = mine && ownForeign
+  // The remembered choice is per person: another person's selection is never
+  // even consulted. Still only a hint, resolved against this person's memberships.
+  const activeId = selection.userId === userId ? selection.id : userId ? readStored(userId) : null
 
   // Whose memberships are already loaded. The id, not the user object: supabase
   // hands out a new user object on every auth event, and depending on the object
   // re-ran this whole load on every token refresh and every tab return.
   const loadedForRef = useRef<string | null>(null)
   // Only the latest request may change state: a slow answer to an older one
-  // (a focus re-check overtaken by an explicit refresh) must not overwrite it.
+  // (a focus re-check overtaken by an explicit refresh, or the previous
+  // person's load) must not overwrite it.
   const seqRef = useRef(0)
   const lastCheckRef = useRef(0)
   // A selection of an organization not in the list yet — the moment after
   // accepting an invitation or creating an organization. Honoured only if a load
   // that STARTED after the selection contains it.
   const pendingRef = useRef<{ id: string; afterSeq: number } | null>(null)
-  const membershipsRef = useRef<OrganizationMembership[]>([])
+  const membershipsRef = useRef<OrganizationMembership[]>(NO_MEMBERSHIPS)
   const resolvedIdRef = useRef<string | null>(null)
 
   const active = resolveActiveMembership(memberships, activeId)
   membershipsRef.current = memberships
   resolvedIdRef.current = active?.organization.id ?? null
-
-  // A different person (sign-out, then someone else signs in): forget the
-  // previous person's selection and read theirs. load() below clears the
-  // memberships and any pending selection for the same change.
-  useEffect(() => {
-    setActiveId(userId ? readStored(userId) : null)
-    setLostAccess(null)
-  }, [userId])
 
   const load = useCallback(
     async (mode: 'explicit' | 'background') => {
@@ -130,10 +182,12 @@ export function OrganizerProvider({ children }: { children: ReactNode }) {
         seqRef.current++
         loadedForRef.current = null
         pendingRef.current = null
-        setMemberships([])
+        setOwner(null)
+        setMemberships(NO_MEMBERSHIPS)
         setError(null)
         setRevalidationError(null)
         setLostAccess(null)
+        setForeignSession(false)
         setLoading(false)
         setRefreshing(false)
         return
@@ -143,18 +197,38 @@ export function OrganizerProvider({ children }: { children: ReactNode }) {
       const first = loadedForRef.current !== userId
       lastCheckRef.current = Date.now()
       if (first) {
+        // A new person: start from nothing, and never carry a selection across.
+        setOwner(userId)
+        setMemberships(NO_MEMBERSHIPS)
+        setError(null)
+        setRevalidationError(null)
+        setLostAccess(null)
+        setForeignSession(false)
         setLoading(true)
-        // Never show one person's organizations while another person's load,
-        // and never carry a selection across people.
-        setMemberships([])
         pendingRef.current = null
       } else {
         setRefreshing(true)
+      }
+      const settle = () => {
+        if (first) setLoading(false)
+        else setRefreshing(false)
       }
 
       const { data, error: loadError } = await listMyOrganizations()
       // A newer request owns the state, including the loading flags.
       if (seq !== seqRef.current) return
+      // Answered under someone else's token, this would be someone else's
+      // memberships filed under this person: a false "lost access", another
+      // person's organizations in this person's switcher and stored choice.
+      // The token cannot be checked for free before the request (supabase-js
+      // takes its auth lock), so it is checked once, after: if it belongs to
+      // anyone else now, the answer is dropped.
+      const answeredAs = tokenOwner()
+      if (answeredAs !== undefined && answeredAs !== userId) {
+        if (answeredAs) setForeignSession(true)
+        settle()
+        return
+      }
 
       if (loadError) {
         // listMyOrganizations returns an empty list alongside its error, and the
@@ -175,13 +249,13 @@ export function OrganizerProvider({ children }: { children: ReactNode }) {
           if (isMemberOf(data, pending.id)) nextActive = pending.id
         }
 
-        setMemberships(data)
+        setMemberships(reuseUnchanged(previous, data))
         setError(null)
         setRevalidationError(null)
         loadedForRef.current = userId
 
         if (nextActive) {
-          setActiveId(nextActive)
+          setSelection({ userId, id: nextActive })
           writeStored(userId, nextActive)
           setLostAccess(null)
         } else {
@@ -190,8 +264,7 @@ export function OrganizerProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      if (first) setLoading(false)
-      else setRefreshing(false)
+      settle()
     },
     [userId]
   )
@@ -213,21 +286,40 @@ export function OrganizerProvider({ children }: { children: ReactNode }) {
 
   // Memberships change on the server — someone is removed from a team, an
   // account is suspended — and nothing pushes that to an open tab. Re-check when
-  // the person comes back to it, quietly: a failure keeps the known list.
+  // the person comes back to it (focus, visibility, a page restored from the
+  // back-forward cache), quietly: a failure keeps the known list. The organizer
+  // layout also re-checks as the person moves between pages.
+  // The token check is a local storage read (no request, no lock), so it runs on
+  // every return; the membership re-check behind it is throttled.
+  const checkTokenOwner = useCallback(() => {
+    if (!userId || loadedForRef.current !== userId) return true
+    const owner = tokenOwner()
+    if (owner && owner !== userId) {
+      setForeignSession(true)
+      return false
+    }
+    return true
+  }, [userId])
+
   useEffect(() => {
     function onVisible() {
-      if (document.visibilityState === 'visible') revalidate()
+      if (document.visibilityState === 'visible' && checkTokenOwner()) revalidate()
     }
     function onFocus() {
-      revalidate()
+      if (checkTokenOwner()) revalidate()
+    }
+    function onPageShow(e: PageTransitionEvent) {
+      if (e.persisted && checkTokenOwner()) revalidate({ force: true })
     }
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('focus', onFocus)
+    window.addEventListener('pageshow', onPageShow)
     return () => {
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('focus', onFocus)
+      window.removeEventListener('pageshow', onPageShow)
     }
-  }, [revalidate])
+  }, [revalidate, checkTokenOwner])
 
   // Keep the remembered choice equal to what is actually shown: a stale id (an
   // organization left, or never belonged to) is replaced by the fallback. Not
@@ -236,7 +328,7 @@ export function OrganizerProvider({ children }: { children: ReactNode }) {
     if (loading || pendingRef.current) return
     const resolved = active?.organization.id ?? null
     if (resolved !== activeId) {
-      setActiveId(resolved)
+      setSelection({ userId, id: resolved })
       writeStored(userId, resolved)
     }
   }, [active, activeId, loading, userId])
@@ -246,7 +338,7 @@ export function OrganizerProvider({ children }: { children: ReactNode }) {
       setLostAccess(null)
       if (isMemberOf(membershipsRef.current, id)) {
         pendingRef.current = null
-        setActiveId(id)
+        setSelection({ userId, id })
         writeStored(userId, id)
         return
       }
@@ -271,6 +363,7 @@ export function OrganizerProvider({ children }: { children: ReactNode }) {
         error,
         revalidationError,
         lostAccess,
+        foreignSession,
         dismissLostAccess,
         selectOrganization,
         refresh,
@@ -290,15 +383,27 @@ export function useOrganizer() {
 
 // Pages about one event (detail, edit, a partnership) authorize against the event
 // and may be opened from a link, while another organization is selected. Once
-// the event is loaded and the person is a member of its organization, show that
+// the database has said the person may manage the event, show the event's own
 // organization in the header and navigation, so the page and its workspace agree.
 // Never selects an organization the person does not belong to.
 export function useFollowOrganization(organizationId: string | null | undefined) {
-  const { memberships, organization, selectOrganization } = useOrganizer()
+  const { memberships, organization, selectOrganization, revalidate } = useOrganizer()
   const activeId = organization?.id ?? null
+  const askedRef = useRef<string | null>(null)
   useEffect(() => {
     if (!organizationId || organizationId === activeId) return
-    if (!isMemberOf(memberships, organizationId)) return
-    selectOrganization(organizationId)
-  }, [organizationId, activeId, memberships, selectOrganization])
+    if (isMemberOf(memberships, organizationId)) {
+      selectOrganization(organizationId)
+      return
+    }
+    // The database lets this person manage the event, but its organization is not
+    // in the list we hold — most likely a membership granted after the list was
+    // loaded. Ask once for this organization; when the list changes this effect
+    // runs again and follows if the membership is there. If it is not (an event
+    // reached through another rule), the selection simply stays as it is.
+    if (askedRef.current !== organizationId) {
+      askedRef.current = organizationId
+      revalidate({ force: true })
+    }
+  }, [organizationId, activeId, memberships, selectOrganization, revalidate])
 }

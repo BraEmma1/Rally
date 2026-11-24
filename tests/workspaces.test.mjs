@@ -15,6 +15,7 @@ import {
   pathAfterSwitch,
   personalWorkspace,
   resolveActiveMembership,
+  reuseUnchanged,
   roleLabel,
   workspaceEntries,
   workspaceScopeKey,
@@ -158,4 +159,19 @@ test('organization pages remount on every switch; event pages and My invitations
 test('the remembered choice is stored per person', () => {
   assert.notEqual(activeOrganizationStorageKey('user-1'), activeOrganizationStorageKey('user-2'))
   assert.equal(activeOrganizationStorageKey('user-1'), 'rally.organizer.active_org:user-1')
+})
+
+test('an unchanged re-check hands back the same objects, so nothing re-renders or resets', () => {
+  const again = [member('owner', { ...A }), member('manager', { ...B })] // equal content, new objects
+  assert.equal(reuseUnchanged(mine, again), mine, 'nothing changed: the very same array')
+  const renamed = [member('owner', { ...A }), member('manager', { ...B, name: 'Kente Foods Ltd' })]
+  const r = reuseUnchanged(mine, renamed)
+  assert.notEqual(r, mine)
+  assert.equal(r[0], mine[0], 'the unchanged organization keeps its object')
+  assert.notEqual(r[1], mine[1], 'the changed one is new')
+  assert.equal(r[1].organization.name, 'Kente Foods Ltd')
+  const promoted = [member('admin', { ...A }), member('manager', { ...B })]
+  assert.notEqual(reuseUnchanged(mine, promoted)[0], mine[0], 'a role change is a change')
+  assert.deepEqual(reuseUnchanged(mine, [member('owner', { ...A })]).map((m) => m.organization.id), ['org-a'], 'a removed membership is gone')
+  assert.deepEqual(reuseUnchanged([], again), again)
 })

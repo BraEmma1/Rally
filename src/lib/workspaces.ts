@@ -115,6 +115,24 @@ export function lostOrganization(
   return { id: previousActiveId, name: before.organization.name }
 }
 
+// A re-check usually answers exactly what we already had. Hand back the SAME
+// objects for every membership that did not change (and the same array when
+// nothing changed), so a quiet re-check re-renders nothing and resets nothing:
+// pages that depend on the organization object (Settings fills its form from it)
+// would otherwise reload or lose unsaved edits on every return to the tab.
+export function reuseUnchanged(
+  previous: OrganizationMembership[],
+  next: OrganizationMembership[]
+): OrganizationMembership[] {
+  const before = new Map(previous.map((m) => [m.organization.id, m]))
+  const merged = next.map((m) => {
+    const old = before.get(m.organization.id)
+    return old && JSON.stringify(old) === JSON.stringify(m) ? old : m
+  })
+  const same = merged.length === previous.length && merged.every((m, i) => m === previous[i])
+  return same ? previous : merged
+}
+
 function normalize(pathname: string): string {
   const p = pathname.split(/[?#]/)[0]
   return p.length > 1 ? p.replace(/\/+$/, '') : p
