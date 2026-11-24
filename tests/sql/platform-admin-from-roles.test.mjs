@@ -22,7 +22,10 @@
 //                       themselves anything.
 //   8. memberships    - a platform admin still cannot join an organization.
 //   9. S1 sync        - the sync triggers and functions are untouched and still mirror.
-//  10. the function   - SECURITY DEFINER, owner, pinned search_path, grants, body and comment.
+//  10. the function   - SECURITY DEFINER, owner, pinned search_path, grants, body and comment;
+//                       it agrees with account_is_active() AND an active grant for every person
+//                       and state, makes no nested helper call (per-row policy cost), and the
+//                       suite fails if account_is_active() stops being the status test it inlines.
 //
 //   npm i --no-save @electric-sql/pglite@0.2.17
 //   node tests/sql/platform-admin-from-roles.test.mjs [migrations-dir]
@@ -117,6 +120,21 @@ const OLD_SRC_MD5 = (await one(`SELECT md5(prosrc) h FROM pg_proc WHERE oid = 'p
 await db.exec(OLD_DEF.replace('FUNCTION public.is_platform_admin()', 'FUNCTION public._pr2_old_is_platform_admin()'))
 await db.exec(`GRANT EXECUTE ON FUNCTION public._pr2_old_is_platform_admin() TO authenticated`)
 const oldIpa = async (uid) => (await as(uid, `SELECT _pr2_old_is_platform_admin() v`)).rows[0].v
+// The approved rule written literally as a composition of the existing helper (D-43): the
+// migration inlines account_is_active() for per-row cost, so it must agree with this everywhere.
+await db.exec(`CREATE FUNCTION public._pr2_composed_rule() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+  SET search_path = public, pg_temp AS $$ SELECT public.account_is_active() AND EXISTS (SELECT 1 FROM public.platform_roles r
+  WHERE r.user_id = auth.uid() AND r.role = 'platform_admin' AND r.revoked_at IS NULL) $$`)
+await db.exec(`GRANT EXECUTE ON FUNCTION public._pr2_composed_rule() TO authenticated, anon`)
+const composed = async (uid, role = 'authenticated') => (await as(uid, `SELECT _pr2_composed_rule() v`, [], role)).rows[0].v
+const agreeAll = async (extra = []) => {
+  const bad = []
+  for (const [label, uid, role = 'authenticated'] of [...PEOPLE.filter(([, , r]) => r !== 'anon'), ...extra]) {
+    const a = await ipa(uid), b = await composed(uid, role)
+    if (a !== b) bad.push(`${label}: is_platform_admin()=${a}, rule=${b}`)
+  }
+  return bad
+}
 
 // ---- 2. data fingerprint ----------------------------------------------------------------
 const TRACKED = ['auth.users', 'profiles', 'user_accounts', 'account_type_changes', 'organizations', 'organization_members',
@@ -200,6 +218,9 @@ for (const [label] of PEOPLE.slice(1)) {
       r.is_platform_admin === false && denied && r['policy user_accounts.select_own_account'] === expectOwn && r['policy account_type_changes.select_account_changes_as_admin'] === 0, JSON.stringify(r))
   }
 }
+let bad = await agreeAll()
+ok('the migrated helper agrees with account_is_active() AND an active grant, for all 11 signed-in kinds of person', bad.length === 0, bad.join('; '))
+ok('...and anonymous callers are refused EXECUTE as before (the rule itself would answer false)', classify(await err(null, `SELECT is_platform_admin()`, [], 'anon')) === 'denied: no privilege' && (await composed(null, 'anon')) === false)
 ok('a suspended admin is denied even though its grant is active', (await activeGrants(U.adminSusp)) === 1 && M_after['suspended platform admin'].is_platform_admin === false)
 ok('a pending-approval admin is denied even though its grant is active', (await activeGrants(U.adminPending)) === 1 && M_after['pending platform admin'].is_platform_admin === false)
 
@@ -233,6 +254,8 @@ await as(U.admin, `SELECT set_account_status($1, 'suspended', 'pr2: suspend')`, 
 ok('suspending the account denies platform administration although the grant stays active', (await activeGrants(T)) === 1 && (await ipa(T)) === false && classify(await err(T, `SELECT admin_platform_overview()`)) === 'denied: not a platform administrator')
 await as(U.admin, `SELECT set_account_status($1, 'active', 'pr2: reactivate')`, [T])
 ok('reactivating restores it', (await ipa(T)) === true)
+bad = await agreeAll([['lifecycle target', T]])
+ok('at each lifecycle end state the helper still agrees with the composed rule', bad.length === 0, bad.join('; '))
 await as(U.admin, `SELECT set_account_type($1, 'attendee', 'pr2: cleanup')`, [T])
 ok('after the lifecycle, drift is 0', (await drift()).length === 0)
 
@@ -243,6 +266,7 @@ ok('a revoked grant denies, although account_type still says platform_admin (the
 ok('...through every admin read RPC', (await Promise.all(READS.map(([, sql, params]) => err(U.admin, sql, params)))).every((x) => classify(x) === 'denied: not a platform administrator'))
 ok('...and through the write RPCs', classify(await err(U.admin, `SELECT set_account_type($1, 'vendor', 'x')`, [U.attendee])) === 'denied: not a platform administrator' && classify(await err(U.admin, `SELECT set_account_status($1, 'suspended', 'x')`, [U.attendee])) === 'denied: not a platform administrator')
 ok('...and through both policies (own row only, no account-type changes)', (await as(U.admin, `SELECT count(*)::int n FROM user_accounts`)).rows[0].n === 1 && (await as(U.admin, `SELECT count(*)::int n FROM account_type_changes`)).rows[0].n === 0)
+ok('...and agrees with the composed rule (both false)', (await composed(U.admin)) === false)
 ok('...and the drift check reports the platform_admin account without an active grant', (await drift()).some((d) => d.subject_id === U.admin && /platform_admin without/.test(d.kind)))
 await sup(`INSERT INTO platform_roles (user_id, role, granted_by, grant_reason) VALUES ($1, 'platform_admin', NULL, 'pr2 test: restore')`, [U.admin])
 ok('restoring an active grant restores access', (await ipa(U.admin)) === true && (await drift()).length === 0)
@@ -258,6 +282,7 @@ ok('...no admin read RPC, write RPC or policy opens up', (await Promise.all(READ
   && classify(await err(U.legacyOnly, `SELECT set_account_type($1, 'vendor', 'x')`, [U.attendee])) === 'denied: not a platform administrator'
   && (await as(U.legacyOnly, `SELECT count(*)::int n FROM user_accounts`)).rows[0].n === 1)
 ok('...and the drift check reports it', (await drift()).some((d) => d.subject_id === U.legacyOnly))
+ok('...and agrees with the composed rule (both false)', (await composed(U.legacyOnly)) === false)
 await sup(`SET session_replication_role = replica`)
 await sup(`UPDATE user_accounts SET account_type = 'attendee' WHERE user_id = $1`, [U.legacyOnly])
 await sup(`SET session_replication_role = origin`)
@@ -265,6 +290,7 @@ await sup(`SET session_replication_role = origin`)
 // ---- 6. tampering (database owner only) ------------------------------------------------------
 await sup(`INSERT INTO platform_roles (user_id, role, grant_reason) VALUES ($1, 'platform_admin', 'pr2 test: owner-level tamper')`, [U.attendee])
 ok('platform_roles is now authoritative: an owner-written grant makes an attendee a platform admin (option 1, no account_type gate)', (await ipa(U.attendee)) === true && (await oldIpa(U.attendee)) === false)
+ok('...and agrees with the composed rule (both true)', (await composed(U.attendee)) === true)
 ok('...and the drift check reports that grant as having no platform_admin account', (await drift()).some((d) => d.subject_id === U.attendee && /active grant without/.test(d.kind)))
 await sup(`UPDATE platform_roles SET revoked_at = now(), revoke_reason = 'pr2 test: cleanup' WHERE user_id = $1 AND revoked_at IS NULL`, [U.attendee])
 ok('...revoking that grant ends it', (await ipa(U.attendee)) === false && (await drift()).length === 0)
@@ -315,13 +341,17 @@ const fn = await one(`SELECT p.prosecdef, pg_get_userbyid(p.proowner) owner, p.p
   FROM pg_proc p WHERE p.oid = 'public.is_platform_admin()'::regprocedure`)
 ok('SECURITY DEFINER, owned by postgres, STABLE, search_path pinned to public, pg_temp', fn.prosecdef && fn.owner === 'postgres' && fn.provolatile === 's' && /search_path=public, pg_temp/.test(fn.cfg), JSON.stringify(fn))
 ok('EXECUTE: signed-in users yes; anon and PUBLIC no (unchanged)', fn.a === true && fn.n === false && fn.pub === false)
-ok('the body requires an active account and an unrevoked platform_admin grant', /account_is_active\(\)/.test(fn.prosrc) && /platform_roles/.test(fn.prosrc) && /revoked_at IS NULL/.test(fn.prosrc) && /'platform_admin'/.test(fn.prosrc))
-ok('the body no longer reads user_accounts.account_type (no second gate, option 1)', !/account_type/.test(fn.prosrc) && !/user_accounts/.test(fn.prosrc))
+ok('the body requires an unrevoked platform_admin grant and an active account', /platform_roles/.test(fn.prosrc) && /revoked_at IS NULL/.test(fn.prosrc) && /'platform_admin'/.test(fn.prosrc) && /status = 'active'/.test(fn.prosrc))
+ok('the body no longer reads user_accounts.account_type (no second gate, option 1)', !/account_type/.test(fn.prosrc))
+ok('the body calls no other SQL helper (a nested call is re-planned per row inside the two policies)', [...fn.prosrc.matchAll(/([a-z_][a-z0-9_]*)\s*\(/gi)].map((m) => m[1].toLowerCase()).every((f) => ['exists', 'uid'].includes(f)), fn.prosrc)
+const aia = (await one(`SELECT regexp_replace(prosrc, '\\s+', ' ', 'g') s FROM pg_proc WHERE oid = 'public.account_is_active()'::regprocedure`)).s.trim()
+ok('account_is_active() is still exactly the status test the body inlines (if it changes, is_platform_admin() must follow)',
+  aia === "SELECT EXISTS ( SELECT 1 FROM user_accounts a WHERE a.user_id = auth.uid() AND a.status = 'active' );", aia)
 ok('the function carries a comment explaining its source of truth', /platform_roles/.test(fn.c ?? ''))
 ok('the 10 callers and 2 policies are unchanged by the migration (still call is_platform_admin())',
   Number((await one(`SELECT count(*) n FROM pg_proc WHERE pronamespace = 'public'::regnamespace AND proname <> 'is_platform_admin' AND proname NOT LIKE '\\_pr2%' AND prosrc ~ 'is_platform_admin\\s*\\('`)).n) === 10
   && Number((await one(`SELECT count(*) n FROM pg_policies WHERE (coalesce(qual,'') || coalesce(with_check,'')) ~ 'is_platform_admin'`)).n) === 2)
 
-await db.exec(`DROP FUNCTION public._pr2_old_is_platform_admin()`)
+await db.exec(`DROP FUNCTION public._pr2_old_is_platform_admin(); DROP FUNCTION public._pr2_composed_rule()`)
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

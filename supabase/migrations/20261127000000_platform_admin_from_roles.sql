@@ -13,15 +13,29 @@ second gate on `account_type`.
                      AND a.status = 'active')
 
 ## After
-    account_is_active()                           -- same status test as before
-    AND an unrevoked platform_roles row (user = auth.uid(), role = 'platform_admin')
+    an unrevoked platform_roles row (user = auth.uid(), role = 'platform_admin')
+    whose account is active (user_accounts.status = 'active', the test
+    account_is_active() makes)
+
+## Why one query and not account_is_active() AND EXISTS (...)
+The two are logically identical, and the suite checks that against
+account_is_active() itself. But two RLS policies evaluate is_platform_admin() once
+per row (user_accounts.select_own_account and
+account_type_changes.select_account_changes_as_admin), and the admin pages read
+both tables directly. On PostgreSQL 16/17 a SQL function called from inside another
+non-inlined SQL function is re-planned on every outer call. Measured on PGlite with
+20,000 accounts (a count of user_accounts as a non-admin): the old body took 236 ms;
+account_is_active() AND EXISTS took 1,864 ms; this single query takes 337 ms.
+The suite fails if account_is_active() ever stops being exactly this status test,
+so the two cannot drift apart silently.
 
 ## Why the answers do not change
 Identity stage S1 (20261125000000) mirrors every write of `account_type` into
 `platform_roles` through the `sync_platform_role` trigger, so "active grant" and
 "account_type = platform_admin" agree for every write path. `identity_s1_drift()`
 checks exactly that. If they ever disagree:
-- a missing or revoked grant DENIES (fails closed), whatever `account_type` says;
+- a missing or revoked grant DENIES (fails closed), whatever `account_type` says,
+  and so does a grant held by an account that is not active;
 - an extra grant can only be written by the database owner. Clients hold no
   privilege on `platform_roles` (S1); `identity_s1_drift()` reports such a row.
 
@@ -60,13 +74,15 @@ BEGIN
   LANGUAGE sql STABLE SECURITY DEFINER
   SET search_path = public, pg_temp
   AS $fn$
-    SELECT public.account_is_active()
-       AND EXISTS (
-         SELECT 1 FROM public.platform_roles r
-         WHERE r.user_id = auth.uid()
-           AND r.role = 'platform_admin'
-           AND r.revoked_at IS NULL
-       );
+    SELECT EXISTS (
+      SELECT 1
+      FROM public.platform_roles r
+      JOIN public.user_accounts a ON a.user_id = r.user_id
+      WHERE r.user_id = auth.uid()
+        AND r.role = 'platform_admin'
+        AND r.revoked_at IS NULL
+        AND a.status = 'active'
+    );
   $fn$;
 
   COMMENT ON FUNCTION public.is_platform_admin() IS
