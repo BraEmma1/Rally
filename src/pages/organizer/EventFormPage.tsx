@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
-import { useOrganizer } from '@/context/OrganizerContext'
+import { useFollowOrganization, useOrganizer } from '@/context/OrganizerContext'
 import { Button } from '@/components/ui/Button'
 import { BannerUpload } from '@/components/ui/BannerUpload'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -57,12 +57,16 @@ export default function EventFormPage() {
   // or if it could not be read; the form still works without it.
   const [seats, setSeats] = useState<EventSeatCounts | null>(null)
   const [seatsFailed, setSeatsFailed] = useState(false)
+  // Edit only: the event's organization, so the workspace follows it (see
+  // EventDetailPage). The create form uses the selected organization.
+  const [eventOrganizationId, setEventOrganizationId] = useState<string | null>(null)
 
   // Editing is an event-scoped right (can_manage_event): an owner or admin may
   // edit any event, a manager only those assigned to them. Creating is checked
   // separately below. The check is skipped on the create form.
   const access = useEventAccess(isEdit ? id : null)
   const allowed = access.state === 'manage'
+  useFollowOrganization(isEdit && allowed ? eventOrganizationId : null)
 
   useEffect(() => {
     if (!id || !allowed) return
@@ -75,6 +79,7 @@ export default function EventFormPage() {
         return
       }
       setArchived(data.archived_at !== null)
+      setEventOrganizationId(data.organization_id)
       setForm({
         name: data.name,
         description: data.description ?? '',

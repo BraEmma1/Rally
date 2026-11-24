@@ -1,11 +1,9 @@
-import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft,
   Bell,
-  Building2,
   CalendarRange,
-  ChevronDown,
   ChevronsLeft,
   ChevronsRight,
   LayoutDashboard,
@@ -13,6 +11,7 @@ import {
   Mail,
   Search,
   Settings,
+  ShieldAlert,
   UserCircle,
   Users,
   X,
@@ -24,7 +23,14 @@ import { Avatar } from '@/components/ui/Avatar'
 import { Badge } from '@/components/ui/Badge'
 import OrganizerBottomNav from '@/components/organizer/OrganizerBottomNav'
 import OrganizerMobileDrawer from '@/components/organizer/OrganizerMobileDrawer'
+import {
+  WorkspaceChip,
+  WorkspaceIdentity,
+  WorkspaceMenu,
+  WorkspaceSheet,
+} from '@/components/workspace/WorkspaceSwitcher'
 import { cn } from '@/lib/utils'
+import { pathAfterSwitch, workspaceScopeKey } from '@/lib/workspaces'
 
 const navItems = [
   { to: '/organizer', label: 'Dashboard', icon: LayoutDashboard, end: true },
@@ -44,67 +50,57 @@ function UnreadBadge({ count }: { count: number }) {
   )
 }
 
-function OrganizationSwitcher({ onNavigate }: { onNavigate?: () => void }) {
-  const { memberships, organization, selectOrganization } = useOrganizer()
-  const [open, setOpen] = useState(false)
-
-  if (!organization) return null
-
-  // One organization is the common case; a dropdown for a single item is noise.
-  if (memberships.length < 2) {
-    return (
-      <div className="flex items-center gap-2 px-2 py-2">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
-          <Building2 className="h-4 w-4" />
-        </div>
-        <p className="truncate text-sm font-medium text-gray-900">{organization.name}</p>
-      </div>
-    )
-  }
-
+// Told once, in the page, when the organization that was on screen is no
+// longer one the person belongs to. The page has already moved to another of
+// their organizations; nothing from the old one stays on screen.
+function LostAccessNotice() {
+  const { lostAccess, organization, dismissLostAccess } = useOrganizer()
+  if (!lostAccess) return null
   return (
-    <div className="relative">
+    <div
+      role="alert"
+      className="mb-4 flex items-start gap-3 rounded-lg border border-warning-200 bg-warning-50 p-3 text-sm text-warning-800"
+    >
+      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+      <p className="min-w-0 flex-1">
+        You no longer have access to <span className="font-semibold">{lostAccess.name}</span>.
+        {organization ? ` You're now in ${organization.name}.` : ''}
+      </p>
       <button
-        onClick={() => setOpen(!open)}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-gray-100"
+        type="button"
+        onClick={dismissLostAccess}
+        aria-label="Dismiss"
+        className="-m-1 rounded p-1 text-warning-700 hover:bg-warning-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-warning-600"
       >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
-          <Building2 className="h-4 w-4" />
-        </div>
-        <p className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900">{organization.name}</p>
-        <ChevronDown className="h-4 w-4 shrink-0 text-gray-400" />
+        <X className="h-4 w-4" />
       </button>
-      {open && (
-        <div className="absolute left-0 right-0 top-full z-10 mt-1 overflow-hidden rounded-md border border-gray-200 bg-white shadow-lg">
-          {memberships.map((m) => (
-            <button
-              key={m.organization.id}
-              onClick={() => {
-                selectOrganization(m.organization.id)
-                setOpen(false)
-                onNavigate?.()
-              }}
-              className={cn(
-                'flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50',
-                m.organization.id === organization.id ? 'font-medium text-primary-700' : 'text-gray-700'
-              )}
-            >
-              <span className="min-w-0 flex-1 truncate">{m.organization.name}</span>
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
 
 export default function OrganizerLayout() {
   const { signOut, account, profile, user } = useAuth()
-  const { role, organization } = useOrganizer()
+  const { organization, lostAccess } = useOrganizer()
   const { unreadCount } = useNotifications()
   const navigate = useNavigate()
+  const location = useLocation()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const closeSheet = useCallback(() => setSheetOpen(false), [])
   const [searchOpen, setSearchOpen] = useState(false)
+
+  // Access to the organization on screen was removed. Section pages have
+  // already re-mounted for the organization shown instead (see the Outlet key);
+  // a page about one of the lost organization's events is left for that
+  // organization's Events list.
+  const lostId = lostAccess?.id ?? null
+  useEffect(() => {
+    if (!lostId) return
+    const target = pathAfterSwitch(location.pathname)
+    if (target !== location.pathname) navigate(target, { replace: true })
+    // Deliberately keyed on the lost organization only: this runs once when
+    // access is lost, not on every navigation that follows.
+  }, [lostId])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(
     () => localStorage.getItem('rally.sidebarCollapsed') === '1'
   )
@@ -188,16 +184,9 @@ export default function OrganizerLayout() {
           </button>
         </div>
 
-        {!sidebarCollapsed && (
-          <div className="border-b border-gray-200 px-3 py-3">
-            <OrganizationSwitcher />
-            {organization && role && (
-              <p className="px-2 pt-1 text-xs text-gray-500">
-                You are {role === 'admin' ? 'an' : 'a'} {role === 'manager' ? 'event manager' : role}
-              </p>
-            )}
-          </div>
-        )}
+        <div className={cn('border-b border-gray-200 py-3', sidebarCollapsed ? 'px-2' : 'px-3')}>
+          <WorkspaceMenu collapsed={sidebarCollapsed} />
+        </div>
 
         <div className={cn('flex-1 py-4', sidebarCollapsed ? 'px-2' : 'px-3')}>{nav()}</div>
 
@@ -239,14 +228,7 @@ export default function OrganizerLayout() {
           sidebarCollapsed ? 'md:pl-[5rem]' : 'md:pl-[17rem]'
         )}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
-            <Building2 className="h-4 w-4" />
-          </div>
-          <span className="truncate text-sm font-semibold text-gray-900">
-            {organization?.name ?? 'Organizer workspace'}
-          </span>
-        </div>
+        <WorkspaceIdentity className="max-w-[40%]" />
 
         <div className="flex flex-1 justify-center">
           <button
@@ -309,21 +291,27 @@ export default function OrganizerLayout() {
           </div>
         ) : (
           <div className="flex h-16 items-center justify-between px-4">
-            <div className="flex min-w-0 items-center">
+            <div className="flex min-w-0 flex-1 items-center gap-2 pr-2">
               <img
                 src="/favicon.svg"
                 alt=""
                 aria-hidden="true"
                 className="h-8 w-8 shrink-0"
               />
-              <span className="ml-2 whitespace-nowrap text-[19px] font-bold leading-none text-gray-900">
-                Rally
-              </span>
-              <span className="ml-2 whitespace-nowrap rounded-full bg-[#E6F2FF] px-2 py-0.5 text-[11px] font-semibold text-primary-600">
-                Organizer
-              </span>
+              {organization ? (
+                <WorkspaceChip onOpen={() => setSheetOpen(true)} />
+              ) : (
+                <>
+                  <span className="whitespace-nowrap text-[19px] font-bold leading-none text-gray-900">
+                    Rally
+                  </span>
+                  <span className="whitespace-nowrap rounded-full bg-[#E6F2FF] px-2 py-0.5 text-[11px] font-semibold text-primary-600">
+                    Organizer
+                  </span>
+                </>
+              )}
             </div>
-            <div className="flex items-center">
+            <div className="flex shrink-0 items-center">
               <button
                 onClick={() => setSearchOpen(true)}
                 aria-label="Search"
@@ -400,12 +388,17 @@ export default function OrganizerLayout() {
 
       <main className={cn('pb-20 md:pb-0', sidebarCollapsed ? 'md:pl-16' : 'md:pl-60')}>
         <div className="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">
-          <Outlet />
+          <LostAccessNotice />
+          {/* Keyed by workspace: a switch unmounts the previous organization's
+              page — its data and any request still in flight — instead of
+              showing it under the new organization's name. */}
+          <Outlet key={workspaceScopeKey(location.pathname, organization?.id ?? null)} />
         </div>
       </main>
 
       <OrganizerBottomNav onMore={() => setMobileOpen(true)} />
       <OrganizerMobileDrawer open={mobileOpen} onClose={() => setMobileOpen(false)} />
+      <WorkspaceSheet open={sheetOpen} onClose={closeSheet} />
     </div>
   )
 }

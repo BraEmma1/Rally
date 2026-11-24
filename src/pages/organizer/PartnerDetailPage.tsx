@@ -17,7 +17,7 @@ import {
   Pencil,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
-import { useOrganizer } from '@/context/OrganizerContext'
+import { useFollowOrganization, useOrganizer } from '@/context/OrganizerContext'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -194,6 +194,9 @@ export default function PartnerDetailPage() {
   const [busy, setBusy] = useState(false)
 
   const partnersPath = '/organizer/events/' + (eventId ?? '') + '?tab=partners'
+
+  // The workspace follows the event this partnership belongs to (see EventDetailPage).
+  useFollowOrganization(allowed ? event?.organization_id : null)
 
   const load = useCallback(async () => {
     if (!eventId || !partnershipId) return

@@ -21,7 +21,7 @@ import {
   Type,
   Users,
 } from 'lucide-react'
-import { useOrganizer } from '@/context/OrganizerContext'
+import { useFollowOrganization, useOrganizer } from '@/context/OrganizerContext'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
@@ -227,6 +227,11 @@ export default function EventDetailPage() {
   const [inviting, setInviting] = useState(false)
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null)
+
+  // Opened from a link while another organization was selected: once the
+  // database has said this person may manage the event, show the event's own
+  // organization as the workspace (only if they are a member of it).
+  useFollowOrganization(allowed ? event?.organization_id : null)
 
   const load = useCallback(async () => {
     if (!id) return

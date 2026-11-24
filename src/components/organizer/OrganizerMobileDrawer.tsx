@@ -15,6 +15,7 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import { useOrganizer } from '@/context/OrganizerContext'
 import { Avatar } from '@/components/ui/Avatar'
+import { WorkspaceOptions, useWorkspaceSwitcher } from '@/components/workspace/WorkspaceSwitcher'
 import { cn } from '@/lib/utils'
 
 interface DrawerItem {
@@ -35,6 +36,7 @@ export default function OrganizerMobileDrawer({
 }) {
   const { profile, user, signOut, account } = useAuth()
   const { organization } = useOrganizer()
+  const { switchable } = useWorkspaceSwitcher()
   const [rendered, setRendered] = useState(open)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const navigate = useNavigate()
@@ -162,6 +164,20 @@ export default function OrganizerMobileDrawer({
         </div>
 
         <nav className="flex-1 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {/* The same switcher as the top bar and the desktop sidebar: the
+              person's own memberships, and Personal when they have one. */}
+          {switchable && (
+            <>
+              <div className="py-2" role="group" aria-label="Workspaces">
+                <p className={cn('px-5 pb-1 pt-3', sectionClass)}>Workspaces</p>
+                <div className="px-2">
+                  <WorkspaceOptions semantics="list" onDone={onClose} />
+                </div>
+              </div>
+              <div className="mx-5 my-3 border-t border-gray-200" role="presentation" />
+            </>
+          )}
+
           <div className="py-2" role="group" aria-label="Organization">
             <p className={cn('px-5 pb-1 pt-3', sectionClass)}>Organization</p>
             {renderRows(organizationItems)}
