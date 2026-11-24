@@ -1,6 +1,9 @@
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import type { Session, User } from '@supabase/supabase-js'
+import { useNavigate } from 'react-router-dom'
+import type { AuthChangeEvent, Session, User } from '@supabase/supabase-js'
 import { supabase, type Profile, type UserAccount } from '@/lib/supabase'
+import { authStorageKey, readStoredSessionOwner } from '@/lib/session'
+import { identityStep, type IdentityStep } from '@/lib/sessionIdentity'
 
 type AuthContextValue = {
   session: Session | null
@@ -12,8 +15,9 @@ type AuthContextValue = {
   account: UserAccount | null
   accountError: string | null
   // True only while Rally has no authorization for the current user yet: the
-  // first load of a tab, or a different person signing in. It is NOT set again
-  // for routine background work — see the comment on the auth listener below.
+  // first load of a tab, or a different person signing in (in this tab or in
+  // another one). It is NOT set again for routine background work — see the
+  // comment on the auth listener below.
   loading: boolean
   // True while an already-authorized identity is being re-checked in the
   // background. Nothing is required to react to it; it exists so a screen can
@@ -174,6 +178,31 @@ function authErrorMessage(message: string): string {
   return isNetworkError(message) ? NETWORK_ERROR_MESSAGE : message
 }
 
+// What a load returned, kept apart from applying it: an answer is applied only
+// if the tab is still showing the person it was fetched for.
+type ProfileResult = { ok: true; data: Profile | null } | { ok: false }
+type AccountResult = { ok: true; data: UserAccount | null } | { ok: false; message: string }
+
+async function fetchProfile(userId: string): Promise<ProfileResult> {
+  const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle()
+  if (error) {
+    console.error('Error loading profile:', error)
+    return { ok: false }
+  }
+  return { ok: true, data: (data as Profile | null) ?? null }
+}
+
+// The row is readable only by its owner, so no filter on user_id is needed —
+// RLS already narrows this to one row.
+async function fetchAccount(userId: string): Promise<AccountResult> {
+  const { data, error } = await supabase.from('user_accounts').select('account_type, status').eq('user_id', userId).maybeSingle()
+  if (error) {
+    console.error('Error loading account:', error)
+    return { ok: false, message: error.message }
+  }
+  return { ok: true, data: (data as UserAccount | null) ?? null }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [user, setUser] = useState<User | null>(null)
@@ -182,12 +211,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [accountError, setAccountError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [revalidating, setRevalidating] = useState(false)
+  const navigate = useNavigate()
+  const navigateRef = useRef(navigate)
+  navigateRef.current = navigate
 
-  // Whose identity (profile + account) is currently loaded, and whose is being
-  // fetched right now. Refs, not state: the listener closes over them and must
-  // read the live value, and changing them must not cause a render.
-  const identityUserIdRef = useRef<string | null>(null)
-  const identityInFlightRef = useRef<string | null>(null)
+  // WHO THIS TAB IS FOR. Refs, not state: the auth listener and the window
+  // listeners close over them and must read the live value, and changing them
+  // must not cause a render.
+  //
+  // `generation` goes up every time the person changes (including to nobody).
+  // Every load is tagged with the generation it was started for, and its answer
+  // is dropped if the tab has moved on — so a slow answer for the previous
+  // person can never land on the next one's screen.
+  const shownRef = useRef<{ userId: string | null; generation: number }>({ userId: null, generation: 0 })
+  const loadedRef = useRef<number | null>(null) // generation whose identity has loaded
+  const inFlightRef = useRef<number | null>(null) // generation with a load running
+  const readyRef = useRef(false) // the first auth event has been handled
+  const readingRef = useRef(false) // a read of the stored session is pending
 
   const [isRecovery, setIsRecovery] = useState(
     () => detectRecoveryFromUrl() || readStored(RECOVERY_FLAG_KEY) === '1'
@@ -248,25 +288,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })
   }
 
-  async function loadProfile(userId: string) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle()
-    if (error) {
-      // Keep whatever profile we already have: a failed request is not
-      // evidence that the profile changed.
-      console.error('Error loading profile:', error)
-      return
+  // A different person (or nobody) from now on. Everything that belonged to the
+  // previous person goes at once, in the same render that sets `loading`, so
+  // App unmounts the router (every page, form and organization workspace) before
+  // anything could draw the new person's data next to the old.
+  function beginIdentity(userId: string | null): number {
+    const previous = shownRef.current.userId
+    const generation = shownRef.current.generation + 1
+    shownRef.current = { userId, generation }
+    loadedRef.current = null
+    inFlightRef.current = null
+    setProfile(null)
+    setAccount(null)
+    setAccountError(null)
+    setRevalidating(false)
+    if (previous !== null) {
+      // A recovery grant belonged to the previous person.
+      setIsRecovery(false)
+      setRecoveryError(null)
     }
-    const next = data as Profile | null
-    setProfile((prev) => (sameRow(prev, next) ? prev : next))
+    // Someone else took over this tab (another tab signed them in): the page it
+    // was on was the previous person's. Start the new person at their own home;
+    // the `/` route sends them there once their account type is known.
+    if (previous !== null && userId !== null) navigateRef.current('/', { replace: true })
+    return generation
   }
 
-  // The row is readable only by its owner, so no filter on user_id is needed —
-  // RLS already narrows this to one row.
-  // `bootstrap` separates the two very different failures this can have:
+  // `bootstrap` separates the two very different failures a load can have:
   //
   //   bootstrap  — we have never established what this user may do, so a
   //                failure has to be reported. /account explains it, and no
@@ -279,29 +327,149 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   //
   // A revalidation that SUCCEEDS is always applied, including when it returns no
   // row or a suspended status — that is authoritative and must take effect.
-  async function loadAccount(userId: string, bootstrap: boolean) {
-    const { data, error } = await supabase
-      .from('user_accounts')
-      .select('account_type, status')
-      .eq('user_id', userId)
-      .maybeSingle()
-    if (error) {
-      console.error('Error loading account:', error)
-      if (bootstrap) {
-        setAccount(null)
-        setAccountError(error.message)
+  function loadIdentity(userId: string, generation: number, bootstrap: boolean) {
+    inFlightRef.current = generation
+    ;(async () => {
+      try {
+        const [p, a] = await Promise.all([fetchProfile(userId), fetchAccount(userId)])
+        if (shownRef.current.generation !== generation) return
+        // The answers count only if they were given to this person's session:
+        // if the stored session changed while they were on the way, follow it.
+        const stored = readStoredSessionOwner()
+        if (stored !== undefined && stored !== userId) {
+          reconcile()
+          return
+        }
+        if (p.ok) setProfile((prev) => (sameRow(prev, p.data) ? prev : p.data))
+        if (a.ok) {
+          setAccount((prev) => (sameRow(prev, a.data) ? prev : a.data))
+          setAccountError(null)
+        } else if (bootstrap) {
+          setAccount(null)
+          setAccountError(a.message)
+        }
+        loadedRef.current = generation
+      } finally {
+        if (inFlightRef.current === generation) inFlightRef.current = null
+        if (shownRef.current.generation === generation) {
+          if (bootstrap) setLoading(false)
+          else setRevalidating(false)
+        }
+      }
+    })()
+  }
+
+  // Ask the client for the stored session. Deferred, because supabase-js may be
+  // notifying subscribers from inside its own lock, and getSession() waits for
+  // that lock. A read that comes back disagreeing with storage (storage changed
+  // again meanwhile) is retried a few times; after that the tab shows no one,
+  // which is the safe side, and the next focus or storage change tries again.
+  function readStoredSession(attempt = 0) {
+    if (readingRef.current && attempt === 0) return
+    readingRef.current = true
+    window.setTimeout(async () => {
+      let read: Session | null = null
+      try {
+        read = (await supabase.auth.getSession()).data.session
+      } catch {
+        read = null
+      }
+      const owner = read?.user?.id ?? null
+      const stored = readStoredSessionOwner()
+      if (stored !== undefined && stored !== owner && attempt < 3) {
+        readStoredSession(attempt + 1)
+        return
+      }
+      readingRef.current = false
+      if (stored !== undefined && stored !== owner) {
+        apply({ kind: 'signed-out' }, null, null)
+        return
+      }
+      onSession(read ? 'SIGNED_IN' : 'SIGNED_OUT', read)
+    }, 0)
+  }
+
+  function apply(step: IdentityStep, event: AuthChangeEvent | null, eventSession: Session | null) {
+    if (step.kind === 'signed-out') {
+      // A definitive end of the session. Protected state goes immediately --
+      // this is the one path that must forget everything.
+      if (shownRef.current.userId !== null || !readyRef.current) beginIdentity(null)
+      setSession(null)
+      publishUser(null, true)
+      setLoading(false)
+      return
+    }
+
+    if (step.kind === 'switch') {
+      // No authorization for this person yet — a cold start, or a different
+      // person signing in. Blocking here is correct: a guard that sees
+      // account === null cannot tell "not allowed" from "not known yet", and
+      // without it a fresh sign-in flashes "Your account is not set up".
+      const generation = beginIdentity(step.userId)
+      setLoading(true)
+      if (step.session === 'event' && eventSession) {
+        setSession(eventSession)
+        publishUser(eventSession.user, true)
+        loadIdentity(step.userId, generation, true)
+      } else {
+        // The event was not about the stored session, or there was none. Nobody
+        // is published until the stored session has been read and confirmed.
+        setSession(null)
+        publishUser(null, true)
+        readStoredSession()
+      }
+      if (event === 'PASSWORD_RECOVERY' && step.session === 'event') {
+        setIsRecovery(true)
+        setRecoveryError(null)
       }
       return
     }
-    const next = (data as UserAccount | null) ?? null
-    setAccount((prev) => (sameRow(prev, next) ? prev : next))
-    setAccountError(null)
+
+    // THE DISTINCTION THIS WHOLE PROVIDER TURNS ON.
+    //
+    // supabase-js re-announces the stored session as SIGNED_IN every time the
+    // tab becomes visible again, and as TOKEN_REFRESHED whenever it rotates
+    // the token (roughly hourly, and on resume when expiry is near). Both used
+    // to take the blocking branch, and App renders a full-page spinner INSTEAD
+    // OF the router whenever loading is true — so every return to the tab
+    // unmounted the router, every page, every open dialog and every unsaved
+    // form, then remounted and refetched all of it.
+    //
+    // If this is the same person we already authorized, it is a revalidation:
+    // refresh quietly and leave the interface where the user left it.
+    if (!eventSession) return
+    setSession(eventSession)
+    publishUser(eventSession.user, event === 'USER_UPDATED')
+    if (event === 'PASSWORD_RECOVERY') {
+      setIsRecovery(true)
+      setRecoveryError(null)
+    }
+    const generation = shownRef.current.generation
+    // Already fetching for exactly this person: nothing to add. Keeps the
+    // bootstrap idempotent when INITIAL_SESSION and SIGNED_IN arrive
+    // together, and under StrictMode's double mount.
+    if (inFlightRef.current === generation) return
+    const bootstrap = loadedRef.current !== generation
+    if (bootstrap) setLoading(true)
+    else setRevalidating(true)
+    loadIdentity(step.userId, generation, bootstrap)
   }
 
-  // Both are needed before any routing decision can be made, so they load
-  // together and `loading` clears once.
-  async function loadIdentity(userId: string, bootstrap: boolean) {
-    await Promise.all([loadProfile(userId), loadAccount(userId, bootstrap)])
+  // Every auth event, including the ones other tabs relay. The event is checked
+  // against the stored session before anything is loaded for it.
+  function onSession(event: AuthChangeEvent, newSession: Session | null) {
+    const step = identityStep(shownRef.current.userId, { userId: newSession?.user?.id ?? null }, readStoredSessionOwner())
+    if (step) apply(step, event, newSession)
+    readyRef.current = true
+  }
+
+  // No event: the stored session may have changed under this tab (another tab
+  // wrote it, or this tab missed the message). Cheap and lock-free; does
+  // nothing unless storage and the tab disagree.
+  function reconcile() {
+    if (!readyRef.current) return
+    const step = identityStep(shownRef.current.userId, null, readStoredSessionOwner())
+    if (step) apply(step, null, null)
   }
 
   useEffect(() => {
@@ -310,77 +478,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // whole bootstrap twice on every cold start — two profile reads and two
     // account reads for one page load.
     const { data: authListener } = supabase.auth.onAuthStateChange((event, newSession) => {
-      // Authoritative signal from the client once it has consumed the grant.
-      if (event === 'PASSWORD_RECOVERY') {
-        setIsRecovery(true)
-        setRecoveryError(null)
-      }
-
-      setSession(newSession)
-      publishUser(newSession?.user ?? null, event === 'USER_UPDATED')
-
-      const nextUserId = newSession?.user?.id ?? null
-
-      // A definitive end of the session. Protected state goes immediately --
-      // this is the one path that must forget everything.
-      if (!nextUserId) {
-        identityUserIdRef.current = null
-        identityInFlightRef.current = null
-        setProfile(null)
-        setAccount(null)
-        setAccountError(null)
-        setLoading(false)
-        setRevalidating(false)
-        return
-      }
-
-      // Already fetching for exactly this person: nothing to add. Keeps the
-      // bootstrap idempotent when INITIAL_SESSION and SIGNED_IN arrive
-      // together, and under StrictMode's double mount.
-      if (identityInFlightRef.current === nextUserId) return
-
-      // THE DISTINCTION THIS WHOLE PROVIDER TURNS ON.
-      //
-      // supabase-js re-announces the stored session as SIGNED_IN every time the
-      // tab becomes visible again, and as TOKEN_REFRESHED whenever it rotates
-      // the token (roughly hourly, and on resume when expiry is near). Both used
-      // to take the blocking branch, and App renders a full-page spinner INSTEAD
-      // OF the router whenever loading is true — so every return to the tab
-      // unmounted the router, every page, every open dialog and every unsaved
-      // form, then remounted and refetched all of it.
-      //
-      // If this is the same person we already authorized, it is a revalidation:
-      // refresh quietly and leave the interface where the user left it.
-      const bootstrap = identityUserIdRef.current !== nextUserId
-
-      if (bootstrap) {
-        // No authorization for this user yet — a cold start, or a different
-        // person signing in. Blocking here is correct: a guard that sees
-        // account === null cannot tell "not allowed" from "not known yet", and
-        // without it a fresh sign-in flashes "Your account is not set up".
-        setLoading(true)
-      } else {
-        setRevalidating(true)
-      }
-
-      identityInFlightRef.current = nextUserId
-      ;(async () => {
-        try {
-          await loadIdentity(nextUserId, bootstrap)
-          identityUserIdRef.current = nextUserId
-        } finally {
-          if (identityInFlightRef.current === nextUserId) {
-            identityInFlightRef.current = null
-          }
-          if (bootstrap) setLoading(false)
-          else setRevalidating(false)
-        }
-      })()
+      // Authoritative signal from the client once it has consumed the grant,
+      // when it is about the session this tab follows (see apply).
+      onSession(event, newSession)
     })
+
+    // The browser's own cross-tab signal: it fires in every other tab once a
+    // change to localStorage is visible there, which is exactly the moment the
+    // new session can be read. It does not depend on supabase-js's message
+    // reaching this tab, or arriving in order.
+    const key = authStorageKey()
+    const onStorage = (e: StorageEvent) => {
+      if (e.storageArea !== window.localStorage) return
+      if (e.key === null || e.key === key) reconcile()
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') reconcile()
+    }
+    const onPageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) reconcile()
+    }
+    window.addEventListener('storage', onStorage)
+    window.addEventListener('focus', reconcile)
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('pageshow', onPageShow)
 
     return () => {
       authListener.subscription.unsubscribe()
+      window.removeEventListener('storage', onStorage)
+      window.removeEventListener('focus', reconcile)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('pageshow', onPageShow)
     }
+    // The listeners read only refs and stable setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   async function signUp(
@@ -430,25 +561,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Also the way out of a recovery flow: ending the grant is what lets /login
   // render instead of bouncing the recovery session to the dashboard.
+  // supabase-js removes the stored session even when the server call fails, and
+  // announces SIGNED_OUT, which the listener handles; this makes the end of the
+  // session immediate in this tab regardless.
   async function signOut() {
     await supabase.auth.signOut()
-    identityUserIdRef.current = null
-    identityInFlightRef.current = null
-    setProfile(null)
-    setAccount(null)
-    setAccountError(null)
+    apply({ kind: 'signed-out' }, null, null)
     setIsRecovery(false)
     setRecoveryError(null)
   }
 
+  // Both refreshes apply only to the person they were asked for.
   async function refreshProfile() {
-    if (user) await loadProfile(user.id)
+    const { userId, generation } = shownRef.current
+    if (!userId) return
+    const p = await fetchProfile(userId)
+    if (!p.ok || shownRef.current.generation !== generation) return
+    setProfile((prev) => (sameRow(prev, p.data) ? prev : p.data))
   }
 
   // An organizer awaiting approval sits on a screen that has to notice when the
   // decision lands, without making them sign out and back in.
   async function refreshAccount() {
-    if (user) await loadAccount(user.id, false)
+    const { userId, generation } = shownRef.current
+    if (!userId) return
+    const a = await fetchAccount(userId)
+    if (!a.ok || shownRef.current.generation !== generation) return
+    setAccount((prev) => (sameRow(prev, a.data) ? prev : a.data))
+    setAccountError(null)
   }
 
   async function resetPassword(email: string) {

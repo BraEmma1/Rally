@@ -10,7 +10,7 @@
 // revoked membership is detected on return to the tab or on moving between
 // pages, and leaves the workspace; losing every membership; a failed or
 // expired-session check; a second tab (switching, signing out, another person's
-// session arriving); Personal for an attendee account; every existing organizer
+// session arriving, which the tab follows by itself: Q-33); Personal for an attendee account; every existing organizer
 // route; keyboard; phone (390 and 320px) with the top-bar sheet, the drawer and
 // the bottom nav.
 //
@@ -539,9 +539,11 @@ function rec(group, name, pass, detail = '') {
     await tab2.waitForURL(/\/organizer/, { timeout: 8000 }).catch(() => {})
     await settle(tab2, 600)
     rec('account', 'the second person lands in their own organization', (await headerName(tab2)).includes('Volta Ventures'), tab2.url())
-    // The first tab follows the sign-in by itself (supabase-js tells other tabs);
-    // if it has not within a few seconds, open the app again in it.
-    await t.page.waitForURL(/\/organizer/, { timeout: 5000 }).catch(() => t.page.goto(BASE + '/organizer', { waitUntil: 'networkidle' }))
+    // The first tab follows the sign-in by itself (Q-33: it follows the stored
+    // session, whether or not supabase-js's cross-tab message is usable yet).
+    const followed = await t.page.waitForFunction(() => location.pathname.startsWith('/organizer') && document.body.innerText.includes('Volta Ventures'), null, { timeout: 5000 }).then(() => true, () => false)
+    rec('account', 'the first tab follows the second person\'s sign-in by itself, without being reopened', followed, t.page.url())
+    if (!followed) await t.page.goto(BASE + '/organizer', { waitUntil: 'networkidle' })
     await settle(t.page, 600)
     const bodyY = await t.page.locator('body').innerText()
     rec('account', 'the first tab now shows only the second person\'s workspace', (await headerName(t.page)).includes('Volta Ventures') && !FIRST_PERSON_TEXT.some((x) => bodyY.includes(x)))
@@ -561,21 +563,17 @@ function rec(group, name, pass, detail = '') {
     await d.page.evaluate((sess) => localStorage.setItem('sb-localhost-auth-token', JSON.stringify(sess)), sessionFor(UID2, 'kojo@example.test'))
     await d.page.evaluate(() => { window.__clockOffset += 60_000; document.dispatchEvent(new Event('visibilitychange')); window.dispatchEvent(new Event('focus')) })
     await settle(d.page, 1000)
-    // supabase-js adopts the new token from storage with no auth event, so the app
-    // still believes the first person is signed in. The workspace must not show
-    // the first person's organizations to the new token, nor file the new
-    // person's organizations under the first.
+    // The stored session now belongs to someone else. AuthContext notices on the
+    // focus (Q-33) and the tab follows the new person, so the organizer area
+    // never shows the first person's organizations to the new token, nor files
+    // the new person's organizations under the first.
+    await d.page.waitForFunction(() => document.body.innerText.includes('Volta Ventures'), null, { timeout: 5000 }).catch(() => {})
+    await settle(d.page, 800)
     const bodyD = await d.page.locator('body').innerText()
-    rec('account', 'a different person\'s session arriving without a sign-out: the organizer area shows neither workspace, only a reload notice',
-      /sign-in changed in another tab/i.test(bodyD) && !FIRST_PERSON_TEXT.some((x) => bodyD.includes(x)) && !bodyD.includes('Volta'), bodyD.slice(0, 200))
+    rec('account', 'a different person\'s session arriving without a sign-out: the tab follows the new person, with nothing of the first',
+      (await headerName(d.page)).includes('Volta Ventures') && !FIRST_PERSON_TEXT.some((x) => bodyD.includes(x)), bodyD.slice(0, 200))
     rec('account', '...no false "lost access", and the first person\'s remembered choice is untouched',
       !/no longer have access/.test(bodyD) && (await d.page.evaluate((k) => localStorage.getItem(k), STORE)) === 'org-b')
-    await d.page.getByRole('button', { name: 'Reload' }).click()
-    await d.page.waitForLoadState('networkidle')
-    await settle(d.page, 800)
-    const bodyD2 = await d.page.locator('body').innerText()
-    rec('account', '...and Reload opens the new person\'s own workspace, with nothing of the first',
-      (await headerName(d.page)).includes('Volta Ventures') && !FIRST_PERSON_TEXT.some((x) => bodyD2.includes(x)), await headerName(d.page))
     rec('account', '...and no screen at any point mixed the two', (await mixed(d.page)).length === 0, JSON.stringify((await mixed(d.page)).slice(0, 3)))
     rec('account', '...and nothing of the first person\'s organizations was requested with the second person\'s session', !log.orgReads.some((r) => r.caller === UID2 && (r.org === 'org-a' || r.org === 'org-b')), JSON.stringify(log.orgReads.filter((r) => r.caller === UID2)))
     await d.ctx.close()

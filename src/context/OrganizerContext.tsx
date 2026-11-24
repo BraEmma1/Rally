@@ -9,7 +9,8 @@ import {
 } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { listMyOrganizations } from '@/lib/organizer'
-import { supabase, type Organization, type OrganizationMembership, type OrgRole } from '@/lib/supabase'
+import { type Organization, type OrganizationMembership, type OrgRole } from '@/lib/supabase'
+import { readStoredSessionOwner } from '@/lib/session'
 import {
   LEGACY_ACTIVE_ORG_KEY,
   activeOrganizationStorageKey,
@@ -52,33 +53,12 @@ function writeStored(userId: string | null, value: string | null) {
   }
 }
 
-// The person the API token currently belongs to. supabase-js reads the session
-// from shared storage on every request, so when another tab signs a different
-// person in, this tab's requests go out as that person — without any auth event
-// telling the app. A membership answer is only ever filed under the person whose
-// token produced it.
-//
-// Read straight from that storage, not through supabase.auth.getSession(): that
-// takes supabase-js's auth lock, which every API request also takes, and calling
-// it on every focus measurably delayed other requests. Returns undefined when it
-// cannot tell (no storage, an unexpected format): then nothing is blocked.
-function tokenOwner(): string | null | undefined {
-  try {
-    const key = (supabase.auth as unknown as { storageKey?: unknown }).storageKey
-    if (typeof key !== 'string') return undefined
-    const raw = window.localStorage.getItem(key)
-    if (!raw) return null
-    const stored = JSON.parse(raw) as { user?: { id?: unknown }; access_token?: unknown }
-    if (typeof stored.user?.id === 'string') return stored.user.id
-    if (typeof stored.access_token === 'string') {
-      const payload = JSON.parse(atob(stored.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))) as { sub?: unknown }
-      if (typeof payload.sub === 'string') return payload.sub
-    }
-    return undefined
-  } catch {
-    return undefined
-  }
-}
+// The person the API token currently belongs to (src/lib/session.ts). A
+// membership answer is only ever filed under the person whose token produced it.
+// AuthContext follows the stored session too (Q-33) and remounts this provider
+// when the person changes; this check is the organizer area's own guard for the
+// moment in between.
+const tokenOwner = readStoredSessionOwner
 
 // Background re-checks (tab focus or visibility, opening the switcher, moving
 // between organizer pages) run at most this often.
