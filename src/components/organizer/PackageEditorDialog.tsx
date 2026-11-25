@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Archive, ChevronDown, ChevronUp, Info, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Textarea } from '@/components/ui/Input'
@@ -31,6 +31,7 @@ import {
   validatePackage,
   type PackageFormValues,
 } from '@/lib/packageForm'
+import { MoveButton } from './MoveButton'
 import { formatDueDate, formatMoney } from './PartnerCommon'
 import {
   EMPTY_OBLIGATION_VALUES,
@@ -184,8 +185,18 @@ export function PackageEditorDialog({
     onChanged()
   }
 
+  // One move at a time, and none while a removal is saving. A second tap
+  // while a move is in flight is ignored rather than raced: if the first save
+  // then failed, restoring "the order before" would silently undo the second
+  // move too. A removal running alongside could leave the reorder naming a
+  // deliverable that no longer exists.
+  const moving = useRef(false)
+  const [orderAnnouncement, setOrderAnnouncement] = useState('')
+
   async function move(index: number, delta: -1 | 1) {
-    if (!pkg || !deliverables) return
+    if (!pkg || !deliverables || moving.current || busy) return
+    // movedIds refuses a move off either end (the first item up, the last
+    // item down) by returning null.
     const ids = movedIds(
       deliverables.map((d) => d.id),
       index,
@@ -193,15 +204,26 @@ export function PackageEditorDialog({
     )
     if (!ids) return
     const before = deliverables
+    const title = deliverables[index].title
     const byId = new Map(deliverables.map((d) => [d.id, d]))
+    moving.current = true
     setDeliverables(ids.map((id) => byId.get(id) as PackageDeliverable))
-    const { error } = await reorderPackageDeliverables(pkg.id, ids)
+    let error: string | null
+    try {
+      error = (await reorderPackageDeliverables(pkg.id, ids)).error
+    } catch {
+      error = 'Unable to save the new order.'
+    } finally {
+      moving.current = false
+    }
     if (error) {
       setDeliverables(before)
       setItemError(error)
+      setOrderAnnouncement(title + ' was not moved.')
       return
     }
     setItemError(null)
+    setOrderAnnouncement(title + ' moved to position ' + (index + delta + 1) + ' of ' + ids.length + '.')
   }
 
   async function removeItem(item: PackageDeliverable) {
@@ -419,6 +441,10 @@ export function PackageEditorDialog({
                 </div>
               )}
 
+              <p className="sr-only" aria-live="polite" data-testid="deliverable-order-status">
+                {orderAnnouncement}
+              </p>
+
               {loadError ? (
                 <div className="rounded-md border border-error-200 bg-error-50 px-3 py-3 text-sm text-error-700" role="alert">
                   <p>{loadError}</p>
@@ -442,7 +468,10 @@ export function PackageEditorDialog({
                   </p>
                 </div>
               ) : (
-                <ul className="divide-y divide-gray-100 rounded-md border border-gray-200">
+                <ul
+                  aria-label="Package deliverables"
+                  className="divide-y divide-gray-100 rounded-md border border-gray-200"
+                >
                   {deliverables.map((item, index) => {
                     const due = formatDueDate(item.due_date)
                     const meta = [
@@ -450,9 +479,17 @@ export function PackageEditorDialog({
                       item.quantity !== null ? 'Qty ' + item.quantity : null,
                       due ? 'Due ' + due : null,
                     ].filter(Boolean)
+                    const reorderable = deliverables.length > 1
                     return (
-                      <li key={item.id} className="flex items-start gap-2 px-3 py-2.5">
-                        <div className="min-w-0 flex-1">
+                      // On a phone the text takes the full width and the
+                      // controls sit in their own row beneath it: move on the
+                      // left, Edit and Remove on the right, each 44px. From sm
+                      // up they share one row, controls on the right.
+                      <li
+                        key={item.id}
+                        className="flex flex-col gap-1 px-3 py-2.5 sm:flex-row sm:items-start sm:gap-2"
+                      >
+                        <div className="min-w-0 flex-1 sm:py-2.5">
                           <p className="break-words text-sm font-medium text-gray-900">{item.title}</p>
                           {item.description && (
                             <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-gray-600">
@@ -464,47 +501,51 @@ export function PackageEditorDialog({
                           )}
                         </div>
                         {editable && (
-                          <div className="flex shrink-0 items-center">
-                            {deliverables.length > 1 && (
-                              <div className="mr-1 hidden flex-col sm:flex">
-                                <button
-                                  type="button"
-                                  disabled={index === 0}
-                                  onClick={() => void move(index, -1)}
-                                  aria-label={'Move ' + item.title + ' up'}
-                                  className="rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+                          <div className="-mx-1 flex shrink-0 items-center justify-between sm:mx-0 sm:justify-end sm:gap-1">
+                            {reorderable ? (
+                              <div className="flex items-center" role="group" aria-label={'Reorder ' + item.title}>
+                                <MoveButton
+                                  label={'Move ' + item.title + ' up'}
+                                  atEdge={index === 0}
+                                  onMove={() => void move(index, -1)}
                                 >
-                                  <ChevronUp className="h-4 w-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={index === deliverables.length - 1}
-                                  onClick={() => void move(index, 1)}
-                                  aria-label={'Move ' + item.title + ' down'}
-                                  className="rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+                                  <ChevronUp className="h-5 w-5" aria-hidden="true" />
+                                </MoveButton>
+                                <MoveButton
+                                  label={'Move ' + item.title + ' down'}
+                                  atEdge={index === deliverables.length - 1}
+                                  onMove={() => void move(index, 1)}
                                 >
-                                  <ChevronDown className="h-4 w-4" />
-                                </button>
+                                  <ChevronDown className="h-5 w-5" aria-hidden="true" />
+                                </MoveButton>
                               </div>
+                            ) : (
+                              <span aria-hidden="true" />
                             )}
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setEditing(item)}
-                              aria-label={'Edit ' + item.title}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setConfirm({ removeItem: item })}
-                              aria-label={'Remove ' + item.title}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            <div className="flex items-center">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setEditing(item)}
+                                aria-label={'Edit ' + item.title}
+                                title={'Edit ' + item.title}
+                                className="h-11 w-11"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setConfirm({ removeItem: item })}
+                                aria-label={'Remove ' + item.title}
+                                title={'Remove ' + item.title}
+                                className="h-11 w-11"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
                           </div>
                         )}
                       </li>

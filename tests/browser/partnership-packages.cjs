@@ -58,6 +58,7 @@ function reset(over = {}) {
     usage: { 'k-gold': 2, 'k-old': 1 },
     refuseDelete: null,
     refuseReorder: null, // a message: the next reorder call fails with it, and changes nothing
+    refuseItemReorder: null, // the same, for a package's deliverables
     reorderDelayMs: 0,
     ...over,
   }
@@ -134,6 +135,8 @@ async function wire(ctx) {
         return json(200, null)
       }
       if (name === 'reorder_package_deliverables') {
+        if (state.reorderDelayMs) await new Promise((r) => setTimeout(r, state.reorderDelayMs))
+        if (state.refuseItemReorder) { const msg = state.refuseItemReorder; state.refuseItemReorder = null; return json(400, err('P0001', msg)) }
         body.deliverable_ids.forEach((id, i) => { const d = state.deliverables.find((x) => x.id === id); if (d) d.display_order = i })
         return json(200, null)
       }
@@ -575,6 +578,180 @@ function rec(group, name, pass, detail = '') {
     rec(g, '...and pressing it again at the edge sends nothing', reorders().length === 1)
     await page.keyboard.press('Tab')
     rec(g, 'Tab reaches the same package\'s down button next', await page.getByRole('button', { name: 'Move Silver down' }).evaluate((el) => el === document.activeElement))
+    rec(g, 'no console/page errors', errors.length === 0, errors.slice(0, 2).join(' || '))
+    await ctx.close()
+  }
+
+  // ================= 9. A package's deliverables: reorder on a phone, and by keyboard ==
+  // Gold gets three template deliverables; Silver gets one of its own, which must never
+  // appear in Gold's sheet or in Gold's reorder request.
+  const threeItems = () => reset({
+    deliverables: [
+      dl('d-1', 'k-gold', 'e-a', 'Logo on backdrop', 0, { category: 'Branding' }),
+      dl('d-2', 'k-gold', 'e-a', 'VIP passes', 1, { quantity: 4 }),
+      dl('d-3', 'k-gold', 'e-a', 'Stage mention with a deliberately long title that has to wrap on a narrow phone', 2, { description: 'Read out by the host before the keynote.', category: 'Stage', quantity: 1 }),
+      dl('d-s', 'k-silver', 'e-a', 'Silver only item', 0),
+    ],
+  })
+  const itemReorders = () => log.rpcs.filter((r) => r.name === 'reorder_package_deliverables')
+  const itemList = (page) => page.getByRole('list', { name: 'Package deliverables' })
+  const itemOrder = (page) => itemList(page).locator(':scope > li').evaluateAll((lis) => lis.map((li) => li.querySelector('p')?.textContent ?? ''))
+  const LONG = 'Stage mention with a deliberately long title that has to wrap on a narrow phone'
+  const itemAnnounced = (page, text, timeout = 4000) => page.waitForFunction((t) => document.querySelector('[data-testid=deliverable-order-status]')?.textContent === t, text, { timeout }).then(() => true, () => false)
+  async function openGold(page) {
+    await packagesView(page)
+    await page.getByRole('button', { name: /^Gold/ }).click()
+    const s = sheet(page, 'Gold')
+    await appears(s.getByText('VIP passes'))
+    return s
+  }
+
+  for (const w of [390, 320]) {
+    const g = 'deliverables phone ' + w
+    threeItems()
+    const { page, ctx, errors } = await open('/organizer/events/e-a', { w, h: 800, touch: true })
+    await page.waitForSelector('h1:has-text("Alpha Summit")')
+    const s = await openGold(page)
+    rec(g, 'the sheet lists only this package\'s deliverables, in order', JSON.stringify(await itemOrder(page)) === JSON.stringify(['Logo on backdrop', 'VIP passes', LONG]) &&
+      (await s.getByText('Silver only item').count()) === 0, JSON.stringify(await itemOrder(page)))
+
+    // Every control is visible and at least 44 x 44: Move up/down, Edit, Remove, per item.
+    const sizes = await itemList(page).getByRole('button').evaluateAll((els) => els.map((el) => {
+      const r = el.getBoundingClientRect(); const st = getComputedStyle(el)
+      return { name: el.getAttribute('aria-label'), w: Math.round(r.width), h: Math.round(r.height), shown: r.width > 0 && st.visibility !== 'hidden' && st.display !== 'none' }
+    }))
+    rec(g, 'twelve controls (move up, move down, edit, remove x 3), all shown, each at least 44 x 44', sizes.length === 12 && sizes.every((b) => b.shown && b.w >= 44 && b.h >= 44), JSON.stringify(sizes.filter((b) => !(b.shown && b.w >= 44 && b.h >= 44)).slice(0, 3)))
+    rec(g, 'the sheet does not scroll sideways', await sheetFits(page) && await noOverflow(page))
+
+    // Layout: on a phone the controls sit in their own row below the text, and the
+    // text keeps the full row width.
+    const geo = await itemList(page).locator(':scope > li').nth(2).evaluate((li) => {
+      const text = li.querySelector('div').getBoundingClientRect()
+      const up = li.querySelector('button[aria-label^="Move "]').getBoundingClientRect()
+      const remove = li.querySelector('button[aria-label^="Remove "]').getBoundingClientRect()
+      const box = li.getBoundingClientRect()
+      return { textBottom: text.bottom, textWidth: text.width, liWidth: box.width, upTop: up.top, upLeft: up.left - box.left, removeRight: box.right - remove.right, sameRow: Math.abs(up.top - remove.top) < 1 }
+    })
+    rec(g, 'the controls sit in their own row beneath the text', geo.upTop >= geo.textBottom - 1 && geo.sameRow, JSON.stringify(geo))
+    rec(g, '...move on the left, Edit and Remove on the right', geo.upLeft <= 12 && geo.removeRight <= 12, JSON.stringify(geo))
+    rec(g, '...and the text keeps the full width of the row', geo.textWidth >= geo.liWidth - 24 - 1, JSON.stringify(geo))
+    await page.screenshot({ path: path.join(OUT, `package-deliverables-${w}.png`), fullPage: false })
+    await itemList(page).locator(':scope > li').nth(2).screenshot({ path: path.join(OUT, `package-deliverable-row-${w}.png`) })
+
+    // Edges.
+    const firstUp = button(s, 'Move Logo on backdrop up')
+    const lastDown = button(s, 'Move ' + LONG + ' down')
+    rec(g, 'the first item\'s up and the last item\'s down are marked unavailable', (await firstUp.getAttribute('aria-disabled')) === 'true' &&
+      (await lastDown.getAttribute('aria-disabled')) === 'true' && (await button(s, 'Move VIP passes up').getAttribute('aria-disabled')) === null)
+    await firstUp.tap({ force: true })
+    await lastDown.tap({ force: true })
+    await settle(page)
+    rec(g, '...and tapping them sends nothing and changes nothing', itemReorders().length === 0 && JSON.stringify(await itemOrder(page)) === JSON.stringify(['Logo on backdrop', 'VIP passes', LONG]))
+
+    // A tap moves the first item down.
+    await button(s, 'Move Logo on backdrop down').tap()
+    const downDone = await itemAnnounced(page, 'Logo on backdrop moved to position 2 of 3.')
+    rec(g, 'tapping down sends this package\'s exact new order', itemReorders().length === 1 && itemReorders()[0].body.target_package_id === 'k-gold' &&
+      JSON.stringify(itemReorders()[0].body.deliverable_ids) === JSON.stringify(['d-2', 'd-1', 'd-3']), JSON.stringify(itemReorders()[0]?.body))
+    rec(g, '...the sheet shows it, and it is announced', downDone && JSON.stringify(await itemOrder(page)) === JSON.stringify(['VIP passes', 'Logo on backdrop', LONG]))
+    rec(g, '...and the package list behind is not reordered', reorders().length === 0)
+
+    // A tap moves the last item up.
+    await button(s, 'Move ' + LONG + ' up').tap()
+    rec(g, 'tapping up moves the item one place up', await itemAnnounced(page, LONG + ' moved to position 2 of 3.') &&
+      JSON.stringify(itemReorders()[1]?.body.deliverable_ids) === JSON.stringify(['d-2', 'd-3', 'd-1']) &&
+      JSON.stringify(await itemOrder(page)) === JSON.stringify(['VIP passes', LONG, 'Logo on backdrop']), JSON.stringify(itemReorders()[1]?.body))
+
+    // A refused move: error shown, order restored, stored order untouched.
+    state.refuseItemReorder = 'Those deliverables do not all belong to this package'
+    await button(s, 'Move Logo on backdrop up').tap()
+    const failDone = await itemAnnounced(page, 'Logo on backdrop was not moved.')
+    rec(g, 'a failed move shows the error', await appears(s.getByRole('alert').filter({ hasText: 'Those deliverables do not all belong to this package' })))
+    rec(g, '...restores the previous order and says it was not moved', failDone && JSON.stringify(await itemOrder(page)) === JSON.stringify(['VIP passes', LONG, 'Logo on backdrop']), JSON.stringify(await itemOrder(page)))
+    const stored = state.deliverables.filter((d) => d.package_id === 'k-gold').sort((a, b) => a.display_order - b.display_order).map((d) => d.id)
+    rec(g, '...and the stored order is untouched', JSON.stringify(stored) === JSON.stringify(['d-2', 'd-3', 'd-1']), JSON.stringify(stored))
+    await button(s, 'Move Logo on backdrop up').tap()
+    rec(g, 'the next successful move clears the error', await itemAnnounced(page, 'Logo on backdrop moved to position 2 of 3.') &&
+      (await s.getByRole('alert').filter({ hasText: 'belong' }).count()) === 0 && JSON.stringify(await itemOrder(page)) === JSON.stringify(['VIP passes', 'Logo on backdrop', LONG]))
+
+    // No overlapping requests: a second tap during a slow save is ignored.
+    state.reorderDelayMs = 600
+    const before = itemReorders().length
+    await button(s, 'Move VIP passes down').tap()
+    await button(s, 'Move ' + LONG + ' up').tap()
+    const slowDone = await itemAnnounced(page, 'VIP passes moved to position 2 of 3.')
+    await page.waitForTimeout(300) // room for a second, wrongly queued save to arrive
+    state.reorderDelayMs = 0
+    rec(g, 'a second tap during a save sends no second request', slowDone && itemReorders().length === before + 1 &&
+      JSON.stringify(await itemOrder(page)) === JSON.stringify(['Logo on backdrop', 'VIP passes', LONG]), JSON.stringify({ calls: itemReorders().length - before, order: await itemOrder(page) }))
+
+    // Edit and Remove still work from the phone row.
+    await button(s, 'Edit VIP passes').tap()
+    const edit = sheet(page, 'Edit Deliverable')
+    rec(g, 'Edit opens the deliverable form for that item', await appears(edit) && (await edit.locator('#ob-title').inputValue()) === 'VIP passes')
+    await button(edit, 'Cancel').tap().catch(() => page.keyboard.press('Escape'))
+    await gone(edit)
+    await button(s, 'Remove VIP passes').tap()
+    rec(g, 'Remove asks first', await appears(page.getByText('It is removed from this package only. Partners already created from the package keep their own copy.')))
+    await button(page, 'Remove').tap()
+    await settle(page)
+    rec(g, '...and removes only that template row', log.writes.some((w) => w.m === 'DELETE' && w.path.endsWith('/event_partnership_package_deliverables') && w.query.includes('id=eq.d-2')) &&
+      await gone(itemList(page).getByText('VIP passes', { exact: true })) && log.writes.filter((w) => w.m === 'DELETE').length === 1,
+      JSON.stringify({ deletes: log.writes.filter((w) => w.m === 'DELETE').map((w) => w.query), order: await itemOrder(page) }))
+    rec(g, 'with two items left, the controls still fit', await sheetFits(page) && await noOverflow(page))
+    rec(g, 'no console/page errors', errors.length === 0, errors.slice(0, 2).join(' || '))
+    await ctx.close()
+  }
+
+  {
+    const g = 'deliverables keyboard'
+    threeItems()
+    const { page, ctx, errors } = await open('/organizer/events/e-a')
+    await page.waitForSelector('h1:has-text("Alpha Summit")')
+    const s = await openGold(page)
+    // Desktop: one row per item, controls beside the text.
+    const geo = await itemList(page).locator(':scope > li').first().evaluate((li) => {
+      const text = li.querySelector('div').getBoundingClientRect()
+      const up = li.querySelector('button[aria-label^="Move "]').getBoundingClientRect()
+      return { upLeft: up.left, textRight: text.right, upTop: up.top, liTop: li.getBoundingClientRect().top }
+    })
+    rec(g, 'on a wide screen the controls sit beside the text, in the same row', geo.upLeft >= geo.textRight - 1 && geo.upTop - geo.liTop < 20, JSON.stringify(geo))
+    const vipUp = button(s, 'Move VIP passes up')
+    await vipUp.focus()
+    await page.keyboard.press('Enter')
+    rec(g, 'Enter on a move button reorders', await itemAnnounced(page, 'VIP passes moved to position 1 of 3.') && itemReorders().length === 1 &&
+      JSON.stringify(itemReorders()[0].body.deliverable_ids) === JSON.stringify(['d-2', 'd-1', 'd-3']))
+    rec(g, 'focus stays on the moved item\'s button, even at the edge', await vipUp.evaluate((el) => el === document.activeElement))
+    await page.keyboard.press('Enter')
+    await page.keyboard.press(' ')
+    await settle(page)
+    rec(g, '...and pressing it again at the edge sends nothing', itemReorders().length === 1)
+    await page.keyboard.press('Tab')
+    const afterDown = await button(s, 'Move VIP passes down').evaluate((el) => el === document.activeElement)
+    await page.keyboard.press('Tab')
+    const atEdit = await button(s, 'Edit VIP passes').evaluate((el) => el === document.activeElement)
+    await page.keyboard.press('Tab')
+    const atRemove = await button(s, 'Remove VIP passes').evaluate((el) => el === document.activeElement)
+    rec(g, 'Tab order within an item: up, down, Edit, Remove', afterDown && atEdit && atRemove, JSON.stringify({ afterDown, atEdit, atRemove }))
+    await page.keyboard.press('Shift+Tab')
+    await page.keyboard.press('Enter')
+    rec(g, 'Edit opens from the keyboard', await appears(sheet(page, 'Edit Deliverable')))
+    rec(g, 'no console/page errors', errors.length === 0, errors.slice(0, 2).join(' || '))
+    await ctx.close()
+  }
+
+  {
+    // A read-only (archived) event: no move, Edit or Remove controls on any width.
+    const g = 'deliverables read-only'
+    reset()
+    const { page, ctx, errors } = await open('/organizer/events/e-arch', { w: 320, h: 800, touch: true })
+    await page.waitForSelector('h1:has-text("Old Expo")')
+    await packagesView(page)
+    await page.getByRole('button', { name: /^Frozen Gold/ }).tap()
+    const s = sheet(page, 'Frozen Gold')
+    await appears(s.getByText('Frozen item'))
+    rec(g, 'an archived event\'s deliverables show no controls at 320px', (await itemList(page).getByRole('button').count()) === 0 && await noOverflow(page))
+    rec(g, 'nothing was written', log.writes.length === 0 && itemReorders().length === 0)
     rec(g, 'no console/page errors', errors.length === 0, errors.slice(0, 2).join(' || '))
     await ctx.close()
   }

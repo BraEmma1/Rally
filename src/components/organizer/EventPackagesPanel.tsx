@@ -17,6 +17,7 @@ import {
   splitPackages,
 } from '@/lib/packageForm'
 import { formatMoney } from './PartnerCommon'
+import { MoveButton } from './MoveButton'
 import { PackageEditorDialog } from './PackageEditorDialog'
 
 // ---------------------------------------------------------------------------
@@ -295,38 +296,6 @@ function PackageList({
         )
       })}
     </ul>
-  )
-}
-
-// The first item cannot move up and the last cannot move down. That is marked
-// with aria-disabled rather than the disabled attribute on purpose: moving a
-// package to the top makes its own "up" button the edge one, and a natively
-// disabled button drops keyboard focus to the page. aria-disabled keeps focus
-// where it was, is still announced as unavailable, and the click does nothing.
-function MoveButton({
-  label,
-  atEdge,
-  onMove,
-  children,
-}: {
-  label: string
-  atEdge: boolean
-  onMove: () => void
-  children: React.ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      aria-disabled={atEdge || undefined}
-      onClick={() => {
-        if (!atEdge) onMove()
-      }}
-      className="flex h-11 w-11 items-center justify-center text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600 aria-disabled:cursor-default aria-disabled:text-gray-300 aria-disabled:hover:bg-transparent"
-    >
-      {children}
-    </button>
   )
 }
 
