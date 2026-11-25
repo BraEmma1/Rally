@@ -25,6 +25,7 @@ const SUITES = [
   'event-manager-access.cjs',
   'event-capacity-counts.cjs',
   'workspace-switcher.cjs',
+  'partnership-packages.cjs',
 ]
 
 const reachable = (url) =>
