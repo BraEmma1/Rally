@@ -361,7 +361,13 @@ export type CreatePartnershipResult = {
    * caller says so rather than pretending the whole thing rolled back.
    */
   orphanDraftId?: string
+  /** The chosen package no longer exists, so nothing was saved. */
+  packageUnavailable?: boolean
 }
+
+const PACKAGE_GONE =
+  'The package you chose is no longer available, so nothing was saved. Choose another package, ' +
+  'or Custom partnership to keep your current terms.'
 
 /**
  * Create a partnership together with its roles and its obligations.
@@ -386,20 +392,38 @@ export type CreatePartnershipResult = {
  *      hand; it is not corrupt.
  *
  * Success is never shown before step 3 could have run.
+ *
+ * PACKAGES. `packageId` records which package this partnership was started
+ * from. It is provenance, not a binding: the deliverables saved are the ones
+ * passed in `obligations` -- the organizer's own, possibly customized, copy --
+ * so `apply_partnership_package` is deliberately NOT called (it would copy the
+ * template deliverables a second time). The link is written only here, at
+ * creation; `partnershipPayload` does not carry it, so Edit Partner cannot
+ * change it. The composite key (package_id, event_id) refuses another event's
+ * package, and a package deleted since it was chosen fails the insert itself,
+ * before anything else is written.
  */
 export async function createPartnershipWithDetails(
   eventId: string,
   input: PartnershipInput,
   roles: PartnershipRole[],
-  obligations: ObligationInput[]
+  obligations: ObligationInput[],
+  packageId: string | null = null
 ): Promise<CreatePartnershipResult> {
   const { data, error } = await supabase
     .from('event_partnerships')
-    .insert({ event_id: eventId, ...partnershipPayload(input) })
+    .insert({
+      event_id: eventId,
+      ...partnershipPayload(input),
+      ...(packageId ? { package_id: packageId } : {}),
+    })
     .select('id')
     .single()
 
   if (error || !data) {
+    if (packageId && error?.code === '23503' && /package/i.test((error.message ?? '') + ' ' + (error.details ?? ''))) {
+      return { id: null, error: PACKAGE_GONE, packageUnavailable: true }
+    }
     return { id: null, error: mapPartnershipError(error, 'Unable to save this partner.') }
   }
 

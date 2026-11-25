@@ -1,9 +1,27 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input, Label, Textarea } from '@/components/ui/Input'
 import { EventPhotoUpload } from '@/components/ui/EventPhotoUpload'
-import { formatDueDate, rolesLabel, safeWebUrl } from './PartnerCommon'
+import {
+  listEventPackages,
+  loadPackageForPartner,
+  type PartnershipPackage,
+} from '@/lib/partnershipPackages'
+import {
+  EMPTY_TERMS,
+  customizedFields,
+  deliverableValuesOf,
+  deliverablesPhrase,
+  listFields,
+  termsAreEmpty,
+  termsFromPackage,
+  type PackageTerms,
+  type TermsField,
+} from '@/lib/packageSelection'
+import { MoveButton } from './MoveButton'
+import { CUSTOM, PackagePicker, TermsConfirmDialog, type PackageChoice } from './PackagePicker'
+import { formatDueDate, formatMoney, rolesLabel, safeWebUrl } from './PartnerCommon'
 import {
   PARTNERSHIP_ROLES,
   ROLE_LABELS,
@@ -138,6 +156,19 @@ function draftKey(): string {
 
 const STEPS = ['Company', 'Partnership', 'Deliverables', 'Requirements', 'Review'] as const
 
+type TermsConfirm =
+  | { kind: 'replace'; id: string; name: string; terms: PackageTerms; fields: TermsField[] }
+  | { kind: 'clear' }
+  | null
+
+function unavailableMessage(name: string, reason: 'archived' | 'missing', when: 'now' | 'since'): string {
+  const what = reason === 'archived' ? 'archived' : 'removed'
+  return when === 'now'
+    ? name + ' was ' + what + ' and can no longer be used. Choose another package or Custom partnership.'
+    : name + ' was ' + what + ' after you chose it, so nothing was saved. Choose another package, ' +
+        'or Custom partnership to keep your current terms.'
+}
+
 export function AddPartnerDialog({
   event,
   onClose,
@@ -154,6 +185,138 @@ export function AddPartnerDialog({
   const [requirements, setRequirements] = useState<DraftObligation[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // ---- Packages ------------------------------------------------------------
+  // `choice` is what the dropdown shows. `baseline` is where the terms on
+  // screen were filled from -- a package's terms, or nothing -- and it is what
+  // "customized" is measured against. They are separate on purpose: switching
+  // to Custom keeps Gold's values and Gold as their origin, so a later switch
+  // to Silver replaces untouched Gold values without asking.
+  const [packages, setPackages] = useState<PartnershipPackage[] | null>(null)
+  const [packagesError, setPackagesError] = useState<string | null>(null)
+  const [choice, setChoice] = useState<PackageChoice>({ kind: 'custom' })
+  const [baseline, setBaseline] = useState<PackageTerms>(EMPTY_TERMS)
+  const [choosing, setChoosing] = useState(false)
+  const [packageStatus, setPackageStatus] = useState('')
+  const [termsConfirm, setTermsConfirm] = useState<TermsConfirm>(null)
+
+  const loadPackages = useCallback(async () => {
+    setPackagesError(null)
+    const { data, error: loadError } = await listEventPackages(event.id)
+    if (loadError) {
+      setPackagesError(loadError)
+      setPackages([])
+      return
+    }
+    // This event's packages only (the RPC is scoped to it), and only active
+    // ones: an archived package is kept for the partners made from it, not
+    // offered for new ones.
+    setPackages(data.filter((p) => p.archived_at === null))
+  }, [event.id])
+
+  useEffect(() => {
+    void loadPackages()
+  }, [loadPackages])
+
+  function currentTerms(): PackageTerms {
+    return {
+      tier_label: values.tier_label,
+      value_amount: values.value_amount,
+      value_currency: values.value_currency,
+      deliverables: deliverables.map(deliverableValuesOf),
+    }
+  }
+  // The terms as of the latest render. choosePackage awaits a read, and an
+  // edit typed while it waits must still count -- the render that started the
+  // choice would not see it.
+  const latestTerms = useRef<PackageTerms>(EMPTY_TERMS)
+  latestTerms.current = currentTerms()
+
+  function putTerms(terms: PackageTerms) {
+    setValues((v) => ({
+      ...v,
+      tier_label: terms.tier_label,
+      value_amount: terms.value_amount,
+      value_currency: terms.value_currency,
+    }))
+    // Fresh local keys: these are this partner's own drafts from now on.
+    setDeliverables(terms.deliverables.map((d) => ({ ...d, key: draftKey() })))
+  }
+
+  function takePackage(id: string, name: string, terms: PackageTerms) {
+    putTerms(terms)
+    setBaseline(terms)
+    setChoice({ kind: 'package', id, name })
+    setTermsConfirm(null)
+    const money = formatMoney(
+      terms.value_amount === '' ? null : Number(terms.value_amount),
+      terms.value_currency || null
+    )
+    setPackageStatus(
+      'Filled in from ' + name + ': the tier label' + (money ? ', ' + money : '') + ' and ' +
+        deliverablesPhrase(terms.deliverables.length) + '.'
+    )
+  }
+
+  async function choosePackage(value: string) {
+    if (choosing) return
+    setError(null)
+    if (value === CUSTOM) {
+      if (choice.kind === 'custom') return
+      // Custom keeps everything on screen. Clearing is a separate, explicit act.
+      setChoice({ kind: 'custom' })
+      setPackageStatus(
+        termsAreEmpty(currentTerms())
+          ? 'Custom partnership. Fill in the tier label, value and deliverables yourself.'
+          : 'Custom partnership. Your current tier label, value and deliverables are kept.'
+      )
+      return
+    }
+    const listedName = packages?.find((p) => p.id === value)?.name ?? 'That package'
+    setChoosing(true)
+    // Read the package now, not from the list: the prefill is the template as
+    // it is at the moment of choosing.
+    const result = await loadPackageForPartner(event.id, value)
+    setChoosing(false)
+    if (result.status === 'error') {
+      setError(result.error)
+      return
+    }
+    if (result.status !== 'ok') {
+      setError(unavailableMessage(listedName, result.status, 'now'))
+      void loadPackages()
+      return
+    }
+    const terms = termsFromPackage(result.pkg, result.deliverables)
+    const current = latestTerms.current
+    const edited = customizedFields(current, baseline)
+    // Ask only when something the organizer did would be lost: the terms were
+    // changed from where they came from, AND the new package would change them.
+    if (edited.length > 0 && customizedFields(current, terms).length > 0) {
+      setTermsConfirm({ kind: 'replace', id: result.pkg.id, name: result.pkg.name, terms, fields: edited })
+      return
+    }
+    takePackage(result.pkg.id, result.pkg.name, terms)
+  }
+
+  function clearTerms() {
+    putTerms(EMPTY_TERMS)
+    setBaseline(EMPTY_TERMS)
+    setTermsConfirm(null)
+    setPackageStatus('The tier label, value and deliverables were cleared.')
+  }
+
+  // Escape, the backdrop and the close button all come here. An open
+  // confirmation is dismissed first -- keeping every edit -- so one Escape
+  // never throws the whole wizard away.
+  function requestClose() {
+    if (saving) return
+    if (termsConfirm) {
+      setTermsConfirm(null)
+      return
+    }
+    onClose()
+  }
 
   function next() {
     const invalid =
@@ -181,6 +344,30 @@ export function AddPartnerDialog({
     setSaving(true)
     setError(null)
 
+    // A package can be archived or deleted by another manager while this
+    // wizard is open. Check it is still usable before linking a partnership to
+    // it; its TEMPLATE is not re-read into the terms -- what was chosen and
+    // edited on screen is what gets saved.
+    const packageId = choice.kind === 'package' ? choice.id : null
+    if (choice.kind === 'package') {
+      const check = await loadPackageForPartner(event.id, choice.id)
+      if (check.status !== 'ok') {
+        setSaving(false)
+        if (check.status === 'error') {
+          setError(check.error)
+          return
+        }
+        setError(unavailableMessage(choice.name, check.status, 'since'))
+        setStep(1)
+        void loadPackages()
+        return
+      }
+    }
+
+    // The agreement as it is on screen: the organizer's own deliverables,
+    // whether they came from the package, were edited, or were added by hand.
+    // apply_partnership_package is not called -- it would add the template's
+    // deliverables a second time.
     const obligations: ObligationInput[] = [
       ...deliverables.map((d) => obligationInputFrom(d, 'organizer_to_partner')),
       ...requirements.map((r) => obligationInputFrom(r, 'partner_to_organizer')),
@@ -190,8 +377,18 @@ export function AddPartnerDialog({
       event.id,
       partnershipInputFrom(values),
       values.roles,
-      obligations
+      obligations,
+      packageId
     )
+
+    if (result.packageUnavailable) {
+      // Deleted between the check and the insert: nothing was written.
+      setError(result.error)
+      setSaving(false)
+      setStep(1)
+      void loadPackages()
+      return
+    }
 
     if (result.orphanDraftId) {
       // The partnership saved, a later step did not, and the compensating
@@ -218,7 +415,7 @@ export function AddPartnerDialog({
     <SheetDialog
       title="Add Partner"
       subtitle={event.name}
-      onClose={onClose}
+      onClose={requestClose}
       busy={saving}
       wide
     >
@@ -226,12 +423,40 @@ export function AddPartnerDialog({
 
       <div className="mt-4">
         {step === 0 && <CompanyFields values={values} onChange={setValues} />}
-        {step === 1 && <PartnershipFields values={values} onChange={setValues} />}
+        {step === 1 && (
+          <PartnershipFields
+            values={values}
+            onChange={setValues}
+            tierHint={
+              choice.kind === 'package'
+                ? 'Filled in from ' + choice.name + '. Change it for this partner if you like.'
+                : 'Your own wording, such as Gold Sponsor.'
+            }
+            packageSlot={
+              <PackagePicker
+                packages={packages}
+                loadError={packagesError}
+                onRetryLoad={() => void loadPackages()}
+                choice={choice}
+                busy={choosing}
+                status={packageStatus}
+                canClear={choice.kind === 'custom' && !termsAreEmpty(currentTerms())}
+                onChoose={(value) => void choosePackage(value)}
+                onClear={() => setTermsConfirm({ kind: 'clear' })}
+              />
+            }
+          />
+        )}
         {step === 2 && (
           <DraftObligationStep
             direction="organizer_to_partner"
             items={deliverables}
             onChange={setDeliverables}
+            note={
+              choice.kind === 'package'
+                ? 'Started from the ' + choice.name + ' package. Changes here apply to this partner only; the package itself is not changed.'
+                : undefined
+            }
           />
         )}
         {step === 3 && (
@@ -244,11 +469,48 @@ export function AddPartnerDialog({
         {step === 4 && (
           <ReviewStep
             values={values}
+            packageLabel={
+              choice.kind === 'package'
+                ? choice.name +
+                  (customizedFields(currentTerms(), baseline).length > 0
+                    ? ' · customized for this partner'
+                    : '')
+                : 'Custom partnership'
+            }
             deliverables={deliverables.length}
             requirements={requirements.length}
           />
         )}
       </div>
+
+      {termsConfirm?.kind === 'replace' && (
+        <TermsConfirmDialog
+          title={'Replace your changes with ' + termsConfirm.name + '?'}
+          body={
+            'You changed the ' + listFields(termsConfirm.fields) + '. Choosing ' + termsConfirm.name +
+            ' replaces the tier label, value and deliverables with the package’s. Requirements are not affected.'
+          }
+          keepLabel="Keep my changes"
+          actionLabel={'Use ' + termsConfirm.name}
+          returnFocusTo="pt-package"
+          onKeep={() => setTermsConfirm(null)}
+          onConfirm={() => takePackage(termsConfirm.id, termsConfirm.name, termsConfirm.terms)}
+        />
+      )}
+      {termsConfirm?.kind === 'clear' && (
+        <TermsConfirmDialog
+          title="Clear the tier, value and deliverables?"
+          body={
+            'This empties the tier label and commercial value and removes ' +
+            deliverablesPhrase(deliverables.length) + ' from this partner. Requirements are not affected.'
+          }
+          keepLabel="Keep them"
+          actionLabel="Clear"
+          returnFocusTo="pt-package"
+          onKeep={() => setTermsConfirm(null)}
+          onConfirm={clearTerms}
+        />
+      )}
 
       {error && (
         <div className="mt-4 rounded-md bg-error-50 px-3 py-2 text-sm text-error-700" role="alert">
@@ -266,7 +528,7 @@ export function AddPartnerDialog({
           {step === 0 ? 'Cancel' : 'Back'}
         </Button>
         {step < STEPS.length - 1 ? (
-          <Button type="button" onClick={next}>
+          <Button type="button" onClick={next} disabled={choosing}>
             Continue
           </Button>
         ) : (
@@ -440,9 +702,18 @@ export function CompanyFields({
 export function PartnershipFields({
   values,
   onChange,
+  packageSlot,
+  tierHint = 'Your own wording. Rally does not keep a list of tiers.',
 }: {
   values: PartnerFormValues
   onChange: (next: PartnerFormValues) => void
+  /**
+   * Add Partner puts the Package dropdown here, above the tier label. Edit
+   * Partner passes nothing: a partnership's package is chosen once, when it is
+   * created, and its tier label stays a plain editable field.
+   */
+  packageSlot?: React.ReactNode
+  tierHint?: string
 }) {
   function set<K extends keyof PartnerFormValues>(key: K, value: PartnerFormValues[K]) {
     onChange({ ...values, [key]: value })
@@ -490,6 +761,8 @@ export function PartnershipFields({
         </div>
       </fieldset>
 
+      {packageSlot}
+
       <div>
         <Label htmlFor="pt-tier">Tier / Partnership Level</Label>
         <Input
@@ -498,9 +771,10 @@ export function PartnershipFields({
           onChange={(e) => set('tier_label', e.target.value)}
           maxLength={80}
           placeholder="Gold Sponsor"
+          aria-describedby="pt-tier-hint"
         />
-        <p className="mt-1 text-xs text-gray-500">
-          Your own wording. Rally does not keep a list of tiers.
+        <p id="pt-tier-hint" className="mt-1 text-xs text-gray-500">
+          {tierHint}
         </p>
       </div>
 
@@ -516,6 +790,7 @@ export function PartnershipFields({
             value={values.value_amount}
             onChange={(e) => set('value_amount', e.target.value)}
             placeholder="50000"
+            aria-describedby="pt-value-hint"
           />
         </div>
         <div>
@@ -530,8 +805,14 @@ export function PartnershipFields({
           />
         </div>
       </div>
-      <p className="-mt-3 text-xs text-gray-500">
-        Optional, and private to your team. Rally does not invoice or take payment.
+      {/* Who really sees the value: the invitee projection (phase 3B) shows it
+          to the invited representative, and my_sponsor_partnerships shows it
+          to members of the sponsor organization once the invitation is
+          accepted. Attendees never see it. "Private to your team" was wrong. */}
+      <p id="pt-value-hint" className="-mt-3 text-xs text-gray-500">
+        Optional. Visible to your event team, to the representative you invite and, once they
+        accept, to authorized members of their organization. Never shown to attendees. Rally does
+        not invoice or take payment.
       </p>
     </div>
   )
@@ -567,22 +848,28 @@ function DraftObligationStep({
   direction,
   items,
   onChange,
+  note,
 }: {
   direction: ObligationDirection
   items: DraftObligation[]
   onChange: (next: DraftObligation[]) => void
+  /** Where these came from, e.g. the package they were filled in from. */
+  note?: string
 }) {
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState<DraftObligation | null>(null)
+  const [moved, setMoved] = useState('')
   const copy = STEP_COPY[direction]
 
+  // Local only: nothing is saved until Review, so a move cannot fail.
   function move(index: number, delta: -1 | 1) {
     const target = index + delta
     if (target < 0 || target >= items.length) return
     const next = [...items]
-    const [moved] = next.splice(index, 1)
-    next.splice(target, 0, moved)
+    const [item] = next.splice(index, 1)
+    next.splice(target, 0, item)
     onChange(next)
+    setMoved(item.title + ' moved to position ' + (target + 1) + ' of ' + next.length + '.')
   }
 
   return (
@@ -590,7 +877,12 @@ function DraftObligationStep({
       <div>
         <h3 className="text-sm font-semibold text-gray-900">{copy.heading}</h3>
         <p className="mt-0.5 text-sm text-gray-500">{copy.support}</p>
+        {note && <p className="mt-1 text-xs text-primary-700">{note}</p>}
       </div>
+
+      <p className="sr-only" aria-live="polite" data-testid={'draft-order-status-' + direction}>
+        {moved}
+      </p>
 
       {items.length === 0 ? (
         <div className="rounded-md border border-dashed border-gray-300 px-4 py-6 text-center">
@@ -598,12 +890,19 @@ function DraftObligationStep({
           <p className="mt-1 text-xs text-gray-400">{copy.examples}</p>
         </div>
       ) : (
-        <ul className="divide-y divide-gray-100 rounded-md border border-gray-200">
+        // Same layout as a package's deliverables: on a phone the text takes
+        // the full width and the controls get a row beneath it (move on the
+        // left, Edit and Remove on the right, each 44px); from sm up they
+        // share one row.
+        <ul aria-label={copy.heading} className="divide-y divide-gray-100 rounded-md border border-gray-200">
           {items.map((item, index) => (
-            <li key={item.key} className="flex items-start gap-2 px-3 py-2.5">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-gray-900">{item.title}</p>
-                <p className="truncate text-xs text-gray-500">
+            <li
+              key={item.key}
+              className="flex flex-col gap-1 px-3 py-2.5 sm:flex-row sm:items-start sm:gap-2"
+            >
+              <div className="min-w-0 flex-1 sm:py-2.5">
+                <p className="break-words text-sm font-medium text-gray-900">{item.title}</p>
+                <p className="break-words text-xs text-gray-500">
                   {[
                     item.category || null,
                     item.quantity ? 'Qty ' + item.quantity : null,
@@ -613,47 +912,51 @@ function DraftObligationStep({
                     .join(' · ') || 'No category, quantity or due date'}
                 </p>
               </div>
-              <div className="flex shrink-0 items-center">
-                {items.length > 1 && (
-                  <div className="mr-1 hidden flex-col sm:flex">
-                    <button
-                      type="button"
-                      disabled={index === 0}
-                      onClick={() => move(index, -1)}
-                      aria-label={'Move ' + item.title + ' up'}
-                      className="rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+              <div className="-mx-1 flex shrink-0 items-center justify-between sm:mx-0 sm:justify-end sm:gap-1">
+                {items.length > 1 ? (
+                  <div className="flex items-center" role="group" aria-label={'Reorder ' + item.title}>
+                    <MoveButton
+                      label={'Move ' + item.title + ' up'}
+                      atEdge={index === 0}
+                      onMove={() => move(index, -1)}
                     >
-                      <ChevronUp className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={index === items.length - 1}
-                      onClick={() => move(index, 1)}
-                      aria-label={'Move ' + item.title + ' down'}
-                      className="rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+                      <ChevronUp className="h-5 w-5" aria-hidden="true" />
+                    </MoveButton>
+                    <MoveButton
+                      label={'Move ' + item.title + ' down'}
+                      atEdge={index === items.length - 1}
+                      onMove={() => move(index, 1)}
                     >
-                      <ChevronDown className="h-4 w-4" />
-                    </button>
+                      <ChevronDown className="h-5 w-5" aria-hidden="true" />
+                    </MoveButton>
                   </div>
+                ) : (
+                  <span aria-hidden="true" />
                 )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setEditing(item)}
-                  aria-label={'Edit ' + item.title}
-                >
-                  <Pencil className="h-4 w-4" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => onChange(items.filter((i) => i.key !== item.key))}
-                  aria-label={'Remove ' + item.title}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setEditing(item)}
+                    aria-label={'Edit ' + item.title}
+                    title={'Edit ' + item.title}
+                    className="h-11 w-11"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onChange(items.filter((i) => i.key !== item.key))}
+                    aria-label={'Remove ' + item.title}
+                    title={'Remove ' + item.title}
+                    className="h-11 w-11"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
             </li>
           ))}
@@ -709,10 +1012,12 @@ function DraftObligationStep({
 // ---------------------------------------------------------------------------
 function ReviewStep({
   values,
+  packageLabel,
   deliverables,
   requirements,
 }: {
   values: PartnerFormValues
+  packageLabel: string
   deliverables: number
   requirements: number
 }) {
@@ -728,6 +1033,9 @@ function ReviewStep({
       <ReviewRow label="Company">
         <p className="text-sm font-medium text-gray-900">{input.company_name}</p>
         {input.industry && <p className="text-sm text-gray-500">{input.industry}</p>}
+      </ReviewRow>
+      <ReviewRow label="Package">
+        <p className="text-sm text-gray-900">{packageLabel}</p>
       </ReviewRow>
       <ReviewRow label="Partnership">
         {input.tier_label && <p className="text-sm font-medium text-gray-900">{input.tier_label}</p>}
