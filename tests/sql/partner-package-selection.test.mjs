@@ -16,8 +16,8 @@
 //      and names the package constraint (the wizard's message depends on that)
 //   6. who may save: assigned managers, admins, owners -- nobody else
 //   7. the draft rollback still works for a linked draft
-//   8. known gap, pinned so Spec A changes it on purpose: a direct insert may link an
-//      ARCHIVED package; the screen checks, the database does not yet
+//   8. a direct insert linking an ARCHIVED package is refused (Spec A, migration
+//      20261128000000; this was the pinned known gap before it)
 //
 // Runs on PGlite; see boot.mjs for what that does and does not prove.
 import { boot, MIGRATIONS } from './boot.mjs'
@@ -207,8 +207,10 @@ ok('an Edit Partner style update keeps the package link', (await agreement(ACME)
 const OLD = await mkPackage(EV_A, 'Retired', null, null)
 await as(U.owner, `UPDATE event_partnership_packages SET archived_at = now() WHERE id = $1`, [OLD])
 const archivedLink = await err(U.owner, `INSERT INTO event_partnerships (event_id, company_name, package_id) VALUES ($1, 'Archived link', $2)`, [EV_A, OLD])
-ok('KNOWN GAP (Spec A): the database still accepts a direct link to an archived package -- the wizard checks before saving',
-  archivedLink === null, archivedLink)
+ok('Spec A: the database refuses a direct link to an archived package (it was the known gap here)',
+  refused(archivedLink, /archived/), archivedLink)
+ok('...with the signal the wizard maps to "no longer available": a foreign-key error naming the package',
+  refused(archivedLink, /package/) && await n(`SELECT count(*) AS n FROM event_partnerships WHERE company_name = 'Archived link'`) === 0, archivedLink)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
