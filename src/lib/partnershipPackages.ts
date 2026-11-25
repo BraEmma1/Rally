@@ -141,6 +141,65 @@ export async function listEventPackages(
  * event, so an organizer of two events could otherwise read the other one's
  * package inside this event's screen.
  */
+/** What Add Partner needs from one package at the moment it is chosen. */
+export type PackageForPartner =
+  | {
+      status: 'ok'
+      pkg: Pick<PartnershipPackage, 'id' | 'name' | 'value_amount' | 'value_currency'>
+      deliverables: PackageDeliverable[]
+    }
+  | { status: 'archived' | 'missing' }
+  | { status: 'error'; error: string }
+
+/**
+ * One package and its template deliverables, read fresh, for THIS event only.
+ *
+ * Add Partner calls this when a package is chosen (so the prefill is the
+ * template as it is now, not as it was when the list loaded) and again just
+ * before saving (so a package archived or deleted in the meantime is caught
+ * before a partnership is linked to it). An archived package is reported, not
+ * returned: it is not offered for new partners.
+ *
+ * Only `archived` is decided here. Nothing in the database stops a direct
+ * insert from linking an archived package -- apply_partnership_package checks
+ * it, a plain insert does not -- so this check is the screen's, and the
+ * set-once package-link rule (Spec A) is where the database will enforce it.
+ */
+export async function loadPackageForPartner(
+  eventId: string,
+  packageId: string
+): Promise<PackageForPartner> {
+  const { data, error } = await supabase
+    .from('event_partnership_packages')
+    .select('id, name, value_amount, value_currency, archived_at')
+    .eq('id', packageId)
+    .eq('event_id', eventId)
+    .maybeSingle()
+  if (error) return { status: 'error', error: mapPackageError(error, 'Unable to load that package.') }
+  if (!data) return { status: 'missing' }
+  const row = data as {
+    id: string
+    name: string
+    value_amount: number | string | null
+    value_currency: string | null
+    archived_at: string | null
+  }
+  if (row.archived_at !== null) return { status: 'archived' }
+
+  const { data: deliverables, error: itemsError } = await listPackageDeliverables(eventId, packageId)
+  if (itemsError) return { status: 'error', error: itemsError }
+  return {
+    status: 'ok',
+    pkg: {
+      id: row.id,
+      name: row.name,
+      value_amount: row.value_amount === null ? null : Number(row.value_amount),
+      value_currency: row.value_currency,
+    },
+    deliverables,
+  }
+}
+
 export async function listPackageDeliverables(
   eventId: string,
   packageId: string

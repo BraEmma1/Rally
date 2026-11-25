@@ -26,6 +26,7 @@ const SUITES = [
   'event-capacity-counts.cjs',
   'workspace-switcher.cjs',
   'partnership-packages.cjs',
+  'partner-package-selection.cjs',
 ]
 
 const reachable = (url) =>
