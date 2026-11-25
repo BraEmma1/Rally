@@ -57,6 +57,8 @@ function reset(over = {}) {
     ],
     usage: { 'k-gold': 2, 'k-old': 1 },
     refuseDelete: null,
+    refuseReorder: null, // a message: the next reorder call fails with it, and changes nothing
+    reorderDelayMs: 0,
     ...over,
   }
   log = { listCalls: [], writes: [], rpcs: [] }
@@ -126,6 +128,8 @@ async function wire(ctx) {
         return json(200, listPackages(body.target_event_id))
       }
       if (name === 'reorder_event_partnership_packages') {
+        if (state.reorderDelayMs) await new Promise((r) => setTimeout(r, state.reorderDelayMs))
+        if (state.refuseReorder) { const msg = state.refuseReorder; state.refuseReorder = null; return json(400, err('P0001', msg)) }
         body.package_ids.forEach((id, i) => { const p = state.packages.find((x) => x.id === id); if (p) p.display_order = i })
         return json(200, null)
       }
@@ -180,8 +184,8 @@ function rec(group, name, pass, detail = '') {
 
 ;(async () => {
   const browser = await launchBrowser()
-  async function open(url, { w = 1440, h = 900 } = {}) {
-    const ctx = await browser.newContext({ viewport: { width: w, height: h } })
+  async function open(url, { w = 1440, h = 900, touch = false } = {}) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: h }, ...(touch ? { hasTouch: true, isMobile: true, deviceScaleFactor: 2 } : {}) })
     const page = await ctx.newPage()
     const errors = []
     page.on('pageerror', (e) => errors.push(String(e)))
@@ -430,7 +434,8 @@ function rec(group, name, pass, detail = '') {
     await packagesView(page)
     await appears(page.getByRole('button', { name: /^Gold/ }))
     rec(g, 'the package list does not scroll sideways', await noOverflow(page))
-    rec(g, 'reorder arrows are left to wider screens, like partner deliverables', !(await page.getByRole('button', { name: 'Move Silver up' }).isVisible()))
+    rec(g, 'reorder controls are shown on a phone', await page.getByRole('button', { name: 'Move Silver up' }).isVisible() &&
+      await page.getByRole('button', { name: 'Move Gold down' }).isVisible())
     await page.screenshot({ path: path.join(OUT, `packages-list-${w}.png`), fullPage: true })
     await page.getByRole('button', { name: /^Gold/ }).click()
     const s = sheet(page, 'Gold')
@@ -442,6 +447,134 @@ function rec(group, name, pass, detail = '') {
     await button(s, 'Add Deliverable').click()
     await appears(sheet(page, 'Add Deliverable'))
     rec(g, 'the nested deliverable form fits too', await sheetFits(page) && await noOverflow(page))
+    rec(g, 'no console/page errors', errors.length === 0, errors.slice(0, 2).join(' || '))
+    await ctx.close()
+  }
+
+  // ================= 7. Reordering on a phone (touch) ================================
+  // The names in the ACTIVE list, top to bottom (the archived list is a separate list).
+  const shownOrder = (page) => page.getByRole('list', { name: 'Packages', exact: true }).locator(':scope > li').evaluateAll((lis) => lis
+    .map((li) => li.querySelector(':scope > button p span')?.textContent ?? ''))
+  const status = (page) => page.getByTestId('package-order-status').textContent()
+  const reorders = () => log.rpcs.filter((r) => r.name === 'reorder_event_partnership_packages')
+  // A move is finished when its result is announced; networkidle alone can return before React applies it.
+  const announced = (page, text, timeout = 4000) => page.waitForFunction((t) => document.querySelector('[data-testid=package-order-status]')?.textContent === t, text, { timeout }).then(() => true, () => false)
+  for (const w of [390, 320]) {
+    const g = 'phone reorder ' + w
+    // Three active packages with an archived one stored BETWEEN them, so a move
+    // that leaked archived packages into the active order would show up.
+    reset({
+      packages: [
+        pkg('k-gold', 'e-a', 'Gold', { value_amount: 50000, value_currency: 'GHS', display_order: 0, description: 'Headline placement across the venue.' }),
+        pkg('k-old', 'e-a', 'Legacy Bronze', { display_order: 1, archived_at: '2026-09-01T00:00:00Z' }),
+        pkg('k-silver', 'e-a', 'Silver', { value_amount: 25000, value_currency: 'GHS', display_order: 2 }),
+        pkg('k-bronze', 'e-a', 'Bronze', { display_order: 3 }),
+      ],
+    })
+    const { page, ctx, errors } = await open('/organizer/events/e-a', { w, h: 800, touch: true })
+    await page.waitForSelector('h1:has-text("Alpha Summit")')
+    await packagesView(page)
+    await appears(page.getByRole('button', { name: /^Gold/ }))
+    rec(g, 'the active list shows only active packages, in order', JSON.stringify(await shownOrder(page)) === JSON.stringify(['Gold', 'Silver', 'Bronze']), JSON.stringify(await shownOrder(page)))
+
+    // Touch targets: every move button is at least 44 x 44.
+    const boxes = await page.getByRole('button', { name: /^Move .* (up|down)$/ }).evaluateAll((els) => els.map((el) => { const r = el.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)] }))
+    rec(g, 'six move buttons, each at least 44 x 44', boxes.length === 6 && boxes.every(([bw, bh]) => bw >= 44 && bh >= 44), JSON.stringify(boxes))
+
+    // Compact: no sideways scroll, the controls cost one 44px column, and a row
+    // with no description is no taller than the two stacked buttons.
+    rec(g, 'no sideways scroll with the controls shown', await noOverflow(page))
+    const silverRow = await page.locator('ul li').filter({ hasText: 'Silver' }).first().boundingBox()
+    const silverMain = await page.getByRole('button', { name: /^Silver/ }).boundingBox()
+    rec(g, 'a short row stays compact (at most 2 x 44px tall)', !!silverRow && silverRow.height <= 90, JSON.stringify(silverRow))
+    rec(g, 'the package itself keeps most of the row width', !!silverRow && !!silverMain && silverMain.width >= silverRow.width - 46, JSON.stringify({ silverRow, silverMain }))
+    rec(g, 'the name and value are not clipped', await page.getByRole('button', { name: /^Silver/ }).evaluate((el) => el.scrollWidth <= el.clientWidth + 1))
+    await page.screenshot({ path: path.join(OUT, `packages-reorder-${w}.png`), fullPage: true })
+
+    // Edges: Gold cannot move up, Bronze cannot move down, and tapping them sends nothing.
+    const goldUp = page.getByRole('button', { name: 'Move Gold up' })
+    const bronzeDown = page.getByRole('button', { name: 'Move Bronze down' })
+    rec(g, 'the first package\'s up and the last package\'s down are marked unavailable',
+      (await goldUp.getAttribute('aria-disabled')) === 'true' && (await bronzeDown.getAttribute('aria-disabled')) === 'true' &&
+      (await page.getByRole('button', { name: 'Move Gold down' }).getAttribute('aria-disabled')) === null)
+    // force: Playwright itself treats aria-disabled as "not enabled" and would refuse
+    // to tap. A finger does not, so tap anyway and prove nothing happens.
+    await goldUp.tap({ force: true })
+    await bronzeDown.tap({ force: true })
+    await settle(page)
+    rec(g, '...and tapping them sends no reorder and changes nothing', reorders().length === 0 && JSON.stringify(await shownOrder(page)) === JSON.stringify(['Gold', 'Silver', 'Bronze']))
+
+    // A tap moves Silver up: whole active order, archived last.
+    await page.getByRole('button', { name: 'Move Silver up' }).tap()
+    const upDone = await announced(page, 'Silver moved to position 1 of 3.')
+    rec(g, 'tapping up sends the new active order with the archived package last', reorders().length === 1 &&
+      reorders()[0].body.target_event_id === 'e-a' &&
+      JSON.stringify(reorders()[0].body.package_ids) === JSON.stringify(['k-silver', 'k-gold', 'k-bronze', 'k-old']), JSON.stringify(reorders()[0]?.body))
+    rec(g, '...the list shows it', JSON.stringify(await shownOrder(page)) === JSON.stringify(['Silver', 'Gold', 'Bronze']), JSON.stringify(await shownOrder(page)))
+    rec(g, '...it is announced', upDone, await status(page))
+    rec(g, '...and Silver is now the edge one', (await page.getByRole('button', { name: 'Move Silver up' }).getAttribute('aria-disabled')) === 'true' &&
+      (await page.getByRole('button', { name: 'Move Gold up' }).getAttribute('aria-disabled')) === null)
+
+    // A tap moves Gold down.
+    await page.getByRole('button', { name: 'Move Gold down' }).tap()
+    rec(g, 'tapping down moves the package one place down', await announced(page, 'Gold moved to position 3 of 3.') && reorders().length === 2 &&
+      JSON.stringify(reorders()[1].body.package_ids) === JSON.stringify(['k-silver', 'k-bronze', 'k-gold', 'k-old']) &&
+      JSON.stringify(await shownOrder(page)) === JSON.stringify(['Silver', 'Bronze', 'Gold']), JSON.stringify(reorders()[1]?.body))
+
+    // The archived section is never reorderable and stays out of the active list.
+    await page.getByRole('button', { name: 'Archived packages (1)' }).tap()
+    await appears(page.getByText('Legacy Bronze'))
+    rec(g, 'archived packages have no move controls', (await page.getByRole('button', { name: /^Move Legacy Bronze/ }).count()) === 0)
+    rec(g, 'no sideways scroll with archived packages open', await noOverflow(page))
+
+    // A refused move: the error is shown and the order on screen goes back.
+    state.refuseReorder = 'Those packages do not all belong to this event'
+    await page.getByRole('button', { name: 'Move Gold up' }).tap()
+    const failDone = await announced(page, 'Gold was not moved.')
+    rec(g, 'a failed move shows the error', await appears(page.getByRole('alert').filter({ hasText: 'Those packages do not all belong to this event' })),
+      await page.getByRole('alert').first().textContent({ timeout: 500 }).catch(() => 'no alert'))
+    rec(g, '...and restores the previous order', JSON.stringify((await shownOrder(page)).slice(0, 3)) === JSON.stringify(['Silver', 'Bronze', 'Gold']), JSON.stringify(await shownOrder(page)))
+    rec(g, '...and says it was not moved', failDone, await status(page))
+    rec(g, '...and the stored order is untouched', JSON.stringify(listPackages('e-a').map((p) => p.id)) === JSON.stringify(['k-silver', 'k-bronze', 'k-gold', 'k-old']))
+
+    // The next successful move clears the error.
+    await page.getByRole('button', { name: 'Move Gold up' }).tap()
+    rec(g, 'a later successful move clears the error', await announced(page, 'Gold moved to position 2 of 3.') && (await page.getByRole('alert').filter({ hasText: 'belong' }).count()) === 0 &&
+      JSON.stringify((await shownOrder(page)).slice(0, 3)) === JSON.stringify(['Silver', 'Gold', 'Bronze']))
+
+    // A second tap while the first is still saving is ignored, not raced.
+    state.reorderDelayMs = 600
+    const before = reorders().length
+    await page.getByRole('button', { name: 'Move Bronze up' }).tap()
+    await page.getByRole('button', { name: 'Move Silver down' }).tap()
+    await announced(page, 'Bronze moved to position 2 of 3.')
+    await page.waitForTimeout(300) // room for a second, wrongly queued save to arrive
+    state.reorderDelayMs = 0
+    rec(g, 'a second tap during a save is ignored', reorders().length === before + 1 &&
+      JSON.stringify((await shownOrder(page)).slice(0, 3)) === JSON.stringify(['Silver', 'Bronze', 'Gold']), JSON.stringify({ calls: reorders().length - before, order: await shownOrder(page) }))
+    rec(g, 'no console/page errors', errors.length === 0, errors.slice(0, 2).join(' || '))
+    await ctx.close()
+  }
+
+  // ================= 8. Reordering from the keyboard =================================
+  {
+    const g = 'keyboard reorder'
+    reset()
+    const { page, ctx, errors } = await open('/organizer/events/e-a')
+    await page.waitForSelector('h1:has-text("Alpha Summit")')
+    await packagesView(page)
+    await appears(page.getByRole('button', { name: /^Gold/ }))
+    const silverUp = page.getByRole('button', { name: 'Move Silver up' })
+    await silverUp.focus()
+    await page.keyboard.press('Enter')
+    rec(g, 'Enter on a move button reorders', await announced(page, 'Silver moved to position 1 of 2.') && reorders().length === 1 && JSON.stringify(await shownOrder(page)) === JSON.stringify(['Silver', 'Gold']))
+    rec(g, 'focus stays on the moved package\'s button, even at the edge', await silverUp.evaluate((el) => el === document.activeElement))
+    await page.keyboard.press('Enter')
+    await page.keyboard.press(' ')
+    await settle(page)
+    rec(g, '...and pressing it again at the edge sends nothing', reorders().length === 1)
+    await page.keyboard.press('Tab')
+    rec(g, 'Tab reaches the same package\'s down button next', await page.getByRole('button', { name: 'Move Silver down' }).evaluate((el) => el === document.activeElement))
     rec(g, 'no console/page errors', errors.length === 0, errors.slice(0, 2).join(' || '))
     await ctx.close()
   }

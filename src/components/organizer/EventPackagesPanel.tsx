@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, ChevronUp, Layers, Plus } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
@@ -72,8 +72,16 @@ export function EventPackagesPanel({ event, editable }: { event: EventLike; edit
 
   const { active, archived } = useMemo(() => splitPackages(packages ?? []), [packages])
 
+  // One move at a time. A second tap while the first is saving is ignored
+  // rather than queued: if the first save then failed, restoring "the order
+  // before" would silently undo the second move too.
+  const moving = useRef(false)
+  const [announcement, setAnnouncement] = useState('')
+
   async function move(index: number, delta: -1 | 1) {
-    if (!packages) return
+    if (!packages || moving.current) return
+    // Only ACTIVE packages are moved. movedIds refuses a move off either end
+    // (the first item up, the last item down) by returning null.
     const ids = movedIds(
       active.map((p) => p.id),
       index,
@@ -81,18 +89,30 @@ export function EventPackagesPanel({ event, editable }: { event: EventLike; edit
     )
     if (!ids) return
     // Archived packages keep their place after the active ones, so a later
-    // restore lands at the end rather than somewhere surprising.
+    // restore lands at the end rather than somewhere surprising, and an
+    // archived package is never shuffled in among the active order.
     const ordered = [...ids, ...archived.map((p) => p.id)]
     const before = packages
     const byId = new Map(packages.map((p) => [p.id, p]))
+    const name = active[index].name
+    moving.current = true
     setPackages(ordered.map((id, i) => ({ ...(byId.get(id) as PartnershipPackage), display_order: i })))
-    const { error: reorderError } = await reorderPackages(event.id, ordered)
+    let reorderError: string | null
+    try {
+      reorderError = (await reorderPackages(event.id, ordered)).error
+    } catch {
+      reorderError = 'Unable to save the new order.'
+    } finally {
+      moving.current = false
+    }
     if (reorderError) {
       setPackages(before)
       setOrderError(reorderError)
+      setAnnouncement(name + ' was not moved.')
       return
     }
     setOrderError(null)
+    setAnnouncement(name + ' moved to position ' + (index + delta + 1) + ' of ' + ids.length + '.')
   }
 
   return (
@@ -119,6 +139,10 @@ export function EventPackagesPanel({ event, editable }: { event: EventLike; edit
         </div>
       )}
 
+      <p className="sr-only" aria-live="polite" data-testid="package-order-status">
+        {announcement}
+      </p>
+
       {error && <ErrorState message={error} onRetry={() => void load()} />}
 
       {loading && <PackagesSkeleton />}
@@ -142,6 +166,7 @@ export function EventPackagesPanel({ event, editable }: { event: EventLike; edit
 
       {!loading && !error && active.length > 0 && (
         <PackageList
+          label="Packages"
           packages={active}
           reorderable={editable && active.length > 1}
           onOpen={(pkg) => setEditor({ pkg })}
@@ -170,6 +195,7 @@ export function EventPackagesPanel({ event, editable }: { event: EventLike; edit
           </button>
           {showArchived && (
             <PackageList
+              label="Archived packages"
               packages={archived}
               reorderable={false}
               onOpen={(pkg) => setEditor({ pkg })}
@@ -194,42 +220,46 @@ export function EventPackagesPanel({ event, editable }: { event: EventLike; edit
 }
 
 function PackageList({
+  label,
   packages,
   reorderable,
   onOpen,
   onMove,
 }: {
+  label: string
   packages: PartnershipPackage[]
   reorderable: boolean
   onOpen: (pkg: PartnershipPackage) => void
   onMove: (index: number, delta: -1 | 1) => void
 }) {
   return (
-    <ul className="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white">
+    <ul
+      aria-label={label}
+      className="divide-y divide-gray-100 overflow-hidden rounded-lg border border-gray-200 bg-white"
+    >
       {packages.map((pkg, index) => {
         const money = formatMoney(pkg.value_amount, pkg.value_currency)
         return (
           <li key={pkg.id} className="flex items-stretch">
             {reorderable && (
-              <div className="hidden flex-col justify-center pl-2 sm:flex">
-                <button
-                  type="button"
-                  disabled={index === 0}
-                  onClick={() => onMove(index, -1)}
-                  aria-label={'Move ' + pkg.name + ' up'}
-                  className="rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+              // Shown at every width: on a phone these are the only way to
+              // reorder. Each button is a 44px square, stacked, so the column
+              // costs 44px of row width and the row stays one tap target wide.
+              <div className="flex shrink-0 flex-col justify-center border-r border-gray-100">
+                <MoveButton
+                  label={'Move ' + pkg.name + ' up'}
+                  atEdge={index === 0}
+                  onMove={() => onMove(index, -1)}
                 >
-                  <ChevronUp className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  disabled={index === packages.length - 1}
-                  onClick={() => onMove(index, 1)}
-                  aria-label={'Move ' + pkg.name + ' down'}
-                  className="rounded p-0.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+                  <ChevronUp className="h-5 w-5" aria-hidden="true" />
+                </MoveButton>
+                <MoveButton
+                  label={'Move ' + pkg.name + ' down'}
+                  atEdge={index === packages.length - 1}
+                  onMove={() => onMove(index, 1)}
                 >
-                  <ChevronDown className="h-4 w-4" />
-                </button>
+                  <ChevronDown className="h-5 w-5" aria-hidden="true" />
+                </MoveButton>
               </div>
             )}
             <button
@@ -265,6 +295,38 @@ function PackageList({
         )
       })}
     </ul>
+  )
+}
+
+// The first item cannot move up and the last cannot move down. That is marked
+// with aria-disabled rather than the disabled attribute on purpose: moving a
+// package to the top makes its own "up" button the edge one, and a natively
+// disabled button drops keyboard focus to the page. aria-disabled keeps focus
+// where it was, is still announced as unavailable, and the click does nothing.
+function MoveButton({
+  label,
+  atEdge,
+  onMove,
+  children,
+}: {
+  label: string
+  atEdge: boolean
+  onMove: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      aria-disabled={atEdge || undefined}
+      onClick={() => {
+        if (!atEdge) onMove()
+      }}
+      className="flex h-11 w-11 items-center justify-center text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-600 aria-disabled:cursor-default aria-disabled:text-gray-300 aria-disabled:hover:bg-transparent"
+    >
+      {children}
+    </button>
   )
 }
 
