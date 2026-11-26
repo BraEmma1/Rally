@@ -49,8 +49,27 @@ require `account_is_active()`.
   - The organization and the creator are fixed at insert. The creator is the
     signed-in caller; a client cannot choose it.
 
+## Linking a partnership to a partner
+`event_partnerships.partner_id` points at the partner. The link fills the copy
+and then guards it; the rules are decided from the data alone, with no session
+flag, so no caller can switch them off:
+
+    link set or changed     the partner must be active and belong to the
+                            event's organization; the six basic columns are
+                            copied from it (details sent alongside are replaced)
+    link unchanged          the six columns must still equal the partner's
+                            ("Edit the partner to change them everywhere")
+    link cleared            the copy stays and becomes editable again
+    changed or cleared      only while the partnership is a draft, to fix a
+                            wrong pick; a first link (NULL to partner) is
+                            allowed in any status
+    partner deleted         refused while any partnership points at it
+
+An event without an organization cannot take a partner.
+
 ## Sections
   1. The directory table, its rules and its access
+  2. Linking partnerships to partners
 */
 
 -- ============================================================================
@@ -264,3 +283,165 @@ DROP POLICY IF EXISTS "delete_organization_partners" ON public.organization_part
 CREATE POLICY "delete_organization_partners"
   ON public.organization_partners FOR DELETE TO authenticated
   USING (public.is_org_admin(organization_id));
+
+-- ============================================================================
+-- Section 2: linking partnerships to partners
+-- ============================================================================
+
+-- Nullable: a partnership typed by hand keeps working until it is linked.
+-- NO ACTION, not RESTRICT: the check runs after the statement's cascades, so a
+-- deletion that cascades through both events and organizations does not
+-- depend on which cascade fires first. The delete guard below is what refuses
+-- deleting a linked partner; the foreign key is the backstop.
+ALTER TABLE public.event_partnerships
+  ADD COLUMN IF NOT EXISTS partner_id uuid
+    REFERENCES public.organization_partners(id) ON DELETE NO ACTION;
+
+COMMENT ON COLUMN public.event_partnerships.partner_id IS
+  'The organization partner this partnership is for. While set, the six basic company columns equal the partner''s.';
+
+-- The delete guard counts by partner, and so will the sync.
+CREATE INDEX IF NOT EXISTS idx_event_partnerships_partner
+  ON public.event_partnerships (partner_id);
+
+-- ============================================================================
+-- The link fills the copy, and the copy follows the partner
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.enforce_partnership_partner_link()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_old uuid := CASE WHEN TG_OP = 'UPDATE' THEN OLD.partner_id END;
+  v_event_org uuid;
+  v_partner organization_partners%ROWTYPE;
+BEGIN
+  IF NEW.partner_id IS DISTINCT FROM v_old THEN
+    -- Changing or clearing a link fixes a wrong pick, which only makes sense
+    -- before anyone has been invited. A first link (NULL -> partner) is
+    -- allowed in any status: the backfill relies on it.
+    IF v_old IS NOT NULL AND OLD.status <> 'draft' THEN
+      RAISE EXCEPTION 'The partner on this partnership can only be changed while it is a draft';
+    END IF;
+
+    -- Cleared: the copy stays as it is, and is editable again.
+    IF NEW.partner_id IS NULL THEN
+      RETURN NEW;
+    END IF;
+
+    -- SECURITY DEFINER so the read cannot be hidden by RLS; FOR SHARE so a
+    -- concurrent edit, archive or delete of the partner is serialized with
+    -- this link. Edit first: this waits, then copies the edited details. Link
+    -- first: the edit waits, and its sync then sees this partnership.
+    SELECT * INTO v_partner
+    FROM organization_partners p
+    WHERE p.id = NEW.partner_id
+    FOR SHARE;
+
+    SELECT e.organization_id INTO v_event_org FROM events e WHERE e.id = NEW.event_id;
+
+    -- A partner id that does not exist reads as NULL here and gets the same
+    -- answer, so the message never tells an id that exists elsewhere from one
+    -- that does not. An event with no organization cannot take a partner.
+    IF v_event_org IS NULL OR v_partner.organization_id IS DISTINCT FROM v_event_org THEN
+      RAISE EXCEPTION 'That partner belongs to another organization';
+    END IF;
+
+    IF v_partner.archived_at IS NOT NULL THEN
+      RAISE EXCEPTION 'That partner is archived. Restore it before adding it to an event.';
+    END IF;
+
+    -- The fill wins over anything the client sent for these six.
+    NEW.company_name := v_partner.company_name;
+    NEW.description  := v_partner.description;
+    NEW.logo_url     := v_partner.logo_url;
+    NEW.industry     := v_partner.industry;
+    NEW.website      := v_partner.website;
+    NEW.linkedin     := v_partner.linkedin;
+    RETURN NEW;
+  END IF;
+
+  -- Not linked, and not being linked: nothing to decide.
+  IF NEW.partner_id IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- The link is unchanged: the copy must still equal the partner. Sending the
+  -- same values back (today's Edit Partner dialog) passes; so does the sync,
+  -- which sets them equal. IS DISTINCT FROM per column, so NULL equals NULL
+  -- while '' and NULL differ. No lock: the row being updated is already
+  -- linked, so a concurrent partner edit's sync reaches it after this write.
+  SELECT * INTO v_partner FROM organization_partners p WHERE p.id = NEW.partner_id;
+
+  IF FOUND AND (
+       NEW.company_name IS DISTINCT FROM v_partner.company_name
+    OR NEW.description  IS DISTINCT FROM v_partner.description
+    OR NEW.logo_url     IS DISTINCT FROM v_partner.logo_url
+    OR NEW.industry     IS DISTINCT FROM v_partner.industry
+    OR NEW.website      IS DISTINCT FROM v_partner.website
+    OR NEW.linkedin     IS DISTINCT FROM v_partner.linkedin
+  ) THEN
+    RAISE EXCEPTION 'These details belong to the partner. Edit the partner to change them everywhere.';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+COMMENT ON FUNCTION public.enforce_partnership_partner_link() IS
+  'event_partnerships.partner_id: a link (set or changed) must be to an active partner of the event''s organization and fills the six basic columns from it; an unchanged link refuses any drift from the partner; changing or clearing a link is draft-only. Decided from the data alone, with no session flag.';
+
+REVOKE EXECUTE ON FUNCTION public.enforce_partnership_partner_link() FROM PUBLIC, anon, authenticated;
+
+-- Named to sort after check_event_partnership_rules and
+-- check_partnership_package_link, so it sees the row as they leave it (an
+-- archived event is refused before any partner is read). No column list: a
+-- column list only reacts to the columns named in the UPDATE's SET clause.
+DROP TRIGGER IF EXISTS check_partnership_partner_link ON public.event_partnerships;
+CREATE TRIGGER check_partnership_partner_link
+  BEFORE INSERT OR UPDATE ON public.event_partnerships
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_partnership_partner_link();
+
+-- ============================================================================
+-- A partner on an event is archived, not deleted
+--
+-- The same guard as the package library's. The row lock a DELETE takes comes
+-- before this trigger, and a link holds the partner FOR SHARE, so a link
+-- committed concurrently is waited for and counted.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.enforce_organization_partner_delete_rules()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_used int;
+BEGIN
+  -- The organization itself is being deleted and cascades here. Whether that
+  -- may happen is not this guard's decision: an organization with events is
+  -- refused by the events foreign key (ON DELETE RESTRICT), and linked
+  -- partnerships only exist on its events. Letting the cascade through keeps
+  -- that outcome the same whichever foreign key fires first.
+  IF NOT EXISTS (SELECT 1 FROM organizations o WHERE o.id = OLD.organization_id) THEN
+    RETURN OLD;
+  END IF;
+
+  SELECT count(*) INTO v_used
+  FROM event_partnerships ep WHERE ep.partner_id = OLD.id;
+
+  IF v_used > 0 THEN
+    RAISE EXCEPTION 'This partner has been added to % event partnership(s). Archive it instead of deleting it.', v_used;
+  END IF;
+
+  RETURN OLD;
+END;
+$$;
+
+COMMENT ON FUNCTION public.enforce_organization_partner_delete_rules() IS
+  'organization_partners: a partner linked to any event partnership cannot be deleted (archive it instead), except as part of deleting its organization.';
+
+REVOKE EXECUTE ON FUNCTION public.enforce_organization_partner_delete_rules() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS check_organization_partner_delete_rules ON public.organization_partners;
+CREATE TRIGGER check_organization_partner_delete_rules
+  BEFORE DELETE ON public.organization_partners
+  FOR EACH ROW EXECUTE FUNCTION public.enforce_organization_partner_delete_rules();
