@@ -71,6 +71,7 @@ An event without an organization cannot take a partner.
   1. The directory table, its rules and its access
   2. Linking partnerships to partners
   3. A partner's edit reaches every linked event; archived events catch up on restore
+  4. Existing partnerships become partners (backfill, with a read-only merge preview)
 */
 
 -- ============================================================================
@@ -563,3 +564,139 @@ CREATE TRIGGER resync_partner_details_on_restore
   FOR EACH ROW
   WHEN (OLD.archived_at IS NOT NULL AND NEW.archived_at IS NULL)
   EXECUTE FUNCTION public.resync_partner_details_on_event_restore();
+
+-- ============================================================================
+-- Section 4: existing partnerships become partners
+--
+-- Every partnership that predates the partner list is unlinked. They are
+-- grouped per organization by the same normalized name the unique index uses,
+-- so "Kora Payments" and "kora  payments " on two events become one partner.
+-- The group's most recently updated partnership supplies the partner's six
+-- basic columns, its representative becomes the partner's contact, and its
+-- creator becomes the partner's creator. Linking then applies the ordinary
+-- fill: every partnership in the group takes the chosen details. That is why
+-- the preview reports which of the six differ inside each group.
+--
+-- Skipped, and counted:
+--   - partnerships on archived events (no write reaches them; they link when
+--     the event is restored and this is run again);
+--   - partnerships on events without an organization (they cannot take a
+--     partner at all).
+--
+-- Neither function is callable by a client. The backfill runs once, at the end
+-- of this migration, and is safe to run again: it only ever touches unlinked
+-- partnerships, and an active partner with the group's name is reused.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.preview_organization_partner_merge()
+RETURNS TABLE (
+  organization_id uuid,
+  organization_name text,
+  partner_key text,
+  chosen_partnership_id uuid,
+  existing_partner_id uuid,
+  partnership_ids uuid[],
+  event_names text[],
+  differing_fields text[]
+)
+LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp
+AS $$
+  WITH candidates AS (
+    SELECT p.id, p.updated_at, e.organization_id AS org_id, e.name AS event_name,
+           p.company_name, p.description, p.logo_url, p.industry, p.website, p.linkedin,
+           lower(btrim(regexp_replace(p.company_name, '\s+', ' ', 'g'))) AS name_key
+      FROM event_partnerships p
+      JOIN events e ON e.id = p.event_id
+     WHERE p.partner_id IS NULL
+       AND e.organization_id IS NOT NULL
+       AND e.archived_at IS NULL
+  ), groups AS (
+    SELECT c.org_id, c.name_key,
+           (array_agg(c.id ORDER BY c.updated_at DESC, c.id))[1] AS chosen,
+           array_agg(c.id ORDER BY c.updated_at DESC, c.id) AS ids,
+           array_agg(c.event_name ORDER BY c.updated_at DESC, c.id) AS names,
+           array_remove(ARRAY[
+             CASE WHEN count(DISTINCT coalesce(c.company_name, '<null>')) > 1 THEN 'company_name' END,
+             CASE WHEN count(DISTINCT coalesce(c.description,  '<null>')) > 1 THEN 'description' END,
+             CASE WHEN count(DISTINCT coalesce(c.logo_url,     '<null>')) > 1 THEN 'logo_url' END,
+             CASE WHEN count(DISTINCT coalesce(c.industry,     '<null>')) > 1 THEN 'industry' END,
+             CASE WHEN count(DISTINCT coalesce(c.website,      '<null>')) > 1 THEN 'website' END,
+             CASE WHEN count(DISTINCT coalesce(c.linkedin,     '<null>')) > 1 THEN 'linkedin' END
+           ], NULL) AS differing
+      FROM candidates c
+     GROUP BY c.org_id, c.name_key
+  )
+  SELECT g.org_id, o.name, g.name_key, g.chosen, op.id, g.ids, g.names, g.differing
+    FROM groups g
+    JOIN organizations o ON o.id = g.org_id
+    LEFT JOIN organization_partners op
+      ON op.organization_id = g.org_id
+     AND op.archived_at IS NULL
+     AND lower(btrim(regexp_replace(op.company_name, '\s+', ' ', 'g'))) = g.name_key
+   ORDER BY o.name, g.name_key;
+$$;
+
+COMMENT ON FUNCTION public.preview_organization_partner_merge() IS
+  'Read-only: what backfill_organization_partners() would do. One row per organization and normalized name, with the chosen partnership and the basic columns that differ inside the group. Not callable by clients.';
+
+REVOKE EXECUTE ON FUNCTION public.preview_organization_partner_merge() FROM PUBLIC, anon, authenticated;
+
+CREATE OR REPLACE FUNCTION public.backfill_organization_partners()
+RETURNS TABLE (
+  partners_created int,
+  partnerships_linked int,
+  skipped_archived_event int,
+  skipped_no_organization int
+)
+LANGUAGE plpgsql SECURITY DEFINER VOLATILE SET search_path = public, pg_temp
+AS $$
+DECLARE
+  g record;
+  v_partner uuid;
+  v_rows int;
+  v_created int := 0;
+  v_linked int := 0;
+  v_archived int;
+  v_no_org int;
+BEGIN
+  FOR g IN SELECT * FROM public.preview_organization_partner_merge() LOOP
+    v_partner := g.existing_partner_id;
+
+    IF v_partner IS NULL THEN
+      -- With no signed-in user the partner rules keep this created_by.
+      INSERT INTO organization_partners
+        (organization_id, company_name, description, logo_url, industry, website, linkedin,
+         contact_email, created_by)
+      SELECT g.organization_id, p.company_name, p.description, p.logo_url, p.industry,
+             p.website, p.linkedin, p.representative_email, p.created_by
+        FROM event_partnerships p
+       WHERE p.id = g.chosen_partnership_id
+      RETURNING id INTO v_partner;
+      v_created := v_created + 1;
+    END IF;
+
+    -- NULL to partner: allowed in any status, and the link fills the copy.
+    UPDATE event_partnerships
+       SET partner_id = v_partner
+     WHERE id = ANY (g.partnership_ids)
+       AND partner_id IS NULL;
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+    v_linked := v_linked + v_rows;
+  END LOOP;
+
+  SELECT count(*) FILTER (WHERE e.organization_id IS NOT NULL AND e.archived_at IS NOT NULL)::int,
+         count(*) FILTER (WHERE e.organization_id IS NULL)::int
+    INTO v_archived, v_no_org
+    FROM event_partnerships p
+    JOIN events e ON e.id = p.event_id
+   WHERE p.partner_id IS NULL;
+
+  RETURN QUERY SELECT v_created, v_linked, v_archived, v_no_org;
+END;
+$$;
+
+COMMENT ON FUNCTION public.backfill_organization_partners() IS
+  'Links every unlinked partnership on a live organization event to a partner, creating partners from the most recently updated partnership of each name group. Idempotent. Returns what it did and what it skipped. Not callable by clients.';
+
+REVOKE EXECUTE ON FUNCTION public.backfill_organization_partners() FROM PUBLIC, anon, authenticated;
+
+SELECT * FROM public.backfill_organization_partners();

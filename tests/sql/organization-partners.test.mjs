@@ -11,6 +11,10 @@
 //   Section 3. a partner's edit reaches every linked partnership, the sponsor workspace
 //              included; archived events keep their copy and catch up on restore; edits
 //              to other columns touch no partnership.
+//   Section 4. existing partnerships become partners: the merge preview (groups, the
+//              chosen partnership, the fields that differ), the backfill's counts, reuse
+//              and idempotency, archived and legacy events skipped, no client access, and
+//              the migration as shipped on a database that already has partnerships.
 //
 // Runs on PGlite; see boot.mjs for what that does and does not prove.
 import fs from 'node:fs'
@@ -118,8 +122,8 @@ ok('(setup) the legacy event has no organization, and the other events do',
   (await one(`SELECT organization_id FROM events WHERE id = $1`, [EV_LEGACY])).organization_id === null &&
   await n(`SELECT count(*) AS n FROM events WHERE id IN ($1, $2, $3) AND organization_id IS NOT NULL`, [EV_A, EV_B, EV_OTHER]) === 3)
 
-// Task 4 fixtures (seeded before the migration)
-// -- end of Task 4 fixtures
+// No partnership exists yet, so the backfill at the end of the migration links nothing
+// here. Section 4 seeds partnerships BEFORE the migration in a database of its own.
 
 // ---- apply the migration -------------------------------------------------------
 await db.exec(fs.readFileSync(MIGRATION, 'utf8'))
@@ -678,6 +682,130 @@ const s3fns = await sup(`SELECT p.oid::regprocedure::text AS sig, p.prosecdef, p
   FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN ('sync_partner_details_to_partnerships', 'resync_partner_details_on_event_restore')`)
 ok('both functions are SECURITY DEFINER, pin their search_path, and no client role may call them',
   s3fns.length === 2 && s3fns.every((f) => f.prosecdef && /search_path=public, pg_temp/.test(f.cfg) && !f.anon && !f.auth), show(s3fns))
+
+// ==== Section 4: backfill and merge preview =======================================
+// A database of its own: partnerships exist BEFORE the migration, and nothing from
+// sections 1-3 (which leave unlinked partnerships on purpose) can change the counts.
+// The migration runs its own backfill as its last statement; to look at the preview
+// first, this database gets the migration without that one line, and calls it itself.
+const BACKFILL_CALL = 'SELECT * FROM public.backfill_organization_partners();'
+const MIGRATION_TEXT = fs.readFileSync(MIGRATION, 'utf8')
+ok('(setup) the migration ends by running the backfill', MIGRATION_TEXT.trimEnd().endsWith(BACKFILL_CALL))
+
+async function seededDb() {
+  const { db: d, failures: f } = await boot(MIG, { upTo: '20261128999999' })
+  if (f.length) { console.log('MIGRATION FAILURES (section 4 database)', f); process.exit(1) }
+  const q = async (sql, params = []) => (await d.query(sql, params)).rows
+  const q1 = async (sql, params = []) => (await q(sql, params))[0]
+  const asOn = async (uid, sql, params = [], role = 'authenticated') => {
+    await d.exec(`SET ROLE ${role}`)
+    await d.query(`SELECT set_config('request.jwt.claims', $1, false)`, [JSON.stringify({ sub: uid, role })])
+    try { return await d.query(sql, params) } finally {
+      await d.exec(`RESET ROLE`)
+      await d.query(`SELECT set_config('request.jwt.claims', '', false)`)
+    }
+  }
+  const owner = (await q1(`INSERT INTO auth.users (id, email, email_confirmed_at) VALUES (gen_random_uuid(), 'bf-owner@partners.test', now()) RETURNING id`)).id
+  await q(`UPDATE user_accounts SET account_type = 'organizer' WHERE user_id = $1`, [owner])
+  const org = (await q1(`INSERT INTO organizations (name, org_type, approval_status, created_by) VALUES ('Backfill Org', 'organizer', 'approved', $1) RETURNING id`, [owner])).id
+  const ev = async (name, o) => {
+    await q(`SET session_replication_role = replica`) // a superuser seed: skip event-creation rules
+    try {
+      return (await q1(`INSERT INTO events (name, status, visibility, organization_id, created_by, start_date, end_date)
+                        VALUES ($1, 'upcoming', 'published', $2, $3, '2030-01-01', '2030-01-02') RETURNING id`, [name, o, owner])).id
+    } finally { await q(`SET session_replication_role = origin`) }
+  }
+  const E = { A: await ev('Backfill A', org), B: await ev('Backfill B', org), ARCH: await ev('Backfill Archived', org), LEGACY: await ev('Backfill Legacy', null) }
+  const ins = async (e, name, extra = {}) => {
+    const cols = ['event_id', 'company_name', ...Object.keys(extra)]
+    const vals = [e, name, ...Object.values(extra)]
+    const sql = `INSERT INTO event_partnerships (${cols.join(', ')}) VALUES (${cols.map((_, i) => '$' + (i + 1)).join(', ')}) RETURNING id`
+    return (await asOn(owner, sql, vals)).rows[0].id
+  }
+  const P = {}
+  P.koraA = await ins(E.A, 'Kora Payments', { website: 'https://a.example' })
+  P.koraB = await ins(E.B, 'kora  payments', { website: 'https://b.example', representative_email: 'ops@kora.example' })
+  await asOn(owner, `UPDATE event_partnerships SET tier_label = 'Gold' WHERE id = $1`, [P.koraB]) // updated later
+  P.baobab = await ins(E.A, 'Baobab')
+  P.archived = await ins(E.ARCH, 'Archived Co')
+  await asOn(owner, `UPDATE events SET archived_at = now() WHERE id = $1`, [E.ARCH])
+  // No one can manage an event without an organization, so this one is seeded as the
+  // superuser (past RLS), carrying the owner's identity for the creator stamp.
+  await q(`SELECT set_config('request.jwt.claims', $1, false)`, [JSON.stringify({ sub: owner, role: 'authenticated' })])
+  try {
+    P.legacy = (await q1(`INSERT INTO event_partnerships (event_id, company_name) VALUES ($1, 'Legacy Co') RETURNING id`, [E.LEGACY])).id
+  } finally { await q(`SELECT set_config('request.jwt.claims', '', false)`) }
+  return { d, q, q1, asOn, owner, org, E, P }
+}
+
+const S4 = await seededDb()
+await S4.d.exec(MIGRATION_TEXT.trimEnd().slice(0, -BACKFILL_CALL.length))
+const unlinked4 = () => S4.q(`SELECT id FROM event_partnerships WHERE partner_id IS NULL ORDER BY id`)
+ok('(setup) without the final line, the migration links nothing', (await unlinked4()).length === 5)
+
+// -- 4a. the merge preview
+const preview = await S4.q(`SELECT * FROM preview_organization_partner_merge() ORDER BY partner_key`)
+const koraG = preview.find((r) => r.partner_key === 'kora payments')
+const baobabG = preview.find((r) => r.partner_key === 'baobab')
+ok('the preview shows two groups: the Kora pair and Baobab (archived and legacy events are left out)',
+  preview.length === 2 && koraG && baobabG && preview.every((r) => r.organization_id === S4.org && r.organization_name === 'Backfill Org'), show(preview))
+ok('...the Kora group holds both partnerships, chooses the most recently updated (EV_B), and names the fields that differ',
+  koraG && [...koraG.partnership_ids].sort().join() === [S4.P.koraA, S4.P.koraB].sort().join() &&
+  koraG.chosen_partnership_id === S4.P.koraB && koraG.existing_partner_id === null &&
+  [...koraG.event_names].sort().join() === 'Backfill A,Backfill B' &&
+  JSON.stringify(koraG.differing_fields) === JSON.stringify(['company_name', 'website']), show(koraG))
+ok('...and the Baobab group has nothing that differs',
+  baobabG && JSON.stringify(baobabG.differing_fields) === '[]' && baobabG.partnership_ids.length === 1, show(baobabG))
+
+// -- 4b. the backfill
+const counts = (r) => [r.partners_created, r.partnerships_linked, r.skipped_archived_event, r.skipped_no_organization].join()
+const run1 = await S4.q1(`SELECT * FROM backfill_organization_partners()`)
+ok('the first backfill creates 2 partners, links 3 partnerships, and skips the archived and the legacy one', counts(run1) === '2,3,1,1', show(run1))
+const kp = await S4.q(`SELECT p.*, (SELECT array_agg(x.id ORDER BY x.id) FROM event_partnerships x WHERE x.partner_id = p.id) AS linked
+  FROM organization_partners p WHERE p.organization_id = $1 ORDER BY company_name`, [S4.org])
+const koraP = kp.find((r) => r.company_name === 'kora  payments')
+ok('both Kora partnerships share one partner, taken from the most recent: its name, website, contact and creator',
+  kp.length === 2 && koraP && koraP.website === 'https://b.example' && koraP.contact_email === 'ops@kora.example' && koraP.created_by === S4.owner &&
+  koraP.linked.join() === [S4.P.koraA, S4.P.koraB].sort().join(), show(kp))
+const koraACopy = await S4.q1(`SELECT company_name, website, partner_id FROM event_partnerships WHERE id = $1`, [S4.P.koraA])
+ok('...and EV_A\'s Kora copy now follows the partner', koraACopy.website === 'https://b.example' && koraACopy.company_name === 'kora  payments', show(koraACopy))
+ok('the archived event\'s and the legacy event\'s partnerships stay unlinked',
+  (await unlinked4()).map((r) => r.id).sort().join() === [S4.P.archived, S4.P.legacy].sort().join())
+
+const fingerprint = async () => (await S4.q1(`SELECT md5(string_agg(to_jsonb(p)::text, '|' ORDER BY id)) AS h FROM event_partnerships p`)).h
+const fpBefore = await fingerprint()
+const run2 = await S4.q1(`SELECT * FROM backfill_organization_partners()`)
+ok('running it again does nothing: (0, 0, 1, 1) and no partnership changes', counts(run2) === '0,0,1,1' && await fingerprint() === fpBefore, show(run2))
+
+const ownerAs = S4.owner
+await S4.asOn(ownerAs, `UPDATE events SET archived_at = NULL WHERE id = $1`, [S4.E.ARCH])
+const run3 = await S4.q1(`SELECT * FROM backfill_organization_partners()`)
+ok('after the archived event is restored, the backfill picks its partnership up: (1, 1, 0, 1)', counts(run3) === '1,1,0,1', show(run3))
+ok('...linked to a new partner named after it',
+  (await S4.q1(`SELECT o.company_name FROM event_partnerships p JOIN organization_partners o ON o.id = p.partner_id WHERE p.id = $1`, [S4.P.archived]))?.company_name === 'Archived Co')
+
+// -- 4c. no client may call either function
+const clientCall = async (fn) => { try { await S4.asOn(ownerAs, `SELECT * FROM ${fn}()`); return null } catch (e) { return { message: String(e.message), code: e.code } } }
+const callPreview = await clientCall('preview_organization_partner_merge')
+const callBackfill = await clientCall('backfill_organization_partners')
+ok('a signed-in owner cannot call the preview or the backfill (42501)',
+  refused(callPreview, /permission denied/, '42501') && refused(callBackfill, /permission denied/, '42501'), show({ callPreview, callBackfill }))
+const s4fns = await S4.q(`SELECT p.proname, p.prosecdef, p.provolatile, p.proconfig::text AS cfg,
+  has_function_privilege('anon', p.oid, 'EXECUTE') AS anon, has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth
+  FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN ('preview_organization_partner_merge', 'backfill_organization_partners') ORDER BY 1`)
+ok('both are SECURITY DEFINER with a pinned search_path (the preview STABLE, the backfill VOLATILE), and no client role may call them',
+  s4fns.length === 2 && s4fns.every((f) => f.prosecdef && /search_path=public, pg_temp/.test(f.cfg) && !f.anon && !f.auth) &&
+  s4fns.find((f) => f.proname === 'preview_organization_partner_merge').provolatile === 's' &&
+  s4fns.find((f) => f.proname === 'backfill_organization_partners').provolatile === 'v', show(s4fns))
+
+// -- 4d. the migration as shipped, on a fresh database with existing partnerships
+const S5 = await seededDb()
+await S5.d.exec(MIGRATION_TEXT)
+const leftover = await S5.q(`SELECT p.id FROM event_partnerships p JOIN events e ON e.id = p.event_id
+  WHERE p.partner_id IS NULL AND e.organization_id IS NOT NULL AND e.archived_at IS NULL`)
+ok('the shipped migration leaves no unlinked partnership on a live organization event', leftover.length === 0, show(leftover))
+ok('...and leaves the archived and legacy partnerships unlinked',
+  (await S5.q(`SELECT id FROM event_partnerships WHERE partner_id IS NULL`)).length === 2)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
