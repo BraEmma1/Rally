@@ -44,6 +44,7 @@ const FUNCTIONS = {
   current_account_type: { group: 'compatibility helper for the old UI and the legacy gate', removedBy: 'S5' },
   enforce_event_owner_org_type: { group: 'capability decision (event ownership)', removedBy: 'PR-4, PR-6' },
   enforce_member_account_type: { group: 'membership rule (trigger)', removedBy: 'PR-3' },
+  enforce_organization_partner_rules: { group: 'capability decision (partner list owner)', removedBy: 'PR-4, PR-6' },
   enforce_organization_immutable_fields: { group: 'guard of the legacy columns', removedBy: 'S5' },
   get_my_organization_access: { group: 'display for the current UI (organization type)', removedBy: 'PR-8' },
   handle_new_user: { group: 'signup writer (organizer intent)', removedBy: 'PR-9a' },
@@ -86,7 +87,7 @@ ok('every listed policy still reads them', staleP.length === 0, 'stale: ' + stal
 const back = Object.keys(REMOVED).filter((f) => found.includes(f))
 ok(`functions already moved off the legacy columns stay off them (${Object.entries(REMOVED).map(([f, pr]) => `${f} by ${pr}`).join(', ')})`, back.length === 0, 'reads again: ' + back.join(', '))
 
-ok('current size: 28 functions and 1 policy (PR-2 removed is_platform_admin)', found.length === 28 && pols.length === 1, `${found.length} functions, ${pols.length} policies`)
+ok('current size: 29 functions and 1 policy (PR-2 removed is_platform_admin; the organization partner list added enforce_organization_partner_rules)', found.length === 29 && pols.length === 1, `${found.length} functions, ${pols.length} policies`)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
