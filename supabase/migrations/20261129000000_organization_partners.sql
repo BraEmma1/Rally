@@ -70,6 +70,7 @@ An event without an organization cannot take a partner.
 ## Sections
   1. The directory table, its rules and its access
   2. Linking partnerships to partners
+  3. A partner's edit reaches every linked event; archived events catch up on restore
 */
 
 -- ============================================================================
@@ -445,3 +446,120 @@ DROP TRIGGER IF EXISTS check_organization_partner_delete_rules ON public.organiz
 CREATE TRIGGER check_organization_partner_delete_rules
   BEFORE DELETE ON public.organization_partners
   FOR EACH ROW EXECUTE FUNCTION public.enforce_organization_partner_delete_rules();
+
+-- ============================================================================
+-- Section 3: a partner's edit reaches every linked event
+--
+-- One UPDATE sets the six basic columns of every partnership linked to the
+-- partner to the partner's new values. It sets them EQUAL, so the drift rule
+-- above lets it through, and every partnership's own trigger still runs (its
+-- updated_at moves). SECURITY DEFINER, so every linked event is reached, not
+-- only the ones the editor can see: only owners and admins can edit a partner,
+-- and they manage every event of the organization anyway.
+--
+-- A partnership on an archived event is left as it is. Writing to it would be
+-- refused (an archived event's partners are frozen), and that refusal would
+-- undo the partner edit. Its copy differs from the partner until the event is
+-- restored; while it is archived nothing can write to it, and the restore
+-- brings it back in line in the same statement (below), so no later write ever
+-- meets the difference.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.sync_partner_details_to_partnerships()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+BEGIN
+  UPDATE event_partnerships p
+     SET company_name = NEW.company_name,
+         description  = NEW.description,
+         logo_url     = NEW.logo_url,
+         industry     = NEW.industry,
+         website      = NEW.website,
+         linkedin     = NEW.linkedin
+   WHERE p.partner_id = NEW.id
+     AND NOT EXISTS (
+       SELECT 1 FROM events e WHERE e.id = p.event_id AND e.archived_at IS NOT NULL
+     );
+  RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION public.sync_partner_details_to_partnerships() IS
+  'Trigger: copies a partner''s six basic columns to every partnership linked to it, except on archived events (they catch up when restored).';
+
+REVOKE EXECUTE ON FUNCTION public.sync_partner_details_to_partnerships() FROM PUBLIC, anon, authenticated;
+
+-- The column list names the six, and WHEN fires only when one of them really
+-- changes: an edit of contact_email or archived_at, or a save that sends the
+-- same details back, touches no partnership and moves no updated_at. The only
+-- BEFORE change to a basic column is trimming company_name, which is stored
+-- trimmed already, so no change can arrive outside the SET clause.
+DROP TRIGGER IF EXISTS sync_partner_details ON public.organization_partners;
+CREATE TRIGGER sync_partner_details
+  AFTER UPDATE OF company_name, description, logo_url, industry, website, linkedin
+  ON public.organization_partners
+  FOR EACH ROW
+  WHEN (   OLD.company_name IS DISTINCT FROM NEW.company_name
+        OR OLD.description  IS DISTINCT FROM NEW.description
+        OR OLD.logo_url     IS DISTINCT FROM NEW.logo_url
+        OR OLD.industry     IS DISTINCT FROM NEW.industry
+        OR OLD.website      IS DISTINCT FROM NEW.website
+        OR OLD.linkedin     IS DISTINCT FROM NEW.linkedin)
+  EXECUTE FUNCTION public.sync_partner_details_to_partnerships();
+
+-- ============================================================================
+-- A restored event catches up
+--
+-- AFTER the restore, so check_event_archive_authority (BEFORE) has allowed it
+-- and the event row already reads as not archived: the partnerships' own
+-- archived-event rule lets these writes through. Only partnerships whose copy
+-- differs from their partner are written, so a restore with nothing to catch
+-- up moves no updated_at.
+--
+-- The partners are read FOR SHARE first. A partner edit in flight holds its
+-- row, so this waits for it and the UPDATE then reads what it committed. Had
+-- the edit skipped this event because it still looked archived, its details
+-- arrive here instead.
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.resync_partner_details_on_event_restore()
+RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp
+AS $$
+BEGIN
+  PERFORM 1
+    FROM organization_partners op
+   WHERE op.id IN (SELECT p.partner_id FROM event_partnerships p WHERE p.event_id = NEW.id)
+   ORDER BY op.id
+   FOR SHARE;
+
+  UPDATE event_partnerships p
+     SET company_name = op.company_name,
+         description  = op.description,
+         logo_url     = op.logo_url,
+         industry     = op.industry,
+         website      = op.website,
+         linkedin     = op.linkedin
+    FROM organization_partners op
+   WHERE p.event_id = NEW.id
+     AND op.id = p.partner_id
+     AND (   p.company_name IS DISTINCT FROM op.company_name
+          OR p.description  IS DISTINCT FROM op.description
+          OR p.logo_url     IS DISTINCT FROM op.logo_url
+          OR p.industry     IS DISTINCT FROM op.industry
+          OR p.website      IS DISTINCT FROM op.website
+          OR p.linkedin     IS DISTINCT FROM op.linkedin);
+  RETURN NULL;
+END;
+$$;
+
+COMMENT ON FUNCTION public.resync_partner_details_on_event_restore() IS
+  'Trigger: when an event is restored, sets each of its linked partnerships to its partner''s current six basic columns (archived events are skipped by the partner sync).';
+
+REVOKE EXECUTE ON FUNCTION public.resync_partner_details_on_event_restore() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS resync_partner_details_on_restore ON public.events;
+CREATE TRIGGER resync_partner_details_on_restore
+  AFTER UPDATE OF archived_at ON public.events
+  FOR EACH ROW
+  WHEN (OLD.archived_at IS NOT NULL AND NEW.archived_at IS NULL)
+  EXECUTE FUNCTION public.resync_partner_details_on_event_restore();

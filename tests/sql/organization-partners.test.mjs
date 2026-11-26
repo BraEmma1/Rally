@@ -8,6 +8,9 @@
 //              the partner and the copy cannot drift from it; same organization and active
 //              partners only; the link changes only while the partnership is a draft; a
 //              linked partner cannot be deleted; event and organization deletion outcomes.
+//   Section 3. a partner's edit reaches every linked partnership, the sponsor workspace
+//              included; archived events keep their copy and catch up on restore; edits
+//              to other columns touch no partnership.
 //
 // Runs on PGlite; see boot.mjs for what that does and does not prove.
 import fs from 'node:fs'
@@ -559,6 +562,122 @@ ok('both trigger functions are SECURITY DEFINER, pin their search_path, and no c
   s2fns.length === 2 && s2fns.every((f) => f.prosecdef && /search_path=public, pg_temp/.test(f.cfg) && !f.anon && !f.auth), show(s2fns))
 const wsCols = (await one(`SELECT pg_get_function_result('public.my_sponsor_partnerships()'::regprocedure) AS r`)).r
 ok('the sponsor workspace contract carries no partner column', !/partner_id/.test(wsCols), wsCols)
+
+// ==== Section 3: a partner's details reach every linked event =====================
+// KORA (section 1, now 'Kora Payments (old)') on three events: a draft on EV_A, an
+// accepted agreement on EV_B, and EV_C, which is archived and restored below.
+const EV_C = await mkEvent('Summit C', ORG, U.owner)
+const K_A = await link(U.owner, EV_A, KORA)
+const K_B = await link(U.owner, EV_B, KORA)
+const K_C = await link(U.owner, EV_C, KORA)
+const K_ALL = [K_A, K_B, K_C]
+const KINV = (await as(U.owner, `SELECT invite_partnership_representative($1, 'sponsoradmin@partners.test') AS id`, [K_B])).rows[0].id
+await as(U.sponsorAdmin, `SELECT accept_partnership_invitation_with_organization($1, $2)`, [KINV, SPONSOR_ORG])
+const kb = await pship(K_B)
+const kbIds = (await as(U.sponsorAdmin, `SELECT id FROM my_sponsor_partnership_ids() AS id`)).rows.map((r) => r.id)
+ok('(setup) EV_B\'s partnership is accepted into the sponsor organization, in a status the sponsor workspace reads',
+  kb.status === 'active' && kb.sponsor_organization_id === SPONSOR_ORG && kb.acknowledged_at !== null && kbIds.includes(K_B),
+  show({ status: kb.status, org: kb.sponsor_organization_id, kbIds }))
+// Not linked, and named exactly like KORA is now: a partner edit must never reach it.
+const UNL = (await as(U.owner, `INSERT INTO event_partnerships (event_id, company_name, website) VALUES ($1, $2, 'https://typed.example') RETURNING id`,
+  [EV_A, (await row(KORA)).company_name])).rows[0].id
+const UNL_ROW = JSON.stringify((await one(`SELECT to_jsonb(p) AS r FROM event_partnerships p WHERE id = $1`, [UNL])).r)
+ok('(setup) the unlinked partnership has the same name as KORA', (await pship(UNL)).company_name === (await row(KORA)).company_name)
+
+// updated_at as text, so microseconds survive the round trip.
+const stamps = async (ids) => Object.fromEntries((await sup(`SELECT id, updated_at::text AS u FROM event_partnerships WHERE id = ANY($1)`, [ids])).map((r) => [r.id, r.u]))
+const moved = async (before) => Object.fromEntries(await Promise.all(Object.entries(before).map(async ([id, u]) =>
+  [id, (await one(`SELECT updated_at > $2::timestamptz AS v FROM event_partnerships WHERE id = $1`, [id, u])).v])))
+const followsKora = async (ids) => {
+  const k = await row(KORA)
+  return (await Promise.all(ids.map(async (id) => sameBasics(await pship(id), k)))).every(Boolean)
+}
+const sponsorName = async () =>
+  (await as(U.sponsorAdmin, `SELECT company_name FROM my_sponsor_partnerships() WHERE event_id = $1`, [EV_B])).rows.map((r) => r.company_name)
+const editKora = (who, sets) => attempt(who, `UPDATE organization_partners SET ${sets} WHERE id = $1`, [KORA])
+
+// -- 3a. an owner's edit reaches every linked partnership
+const t3a = await stamps(K_ALL)
+const ownerEdit = await editKora(U.owner, `company_name = 'Kora Payments Ltd', website = 'https://kora-payments.example'`)
+const after3a = await Promise.all(K_ALL.map(pship))
+ok('the owner renames KORA and sets a website, and all three partnerships show both new values',
+  ownerEdit === null && after3a.every((p) => p.company_name === 'Kora Payments Ltd' && p.website === 'https://kora-payments.example'),
+  show({ ownerEdit, after: after3a.map(basics) }))
+ok('...and all six basic columns equal the partner\'s on each', await followsKora(K_ALL))
+ok('the sponsor workspace shows the new name for EV_B', JSON.stringify(await sponsorName()) === JSON.stringify(['Kora Payments Ltd']), show(await sponsorName()))
+const m3a = await moved(t3a)
+ok('updated_at advanced on all three partnerships', Object.values(m3a).every((v) => v === true), show(m3a))
+
+// -- 3b. an admin's edit too; a manager's reaches nothing
+const adminEdit = await editKora(U.admin, `company_name = 'Kora Payments Limited', description = 'Payments for Africa'`)
+ok('an admin\'s rename syncs the same way',
+  adminEdit === null && (await pship(K_A)).company_name === 'Kora Payments Limited' && await followsKora(K_ALL), show(adminEdit))
+const PSHIPS = `SELECT to_jsonb(p) AS r FROM event_partnerships p ORDER BY id`
+const allBefore = JSON.stringify(await sup(PSHIPS))
+const mgrRename = (await as(U.manager, `UPDATE organization_partners SET company_name = 'Renamed by a manager' WHERE id = $1 RETURNING id`, [KORA])).rows.length
+ok('an event manager\'s rename affects no row (RLS), and no partnership changes',
+  mgrRename === 0 && (await row(KORA)).company_name === 'Kora Payments Limited' && JSON.stringify(await sup(PSHIPS)) === allBefore, show({ mgrRename }))
+
+// -- 3c. an archived event keeps its copy (Review Focus 4)
+const archiveC = (await as(U.owner, `UPDATE events SET archived_at = now() WHERE id = $1 RETURNING id`, [EV_C])).rows.length
+ok('(setup) the owner archives EV_C', archiveC === 1 && (await one(`SELECT archived_at FROM events WHERE id = $1`, [EV_C])).archived_at !== null)
+const t3c = await stamps(K_ALL)
+const whileArchived = await editKora(U.owner, `company_name = 'Kora Payments International'`)
+const kc = await pship(K_C)
+const m3c = await moved(t3c)
+ok('renaming KORA while EV_C is archived succeeds; EV_A and EV_B update',
+  whileArchived === null && (await pship(K_A)).company_name === 'Kora Payments International' &&
+  (await pship(K_B)).company_name === 'Kora Payments International' && m3c[K_A] && m3c[K_B], show({ whileArchived, m3c }))
+ok('...and EV_C keeps the previous name, untouched', kc.company_name === 'Kora Payments Limited' && m3c[K_C] === false, show({ kc: basics(kc), m3c }))
+const editArchived = await setOn(U.owner, K_C, `tier_label = 'Gold'`)
+ok('...and while archived, its partnership cannot be written at all', refused(editArchived, /^This event is archived\. Restore it before changing its partners\.$/), show(editArchived))
+
+// -- 3d. restoring the event catches it up, in the same statement
+const t3d = await stamps(K_ALL)
+const restoreC = (await as(U.owner, `UPDATE events SET archived_at = NULL WHERE id = $1 RETURNING id`, [EV_C])).rows.length
+const m3d = await moved(t3d)
+ok('restoring EV_C (as the owner) brings its partnership to KORA\'s latest details',
+  restoreC === 1 && (await pship(K_C)).company_name === 'Kora Payments International' && await followsKora([K_C]), show({ restoreC, kc: basics(await pship(K_C)) }))
+ok('...and touches only EV_C\'s partnership', m3d[K_C] === true && m3d[K_A] === false && m3d[K_B] === false, show(m3d))
+const afterRestore = await setOn(U.owner, K_C, `tier_label = 'Gold'`)
+ok('an ordinary edit on EV_C\'s partnership succeeds straight after the restore',
+  afterRestore === null && (await pship(K_C)).tier_label === 'Gold', show(afterRestore))
+await as(U.owner, `UPDATE events SET archived_at = now() WHERE id = $1`, [EV_C])
+const t3dQuiet = await stamps([K_C])
+await as(U.owner, `UPDATE events SET archived_at = NULL WHERE id = $1`, [EV_C])
+ok('restoring an event whose copies are already current changes no partnership', (await moved(t3dQuiet))[K_C] === false)
+
+// -- 3e. edits to anything but the six touch no partnership
+const t3e = await stamps([...K_ALL, UNL])
+const quiet = {
+  contactEmail: await editKora(U.owner, `contact_email = 'hello@kora-payments.example'`),
+  archive: await editKora(U.owner, `archived_at = now()`),
+  restore: await editKora(U.owner, `archived_at = NULL`),
+  sameName: await editKora(U.owner, `company_name = company_name, website = website`),
+}
+const m3e = await moved(t3e)
+ok('editing only contact_email or archived_at, or re-saving the same details, leaves every partnership\'s updated_at unchanged',
+  Object.values(quiet).every((e) => e === null) && Object.values(m3e).every((v) => v === false) &&
+  (await row(KORA)).contact_email === 'hello@kora-payments.example' && (await row(KORA)).archived_at === null, show({ quiet, m3e }))
+
+// -- 3f. an unlinked partnership with the same name is never touched
+ok('the unlinked partnership that shared KORA\'s name is exactly as it was',
+  JSON.stringify((await one(`SELECT to_jsonb(p) AS r FROM event_partnerships p WHERE id = $1`, [UNL])).r) === UNL_ROW)
+
+// -- 3g. the triggers and their functions
+const s3trig = Object.fromEntries((await sup(`SELECT tgname, pg_get_triggerdef(oid) AS d FROM pg_trigger
+  WHERE tgname IN ('sync_partner_details', 'resync_partner_details_on_restore') AND NOT tgisinternal`)).map((r) => [r.tgname, r.d]))
+ok('sync_partner_details: AFTER UPDATE of the six on organization_partners, only when one of them changes',
+  /AFTER UPDATE OF company_name, description, logo_url, industry, website, linkedin ON public\.organization_partners FOR EACH ROW WHEN \(.*\) EXECUTE FUNCTION (public\.)?sync_partner_details_to_partnerships\(\)$/.test(s3trig.sync_partner_details ?? '') &&
+  BASIC.every((k) => (s3trig.sync_partner_details ?? '').includes(`old.${k} IS DISTINCT FROM new.${k}`)), show(s3trig))
+ok('resync_partner_details_on_restore: AFTER UPDATE OF archived_at on events, only on a restore',
+  /AFTER UPDATE OF archived_at ON public\.events FOR EACH ROW WHEN \(\(\(old\.archived_at IS NOT NULL\) AND \(new\.archived_at IS NULL\)\)\) EXECUTE FUNCTION (public\.)?resync_partner_details_on_event_restore\(\)$/.test(s3trig.resync_partner_details_on_restore ?? ''),
+  show(s3trig))
+const s3fns = await sup(`SELECT p.oid::regprocedure::text AS sig, p.prosecdef, p.proconfig::text AS cfg,
+  has_function_privilege('anon', p.oid, 'EXECUTE') AS anon, has_function_privilege('authenticated', p.oid, 'EXECUTE') AS auth
+  FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace AND p.proname IN ('sync_partner_details_to_partnerships', 'resync_partner_details_on_event_restore')`)
+ok('both functions are SECURITY DEFINER, pin their search_path, and no client role may call them',
+  s3fns.length === 2 && s3fns.every((f) => f.prosecdef && /search_path=public, pg_temp/.test(f.cfg) && !f.anon && !f.auth), show(s3fns))
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
