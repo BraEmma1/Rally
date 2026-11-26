@@ -193,9 +193,23 @@ const DEL_ME = (await ins(U.manager, ORG, 'Typo Co')).rows[0].id
 ok('the owner deletes a partner', (await as(U.owner, `DELETE FROM organization_partners WHERE id = $1 RETURNING id`, [DEL_ME])).rows.length === 1)
 
 // -- 1d. only an organizer organization keeps a partner list
+// Its own owner is an admin of it (is_org_admin), so it passes the helpers and is told why.
 const sponsorIns = await tryIns(U.sponsorAdmin, SPONSOR_ORG, 'Sponsor list')
 ok('a sponsor organization\'s owner cannot start a partner list, with the non-organizer copy',
   refused(sponsorIns, /^Only an organizer organization can keep a partner list$/), show(sponsorIns))
+// The type of an organization is told only to someone RLS would let insert there.
+const probes = {
+  'a non-member into the sponsor organization': await tryIns(U.attendee, SPONSOR_ORG, 'Probe'),
+  'a non-member into an organizer organization': await tryIns(U.attendee, ORG2, 'Probe'),
+  'another organizer\'s owner into the sponsor organization': await tryIns(U.owner2, SPONSOR_ORG, 'Probe'),
+  'this organization\'s manager into the sponsor organization': await tryIns(U.manager, SPONSOR_ORG, 'Probe'),
+  'this organization\'s admin into another organizer organization': await tryIns(U.admin, ORG2, 'Probe'),
+}
+const probeValues = Object.values(probes)
+ok('a signed-in caller who may not create there gets the same RLS refusal whether the organization is a sponsor or an organizer one',
+  probeValues.every((e) => refused(e, /row-level security/, '42501')) &&
+  probeValues.every((e) => e.message === probeValues[0].message && e.code === probeValues[0].code), show(probes))
+ok('...and none of the probes wrote a row', await n(`SELECT count(*) AS n FROM organization_partners WHERE company_name = 'Probe'`) === 0)
 ok('...not even without a signed-in user',
   refused(await superAttempt(`INSERT INTO organization_partners (organization_id, company_name, created_by) VALUES ($1, 'Sponsor list', $2)`, [SPONSOR_ORG, U.sponsorAdmin]),
     /^Only an organizer organization can keep a partner list$/))
@@ -252,6 +266,11 @@ ok('the CHECKs match the partnership ones, so a partner\'s details always fit a 
              ON p.conrelid = 'event_partnerships'::regclass AND p.conname = replace(o.conname, 'organization_partners_', 'event_partnerships_')
             WHERE o.conrelid = 'organization_partners'::regclass AND o.contype = 'c'
               AND pg_get_constraintdef(o.oid) = pg_get_constraintdef(p.oid)`) === 7)
+const emailDefs = await one(`SELECT
+  pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conrelid = 'organization_partners'::regclass AND conname = 'organization_partners_contact_email_normalized')) AS partner,
+  pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conrelid = 'event_partnerships'::regclass AND conname = 'event_partnerships_rep_email_normalized')) AS rep`)
+ok('the contact_email CHECK is the representative_email one, column renamed',
+  emailDefs.partner !== null && emailDefs.rep !== null && emailDefs.partner === emailDefs.rep.replaceAll('representative_email', 'contact_email'), show(emailDefs))
 
 // -- 1h. the helper, the grants and the catalog
 const mgrOf = async (who, org) => (await as(who, `SELECT is_org_event_manager($1) AS v`, [org])).rows[0].v
@@ -285,6 +304,12 @@ const privs = await one(`SELECT c.relrowsecurity AS rls,
   FROM pg_class c WHERE c.oid = 'public.organization_partners'::regclass`)
 ok('RLS is on; anon holds no privilege; signed-in users may SELECT, INSERT, UPDATE and DELETE but not TRUNCATE',
   privs.rls && !privs.anon_any && privs.auth_crud && !privs.auth_truncate, show(privs))
+const grants = await sup(`SELECT a.grantee::regrole::text AS g, a.privilege_type AS p
+  FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = 'public.organization_partners'::regclass ORDER BY 1, 2`)
+const authPrivs = grants.filter((r) => r.g === 'authenticated').map((r) => r.p)
+ok('signed-in users hold exactly SELECT, INSERT, UPDATE and DELETE (no REFERENCES, TRIGGER or TRUNCATE)',
+  JSON.stringify(authPrivs) === JSON.stringify(['DELETE', 'INSERT', 'SELECT', 'UPDATE']), show(authPrivs))
+ok('...and no grant names anon or PUBLIC', grants.every((r) => r.g !== 'anon' && r.g !== '-'), show(grants))
 const pols = await sup(`SELECT policyname, cmd, roles::text AS roles, qual, with_check FROM pg_policies
   WHERE schemaname = 'public' AND tablename = 'organization_partners' ORDER BY policyname`)
 ok('four policies, all for signed-in users only',

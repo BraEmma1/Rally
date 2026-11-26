@@ -181,6 +181,17 @@ BEGIN
     NEW.updated_at := now();
   END IF;
 
+  -- A signed-in caller who may not create partners in this organization is
+  -- left to RLS, so its generic refusal is all they get: answering "not an
+  -- organizer organization" first would tell anyone the type of any
+  -- organization whose id they hold. UPDATE needs no such step, because only
+  -- rows the caller may already edit reach this trigger. With no JWT (a
+  -- migration) the check below always runs.
+  IF TG_OP = 'INSERT' AND auth.uid() IS NOT NULL
+     AND NOT (public.is_org_admin(NEW.organization_id) OR public.is_org_event_manager(NEW.organization_id)) THEN
+    RETURN NEW;
+  END IF;
+
   -- A missing organization is left to the foreign key to report.
   SELECT o.org_type INTO v_org_type FROM organizations o WHERE o.id = NEW.organization_id;
   IF FOUND AND v_org_type <> 'organizer' THEN
@@ -208,7 +219,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION public.enforce_organization_partner_rules() IS
-  'organization_partners: trims the name, normalizes contact_email, records the signed-in creator, fixes organization and creator after insert, allows organizer organizations only, and explains a restore whose name is taken.';
+  'organization_partners: trims the name, normalizes contact_email, records the signed-in creator, fixes organization and creator after insert, allows organizer organizations only (told only to callers RLS would let insert, or with no JWT), and explains a restore whose name is taken.';
 
 REVOKE EXECUTE ON FUNCTION public.enforce_organization_partner_rules() FROM PUBLIC, anon, authenticated;
 
@@ -229,6 +240,8 @@ ALTER TABLE public.organization_partners ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON public.organization_partners FROM anon;
 REVOKE TRUNCATE ON public.organization_partners FROM anon, authenticated;
+-- Exactly the four the app uses: no REFERENCES or TRIGGER from the default grants.
+REVOKE ALL ON public.organization_partners FROM authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.organization_partners TO authenticated;
 
 DROP POLICY IF EXISTS "read_organization_partners" ON public.organization_partners;
