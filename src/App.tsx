@@ -61,6 +61,7 @@ import OrganizerEventDetailPage from '@/pages/organizer/EventDetailPage'
 import PartnerDetailPage from '@/pages/organizer/PartnerDetailPage'
 import PeoplePage from '@/pages/organizer/PeoplePage'
 import PartnersPage from '@/pages/organizer/PartnersPage'
+import OrganizationPartnerPage from '@/pages/organizer/OrganizationPartnerPage'
 import MarketingHomePage from '@/pages/MarketingHomePage'
 
 // The admin workspace is its own chunk: only platform admins ever load it, so
@@ -328,6 +329,7 @@ export default function App() {
         />
         <Route path="/organizer/people" element={<PeoplePage />} />
         <Route path="/organizer/partners" element={<PartnersPage />} />
+        <Route path="/organizer/partners/:partnerId" element={<OrganizationPartnerPage />} />
         <Route path="/organizer/team" element={<TeamPage />} />
         <Route path="/organizer/settings" element={<OrganizationSettingsPage />} />
       </Route>
