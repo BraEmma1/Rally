@@ -807,5 +807,62 @@ ok('the shipped migration leaves no unlinked partnership on a live organization 
 ok('...and leaves the archived and legacy partnerships unlinked',
   (await S5.q(`SELECT id FROM event_partnerships WHERE partner_id IS NULL`)).length === 2)
 
+// ==== Section 5: exactly what the migration adds, and the revert script =============
+const REVERT = path.resolve(MIG, '../reverts/20261129000000_organization_partners.revert.sql')
+const EXPECTED_ADDED = [
+  'constraint event_partnerships.event_partnerships_partner_id_fkey',
+  'constraint organization_partners.organization_partners_company_length',
+  'constraint organization_partners.organization_partners_company_not_blank',
+  'constraint organization_partners.organization_partners_contact_email_normalized',
+  'constraint organization_partners.organization_partners_created_by_fkey',
+  'constraint organization_partners.organization_partners_description_length',
+  'constraint organization_partners.organization_partners_industry_length',
+  'constraint organization_partners.organization_partners_linkedin_safe_url',
+  'constraint organization_partners.organization_partners_logo_safe_url',
+  'constraint organization_partners.organization_partners_organization_id_fkey',
+  'constraint organization_partners.organization_partners_pkey',
+  'constraint organization_partners.organization_partners_website_safe_url',
+  'function backfill_organization_partners()',
+  'function enforce_organization_partner_delete_rules()',
+  'function enforce_organization_partner_rules()',
+  'function enforce_partnership_partner_link()',
+  'function is_org_event_manager(uuid)',
+  'function preview_organization_partner_merge()',
+  'function resync_partner_details_on_event_restore()',
+  'function sync_partner_details_to_partnerships()',
+  'policy organization_partners.create_organization_partners',
+  'policy organization_partners.delete_organization_partners',
+  'policy organization_partners.read_organization_partners',
+  'policy organization_partners.update_organization_partners',
+  'table organization_partners',
+  'trigger event_partnerships.check_partnership_partner_link',
+  'trigger events.resync_partner_details_on_restore',
+  'trigger organization_partners.check_organization_partner_delete_rules',
+  'trigger organization_partners.check_organization_partner_rules',
+  'trigger organization_partners.sync_partner_details',
+]
+const d5 = catalogDiff(BEFORE_CATALOG, AFTER_CATALOG)
+ok('the migration adds exactly the listed objects, and changes or removes nothing',
+  JSON.stringify([...d5.added].sort()) === JSON.stringify(EXPECTED_ADDED) && d5.removed.length === 0 && d5.changed.length === 0,
+  show({ unexpected: d5.added.filter((k) => !EXPECTED_ADDED.includes(k)), missing: EXPECTED_ADDED.filter((k) => !d5.added.includes(k)), removed: d5.removed, changed: d5.changed }))
+const wsKey = 'function my_sponsor_partnerships()'
+ok('the sponsor workspace function is byte-identical before and after (definition, security, grants)',
+  BEFORE_CATALOG.has(wsKey) && BEFORE_CATALOG.get(wsKey) === AFTER_CATALOG.get(wsKey))
+
+const revertErr = await superAttempt(fs.readFileSync(REVERT, 'utf8'))
+const REVERTED_CATALOG = await catalog()
+const d5r = catalogDiff(BEFORE_CATALOG, REVERTED_CATALOG)
+ok('the revert script runs, and the catalog is then identical to the one before the migration',
+  revertErr === null && d5r.added.length === 0 && d5r.removed.length === 0 && d5r.changed.length === 0, show({ revertErr, ...d5r }))
+ok('...the partnerships keep the company details they last had',
+  revertErr === null && await n(`SELECT count(*) AS n FROM event_partnerships WHERE company_name = 'Kora Payments International'`) > 0)
+const reapplyErr = await superAttempt(MIGRATION_TEXT)
+const d5a = catalogDiff(AFTER_CATALOG, await catalog())
+ok('re-applying the migration after the revert succeeds and gives the same catalog again',
+  reapplyErr === null && d5a.added.length === 0 && d5a.removed.length === 0 && d5a.changed.length === 0, show({ reapplyErr, ...d5a }))
+ok('...and its backfill links the partnerships of live organization events again',
+  reapplyErr === null && await n(`SELECT count(*) AS n FROM event_partnerships p JOIN events e ON e.id = p.event_id
+    WHERE p.partner_id IS NULL AND e.organization_id IS NOT NULL AND e.archived_at IS NULL`) === 0)
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
