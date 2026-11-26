@@ -13,8 +13,9 @@
 //              to other columns touch no partnership.
 //   Section 4. existing partnerships become partners: the merge preview (groups, the
 //              chosen partnership, the fields that differ), the backfill's counts, reuse
-//              and idempotency, archived and legacy events skipped, no client access, and
-//              the migration as shipped on a database that already has partnerships.
+//              and idempotency, archived and legacy events skipped, no client access; the
+//              migration links nothing on its own, so today's Edit Partner payload still
+//              saves on existing data (and would be refused once linked).
 //
 // Runs on PGlite; see boot.mjs for what that does and does not prove.
 import fs from 'node:fs'
@@ -686,11 +687,11 @@ ok('both functions are SECURITY DEFINER, pin their search_path, and no client ro
 // ==== Section 4: backfill and merge preview =======================================
 // A database of its own: partnerships exist BEFORE the migration, and nothing from
 // sections 1-3 (which leave unlinked partnerships on purpose) can change the counts.
-// The migration runs its own backfill as its last statement; to look at the preview
-// first, this database gets the migration without that one line, and calls it itself.
-const BACKFILL_CALL = 'SELECT * FROM public.backfill_organization_partners();'
+// The migration only creates the backfill: running it is a separate, approved step,
+// after the merge preview has been reviewed (see 4d for why it must not run on its own).
 const MIGRATION_TEXT = fs.readFileSync(MIGRATION, 'utf8')
-ok('(setup) the migration ends by running the backfill', MIGRATION_TEXT.trimEnd().endsWith(BACKFILL_CALL))
+ok('(setup) the migration does not run the backfill itself',
+  !/^\s*SELECT\s+\*\s+FROM\s+public\.backfill_organization_partners\(\)/m.test(MIGRATION_TEXT))
 
 async function seededDb() {
   const { db: d, failures: f } = await boot(MIG, { upTo: '20261128999999' })
@@ -739,9 +740,9 @@ async function seededDb() {
 }
 
 const S4 = await seededDb()
-await S4.d.exec(MIGRATION_TEXT.trimEnd().slice(0, -BACKFILL_CALL.length))
+await S4.d.exec(MIGRATION_TEXT)
 const unlinked4 = () => S4.q(`SELECT id FROM event_partnerships WHERE partner_id IS NULL ORDER BY id`)
-ok('(setup) without the final line, the migration links nothing', (await unlinked4()).length === 5)
+ok('the migration links nothing on its own', (await unlinked4()).length === 5)
 
 // -- 4a. the merge preview
 const preview = await S4.q(`SELECT * FROM preview_organization_partner_merge() ORDER BY partner_key`)
@@ -754,8 +755,15 @@ ok('...the Kora group holds both partnerships, chooses the most recently updated
   koraG.chosen_partnership_id === S4.P.koraB && koraG.existing_partner_id === null &&
   [...koraG.event_names].sort().join() === 'Backfill A,Backfill B' &&
   JSON.stringify(koraG.differing_fields) === JSON.stringify(['company_name', 'website']), show(koraG))
+ok('...and shows what the partner will be: the chosen partnership\'s six values, and every value of each field that differs',
+  koraG && koraG.chosen_values?.company_name === 'kora  payments' && koraG.chosen_values?.website === 'https://b.example' &&
+  Object.keys(koraG.chosen_values ?? {}).sort().join() === BASIC.slice().sort().join() &&
+  JSON.stringify(Object.keys(koraG.differing_values ?? {}).sort()) === JSON.stringify(['company_name', 'website']) &&
+  JSON.stringify([...(koraG.differing_values?.website ?? [])].sort()) === JSON.stringify(['https://a.example', 'https://b.example']) &&
+  JSON.stringify([...(koraG.differing_values?.company_name ?? [])].sort()) === JSON.stringify(['Kora Payments', 'kora  payments']), show(koraG))
 ok('...and the Baobab group has nothing that differs',
-  baobabG && JSON.stringify(baobabG.differing_fields) === '[]' && baobabG.partnership_ids.length === 1, show(baobabG))
+  baobabG && JSON.stringify(baobabG.differing_fields) === '[]' && JSON.stringify(baobabG.differing_values) === '{}' &&
+  baobabG.partnership_ids.length === 1, show(baobabG))
 
 // -- 4b. the backfill
 const counts = (r) => [r.partners_created, r.partnerships_linked, r.skipped_archived_event, r.skipped_no_organization].join()
@@ -798,14 +806,32 @@ ok('both are SECURITY DEFINER with a pinned search_path (the preview STABLE, the
   s4fns.find((f) => f.proname === 'preview_organization_partner_merge').provolatile === 's' &&
   s4fns.find((f) => f.proname === 'backfill_organization_partners').provolatile === 'v', show(s4fns))
 
-// -- 4d. the migration as shipped, on a fresh database with existing partnerships
+// -- 4d. the migration as shipped leaves every partnership unlinked, so today's Edit
+// Partner dialog keeps working on existing data. That dialog does not echo stored values:
+// it sends website and LinkedIn through new URL() (a bare origin gains a trailing slash)
+// and turns blank fields into NULL. Seeded rows often hold "https://x.example" and '',
+// so once such a row is linked, the drift rule would refuse every save of it, even one
+// that only changes notes. Linking waits for the approved backfill after the dialog stops
+// sending the basic columns for linked partnerships.
 const S5 = await seededDb()
+const DEMO = (await S5.asOn(S5.owner, `INSERT INTO event_partnerships (event_id, company_name, website, linkedin)
+  VALUES ($1, 'Demo Co', 'https://demo.example', '') RETURNING id`, [S5.E.B])).rows[0].id
 await S5.d.exec(MIGRATION_TEXT)
-const leftover = await S5.q(`SELECT p.id FROM event_partnerships p JOIN events e ON e.id = p.event_id
-  WHERE p.partner_id IS NULL AND e.organization_id IS NOT NULL AND e.archived_at IS NULL`)
-ok('the shipped migration leaves no unlinked partnership on a live organization event', leftover.length === 0, show(leftover))
-ok('...and leaves the archived and legacy partnerships unlinked',
-  (await S5.q(`SELECT id FROM event_partnerships WHERE partner_id IS NULL`)).length === 2)
+ok('the shipped migration links no existing partnership',
+  Number((await S5.q1(`SELECT count(*) AS n FROM event_partnerships WHERE partner_id IS NOT NULL`)).n) === 0 &&
+  Number((await S5.q1(`SELECT count(*) AS n FROM organization_partners`)).n) === 0)
+// What EditPartnerDialog sends for that row when only the notes and tier change.
+const dialogSave = (id) => S5.asOn(S5.owner, `UPDATE event_partnerships
+   SET company_name = 'Demo Co', description = NULL, logo_url = NULL, industry = NULL,
+       website = 'https://demo.example/', linkedin = NULL, tier_label = 'Gold', internal_notes = 'Call back'
+ WHERE id = $1 RETURNING id`, [id]).then((r) => ({ rows: r.rows.length }), (e) => ({ message: String(e.message), code: e.code }))
+const saveBefore = await dialogSave(DEMO)
+ok('...so today\'s Edit Partner payload saves on an existing, seeded partnership', saveBefore.rows === 1, show(saveBefore))
+await S5.asOn(S5.owner, `UPDATE event_partnerships SET website = 'https://demo.example', linkedin = '' WHERE id = $1`, [DEMO])
+await S5.q(`SELECT * FROM backfill_organization_partners()`)
+const saveAfter = await dialogSave(DEMO)
+ok('once the approved backfill links it, that same payload is refused with the drift copy (why linking waits for PR 2)',
+  saveAfter.message !== undefined && DRIFT.test(saveAfter.message), show(saveAfter))
 
 // ==== Section 5: exactly what the migration adds, and the revert script =============
 const REVERT = path.resolve(MIG, '../reverts/20261129000000_organization_partners.revert.sql')
@@ -860,9 +886,8 @@ const reapplyErr = await superAttempt(MIGRATION_TEXT)
 const d5a = catalogDiff(AFTER_CATALOG, await catalog())
 ok('re-applying the migration after the revert succeeds and gives the same catalog again',
   reapplyErr === null && d5a.added.length === 0 && d5a.removed.length === 0 && d5a.changed.length === 0, show({ reapplyErr, ...d5a }))
-ok('...and its backfill links the partnerships of live organization events again',
-  reapplyErr === null && await n(`SELECT count(*) AS n FROM event_partnerships p JOIN events e ON e.id = p.event_id
-    WHERE p.partner_id IS NULL AND e.organization_id IS NOT NULL AND e.archived_at IS NULL`) === 0)
+ok('...and, without the backfill being run, links no partnership',
+  reapplyErr === null && await n(`SELECT count(*) AS n FROM event_partnerships WHERE partner_id IS NOT NULL`) === 0)
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

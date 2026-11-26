@@ -24,7 +24,8 @@ editable again per partnership, as they were before the migration.
 - It does **not** remove the migration's row from
   `supabase_migrations.schema_migrations`. Editing migration history needs
   separate approval (CLAUDE.md rule 1). Re-applying the migration later is
-  safe: it recreates the list and its backfill links the partnerships again.
+  safe: it recreates the list empty; linking needs the backfill to be run
+  again, as its own approved step.
 
 Tested by `tests/sql/organization-partners.test.mjs`: after the migration and
 this script, the catalog (functions, triggers, constraints, policies, grants)

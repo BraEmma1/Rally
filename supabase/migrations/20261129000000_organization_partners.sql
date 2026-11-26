@@ -71,7 +71,8 @@ An event without an organization cannot take a partner.
   1. The directory table, its rules and its access
   2. Linking partnerships to partners
   3. A partner's edit reaches every linked event; archived events catch up on restore
-  4. Existing partnerships become partners (backfill, with a read-only merge preview)
+  4. Existing partnerships become partners: a read-only merge preview and a backfill,
+     both created here but run separately, as an approved step (see section 4)
 */
 
 -- ============================================================================
@@ -583,9 +584,15 @@ CREATE TRIGGER resync_partner_details_on_restore
 --   - partnerships on events without an organization (they cannot take a
 --     partner at all).
 --
--- Neither function is callable by a client. The backfill runs once, at the end
--- of this migration, and is safe to run again: it only ever touches unlinked
--- partnerships, and an active partner with the group's name is reused.
+-- Neither function is callable by a client, and this migration runs neither.
+-- Running the backfill is a separate, approved step, after the preview has been
+-- reviewed and after the organizer screens stop sending the six basic columns
+-- for linked partnerships: today's Edit Partner form re-sends them normalized
+-- (a bare website gains a trailing slash, a blank becomes NULL), so a linked
+-- copy holding 'https://x.example' or '' would refuse every save of it. Until
+-- then every partnership stays unlinked and behaves exactly as before. The
+-- backfill is safe to run again: it only ever touches unlinked partnerships,
+-- and an active partner with the group's name is reused.
 -- ============================================================================
 CREATE OR REPLACE FUNCTION public.preview_organization_partner_merge()
 RETURNS TABLE (
@@ -596,7 +603,9 @@ RETURNS TABLE (
   existing_partner_id uuid,
   partnership_ids uuid[],
   event_names text[],
-  differing_fields text[]
+  differing_fields text[],
+  chosen_values jsonb,
+  differing_values jsonb
 )
 LANGUAGE sql SECURITY DEFINER STABLE SET search_path = public, pg_temp
 AS $$
@@ -621,13 +630,26 @@ AS $$
              CASE WHEN count(DISTINCT coalesce(c.industry,     '<null>')) > 1 THEN 'industry' END,
              CASE WHEN count(DISTINCT coalesce(c.website,      '<null>')) > 1 THEN 'website' END,
              CASE WHEN count(DISTINCT coalesce(c.linkedin,     '<null>')) > 1 THEN 'linkedin' END
-           ], NULL) AS differing
+           ], NULL) AS differing,
+           jsonb_strip_nulls(jsonb_build_object(
+             'company_name', CASE WHEN count(DISTINCT coalesce(c.company_name, '<null>')) > 1 THEN to_jsonb(array_agg(DISTINCT c.company_name)) END,
+             'description',  CASE WHEN count(DISTINCT coalesce(c.description,  '<null>')) > 1 THEN to_jsonb(array_agg(DISTINCT c.description)) END,
+             'logo_url',     CASE WHEN count(DISTINCT coalesce(c.logo_url,     '<null>')) > 1 THEN to_jsonb(array_agg(DISTINCT c.logo_url)) END,
+             'industry',     CASE WHEN count(DISTINCT coalesce(c.industry,     '<null>')) > 1 THEN to_jsonb(array_agg(DISTINCT c.industry)) END,
+             'website',      CASE WHEN count(DISTINCT coalesce(c.website,      '<null>')) > 1 THEN to_jsonb(array_agg(DISTINCT c.website)) END,
+             'linkedin',     CASE WHEN count(DISTINCT coalesce(c.linkedin,     '<null>')) > 1 THEN to_jsonb(array_agg(DISTINCT c.linkedin)) END
+           )) AS differing_values
       FROM candidates c
      GROUP BY c.org_id, c.name_key
   )
-  SELECT g.org_id, o.name, g.name_key, g.chosen, op.id, g.ids, g.names, g.differing
+  SELECT g.org_id, o.name, g.name_key, g.chosen, op.id, g.ids, g.names, g.differing,
+         jsonb_build_object('company_name', ch.company_name, 'description', ch.description,
+                            'logo_url', ch.logo_url, 'industry', ch.industry,
+                            'website', ch.website, 'linkedin', ch.linkedin),
+         g.differing_values
     FROM groups g
     JOIN organizations o ON o.id = g.org_id
+    JOIN event_partnerships ch ON ch.id = g.chosen
     LEFT JOIN organization_partners op
       ON op.organization_id = g.org_id
      AND op.archived_at IS NULL
@@ -636,7 +658,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION public.preview_organization_partner_merge() IS
-  'Read-only: what backfill_organization_partners() would do. One row per organization and normalized name, with the chosen partnership and the basic columns that differ inside the group. Not callable by clients.';
+  'Read-only: what backfill_organization_partners() would do. One row per organization and normalized name: the chosen partnership and the six values the partner would take from it, plus every value of each basic column that differs inside the group. Not callable by clients.';
 
 REVOKE EXECUTE ON FUNCTION public.preview_organization_partner_merge() FROM PUBLIC, anon, authenticated;
 
@@ -699,4 +721,3 @@ COMMENT ON FUNCTION public.backfill_organization_partners() IS
 
 REVOKE EXECUTE ON FUNCTION public.backfill_organization_partners() FROM PUBLIC, anon, authenticated;
 
-SELECT * FROM public.backfill_organization_partners();

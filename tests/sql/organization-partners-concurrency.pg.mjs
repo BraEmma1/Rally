@@ -3,8 +3,8 @@
 // file is not a *.test.mjs and CI does not run it.
 //
 // The invariant every case checks afterwards: on every event that is not archived, each
-// linked partnership's six basic columns equal its partner's, and no partnership was
-// newly linked to an archived partner.
+// linked partnership's six basic columns equal its partner's. Case 2 also checks that
+// a link racing an archive is refused when the archive commits first.
 //
 //   1. a partner rename racing an edit of a linked partnership, both orders
 //   2. archiving a partner racing a new link to it, both orders
@@ -267,8 +267,8 @@ try {
       rb = await pending(archive(B)); ra = await pending(rename(A))
       await finish(B, rb); await finish(A, ra)
     }
-    ok(`5. ${first} first: the archive commits, and the rename either commits or fails cleanly`,
-      !rb.error && (ra.error === undefined || typeof ra.error.message === 'string'), JSON.stringify({ ra, rb }))
+    ok(`5. ${first} first: the archive commits, and the rename either commits or is refused by the archived-event rule`,
+      !rb.error && (!ra.error || /archived/.test(ra.error.message)), JSON.stringify({ ra, rb }))
     await asOwner(`UPDATE events SET archived_at = NULL WHERE id = $1`, [EV])
     ok('...after a restore, the partnership carries the partner\'s current name',
       await name('event_partnerships', L) === await name('organization_partners', P))
