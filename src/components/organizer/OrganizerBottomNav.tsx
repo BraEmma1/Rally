@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { CalendarRange, Home, Menu, UserCircle, Users } from 'lucide-react'
+import { CalendarRange, Handshake, Home, Menu, UserCircle, Users } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // Fixed organizer bottom navigation, distinct from the attendee bar so neither
@@ -40,6 +40,15 @@ export default function OrganizerBottomNav({ onMore }: { onMore: () => void }) {
           <>
             <UserCircle className="h-5 w-5" aria-hidden="true" />
             <span className={isActive ? 'font-semibold' : undefined}>People</span>
+          </>
+        )}
+      </NavLink>
+
+      <NavLink to="/organizer/partners" className={itemClass} aria-label="Partners">
+        {({ isActive }) => (
+          <>
+            <Handshake className="h-5 w-5" aria-hidden="true" />
+            <span className={isActive ? 'font-semibold' : undefined}>Partners</span>
           </>
         )}
       </NavLink>

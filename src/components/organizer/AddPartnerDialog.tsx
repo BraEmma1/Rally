@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Input, Label, Textarea } from '@/components/ui/Input'
-import { EventPhotoUpload } from '@/components/ui/EventPhotoUpload'
+import { Input, Label } from '@/components/ui/Input'
 import {
   listEventPackages,
   loadPackageForPartner,
@@ -20,6 +19,7 @@ import {
   type TermsField,
 } from '@/lib/packageSelection'
 import { MoveButton } from './MoveButton'
+import { PartnerIdentityFields } from './PartnerIdentityFields'
 import { CUSTOM, PackagePicker, TermsConfirmDialog, type PackageChoice } from './PackagePicker'
 import { formatDueDate, formatMoney, rolesLabel, safeWebUrl } from './PartnerCommon'
 import {
@@ -84,7 +84,7 @@ export const EMPTY_PARTNER_VALUES: PartnerFormValues = {
   internal_notes: '',
 }
 
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+export const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 /**
  * Form values to the row shape. Blanks become NULL rather than empty strings,
@@ -607,92 +607,50 @@ export function CompanyFields({
    */
   lockRepresentativeEmail?: string
 }) {
-  function set<K extends keyof PartnerFormValues>(key: K, value: PartnerFormValues[K]) {
-    onChange({ ...values, [key]: value })
-  }
-
   return (
-    <div className="space-y-4">
-      <EventPhotoUpload
-        folder="partners"
-        fullName={values.company_name || 'Partner'}
-        currentPhotoUrl={values.logo_url || null}
-        onUploaded={(url) => set('logo_url', url)}
-        size="lg"
-        hint="Click to upload a company logo"
+    <PartnerIdentityFields
+      values={values}
+      onChange={onChange}
+      emailSlot={
+        <RepresentativeEmailField
+          value={values.representative_email}
+          onChange={(representative_email) => onChange({ ...values, representative_email })}
+          lockReason={lockRepresentativeEmail}
+        />
+      }
+    />
+  )
+}
+
+/** The representative of record for this event. Event-specific: never taken from or given to the partner. */
+export function RepresentativeEmailField({
+  value,
+  onChange,
+  lockReason,
+  hint = 'Optional. Who you deal with at this company. Nothing is sent now.',
+}: {
+  value: string
+  onChange: (next: string) => void
+  lockReason?: string
+  hint?: string
+}) {
+  return (
+    <>
+      <Label htmlFor='pt-rep'>Representative Email</Label>
+      <Input
+        id='pt-rep'
+        type='email'
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder='john@acme.com'
+        disabled={Boolean(lockReason)}
+        aria-describedby='pt-rep-hint'
+        className={lockReason ? 'bg-gray-50 text-gray-500' : undefined}
       />
-      <div>
-        <Label htmlFor="pt-company">Company Name *</Label>
-        <Input
-          id="pt-company"
-          value={values.company_name}
-          onChange={(e) => set('company_name', e.target.value)}
-          maxLength={200}
-          placeholder="Acme Bank"
-          required
-          autoFocus
-        />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="pt-industry">Industry</Label>
-          <Input
-            id="pt-industry"
-            value={values.industry}
-            onChange={(e) => set('industry', e.target.value)}
-            maxLength={120}
-            placeholder="Financial Services"
-          />
-        </div>
-        <div>
-          <Label htmlFor="pt-rep">Representative Email</Label>
-          <Input
-            id="pt-rep"
-            type="email"
-            value={values.representative_email}
-            onChange={(e) => set('representative_email', e.target.value)}
-            placeholder="john@acme.com"
-            disabled={Boolean(lockRepresentativeEmail)}
-            aria-describedby="pt-rep-hint"
-            className={lockRepresentativeEmail ? 'bg-gray-50 text-gray-500' : undefined}
-          />
-          <p id="pt-rep-hint" className="mt-1 text-xs text-gray-500">
-            {lockRepresentativeEmail ??
-              'Optional. Who you deal with at this company. Nothing is sent now.'}
-          </p>
-        </div>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="pt-website">Website</Label>
-          <Input
-            id="pt-website"
-            value={values.website}
-            onChange={(e) => set('website', e.target.value)}
-            placeholder="https://acme.com"
-          />
-        </div>
-        <div>
-          <Label htmlFor="pt-linkedin">LinkedIn</Label>
-          <Input
-            id="pt-linkedin"
-            value={values.linkedin}
-            onChange={(e) => set('linkedin', e.target.value)}
-            placeholder="https://linkedin.com/company/acme"
-          />
-        </div>
-      </div>
-      <div>
-        <Label htmlFor="pt-description">Description</Label>
-        <Textarea
-          id="pt-description"
-          value={values.description}
-          onChange={(e) => set('description', e.target.value)}
-          rows={3}
-          maxLength={4000}
-        />
-      </div>
-    </div>
+      <p id='pt-rep-hint' className='mt-1 text-xs text-gray-500'>
+        {lockReason ?? hint}
+      </p>
+    </>
   )
 }
 

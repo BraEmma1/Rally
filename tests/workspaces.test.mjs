@@ -124,6 +124,8 @@ test('a switch keeps the section, and leaves pages that belong to one event', ()
     ['/organizer/events/e-1', '/organizer/events'],
     ['/organizer/events/e-1/edit', '/organizer/events'],
     ['/organizer/events/e-1/partners/p-1', '/organizer/events'],
+    ['/organizer/partners', '/organizer/partners'],
+    ['/organizer/partners/k-1', '/organizer/partners'],
     ['/organizer/setup', '/organizer'],
     ['/dashboard', '/organizer'],
     ['/events/e-1/home', '/organizer'],
@@ -154,6 +156,11 @@ test('organization pages remount on every switch; event pages and My invitations
   // Accepting an invitation switches organization; the page must survive it.
   assert.equal(workspaceScopeKey('/organizer/invitations', 'org-a'), workspaceScopeKey('/organizer/invitations', 'org-b'))
   assert.equal(workspaceScopeKey('/organizer', null), 'organization:none')
+  // The partner list is an organization page; one partner's page follows that
+  // partner's organization like an event page does, so following must not remount it.
+  assert.notEqual(workspaceScopeKey('/organizer/partners', 'org-a'), workspaceScopeKey('/organizer/partners', 'org-b'))
+  assert.equal(workspaceScopeKey('/organizer/partners/k-1', 'org-a'), workspaceScopeKey('/organizer/partners/k-1', 'org-b'))
+  assert.notEqual(workspaceScopeKey('/organizer/partners/k-1', 'org-a'), workspaceScopeKey('/organizer/partners/k-2', 'org-a'))
 })
 
 test('the remembered choice is stored per person', () => {
