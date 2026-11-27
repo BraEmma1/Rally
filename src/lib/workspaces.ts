@@ -144,6 +144,7 @@ const SECTIONS = new Set([
   '/organizer',
   '/organizer/events',
   '/organizer/people',
+  '/organizer/partners',
   '/organizer/team',
   '/organizer/settings',
   '/organizer/invitations',
@@ -151,13 +152,19 @@ const SECTIONS = new Set([
 
 // Where a switch lands. A page about one EVENT (detail, edit, a partnership) or a
 // half-filled "new event" form belongs to the organization being left, so those
-// go to the new organization's Events list. Anything else opens its dashboard.
+// go to the new organization's Events list; one partner's page goes to its
+// Partners list. Anything else opens its dashboard.
 export function pathAfterSwitch(pathname: string): string {
   const p = normalize(pathname)
   if (SECTIONS.has(p)) return p
   if (p.startsWith('/organizer/events/')) return '/organizer/events'
+  if (p.startsWith('/organizer/partners/')) return '/organizer/partners'
   return '/organizer'
 }
+
+// One partner's page. Like an event page, it shows the organization the partner
+// belongs to (it follows it), so following must not remount it.
+const PARTNER_ROUTE = /^\/organizer\/partners\/([^/]+)$/
 
 // The routes inside the organizer area that are about one event. They authorize
 // against the event (can_manage_event), not against the selected organization.
@@ -186,6 +193,7 @@ export function workspaceScopeKey(pathname: string, activeOrganizationId: string
   const p = normalize(pathname)
   const eventId = eventIdFromPath(p)
   if (eventId) return 'event:' + p
+  if (PARTNER_ROUTE.test(p)) return 'partner:' + p
   if (p === '/organizer/invitations') return 'person'
   return 'organization:' + (activeOrganizationId ?? 'none')
 }

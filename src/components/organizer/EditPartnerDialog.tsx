@@ -7,14 +7,18 @@ import {
   type Partnership,
   type PartnershipRole,
 } from '@/lib/partnerships'
+import { linkedPartnershipPatch } from '@/lib/partnerDirectory'
 import {
   CompanyFields,
   PartnershipFields,
+  RepresentativeEmailField,
   partnershipInputFrom,
   validateCompanyStep,
   validatePartnershipStep,
+  validateRepresentativeEmail,
   type PartnerFormValues,
 } from './AddPartnerDialog'
+import { LinkedPartnerSummary } from './LinkedPartnerSummary'
 import { SheetDialog } from './SheetDialog'
 
 // Edit renders the same two field groups the wizard does, on one scrolling
@@ -29,6 +33,11 @@ import { SheetDialog } from './SheetDialog'
 //   * status, sponsor_organization_id and acknowledged_at are not on this form
 //     and are not in the payload. Those belong to the lifecycle and to
 //     invitation acceptance.
+//   * A partnership linked to one of the organization's partners takes its
+//     company details from the partner. They are shown read-only and are NOT
+//     in the payload: the database refuses any that differ from the partner,
+//     and this form would send them normalized (a trailing slash, blanks as
+//     NULL). They are changed on the partner, for every event at once.
 
 function valuesFrom(partnership: Partnership, roles: PartnershipRole[]): PartnerFormValues {
   return {
@@ -50,11 +59,14 @@ function valuesFrom(partnership: Partnership, roles: PartnershipRole[]): Partner
 export function EditPartnerDialog({
   partnership,
   roles,
+  canEditPartner,
   onClose,
   onSaved,
 }: {
   partnership: Partnership
   roles: PartnershipRole[]
+  /** Owners and admins: the read-only details link to the partner. */
+  canEditPartner: boolean
   onClose: () => void
   onSaved: (warning: string | null) => void
 }) {
@@ -67,10 +79,17 @@ export function EditPartnerDialog({
       ? 'An invitation is out to this address. Revoke it before changing the representative.'
       : undefined
 
+  // One answer for what the form shows and what the save sends: a company
+  // field on screen is always a company field saved.
+  const linked = Boolean(partnership.partner_id)
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (saving) return
-    const invalid = validateCompanyStep(values) ?? validatePartnershipStep(values)
+
+    const invalid =
+      (linked ? validateRepresentativeEmail(values.representative_email) : validateCompanyStep(values)) ??
+      validatePartnershipStep(values)
     if (invalid) {
       setError(invalid)
       return
@@ -78,7 +97,7 @@ export function EditPartnerDialog({
     setError(null)
     setSaving(true)
 
-    const input = partnershipInputFrom(values)
+    const input = linked ? linkedPartnershipPatch(partnershipInputFrom(values)) : partnershipInputFrom(values)
     // A locked field must not be sent at all, even unchanged: the guard
     // compares values, and sending the same address is pointless traffic.
     const patch = representativeLocked
@@ -120,11 +139,24 @@ export function EditPartnerDialog({
       wide
     >
       <form onSubmit={handleSubmit} className="space-y-6">
-        <CompanyFields
-          values={values}
-          onChange={setValues}
-          lockRepresentativeEmail={representativeLocked}
-        />
+        {linked ? (
+          <div className="space-y-4">
+            <LinkedPartnerSummary partnership={partnership} canEdit={canEditPartner} />
+            <div className="sm:w-1/2">
+              <RepresentativeEmailField
+                value={values.representative_email}
+                onChange={(representative_email) => setValues({ ...values, representative_email })}
+                lockReason={representativeLocked}
+              />
+            </div>
+          </div>
+        ) : (
+          <CompanyFields
+            values={values}
+            onChange={setValues}
+            lockRepresentativeEmail={representativeLocked}
+          />
+        )}
 
         <div className="border-t border-gray-200 pt-5">
           <PartnershipFields values={values} onChange={setValues} />

@@ -31,7 +31,12 @@ function eventEndDate(event: { start_date: string | null; end_date: string | nul
   return new Date(`${raw}T23:59:59.999`)
 }
 
-export function eventLifecycle(event: OrganizerEvent): EventLifecycle {
+// Only the fields it reads, so a caller with a partial row (an embed) must have
+// selected every one of them -- end_date included, or a running multi-day
+// event would read as completed.
+export function eventLifecycle(
+  event: Pick<OrganizerEvent, 'archived_at' | 'visibility' | 'start_date' | 'end_date' | 'status'>
+): EventLifecycle {
   if (event.archived_at) return 'archived'
   if (event.visibility === 'draft') return 'draft'
   const end = eventEndDate(event)

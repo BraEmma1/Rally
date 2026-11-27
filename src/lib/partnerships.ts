@@ -131,6 +131,14 @@ export type Partnership = {
   internal_notes: string | null
   representative_email: string | null
   display_order: number
+  /**
+   * The organization partner this partnership belongs to, if any. While it is
+   * set, the database keeps company_name, description, logo_url, industry,
+   * website and linkedin EQUAL to the partner's and refuses an update that
+   * would make them differ: edit the partner instead (src/lib/partners.ts).
+   * Set once at creation; changeable only while the partnership is a draft.
+   */
+  partner_id: string | null
   created_by: string
   created_at: string
   updated_at: string
@@ -208,6 +216,12 @@ function mapPartnershipError(
   const message = error?.message?.trim() ?? ''
   const all = message + ' ' + (error?.details ?? '')
 
+  // The partner-link rules speak for themselves ("That partner is archived.
+  // Restore it before adding it to an event."), and must not be mistaken for the
+  // archived-EVENT refusal below.
+  if (/^(That partner |These details belong to the partner|The partner on this partnership)/.test(message)) {
+    return /\.$/.test(message) ? message : message + '.'
+  }
   if (/archived/i.test(all)) {
     return 'This event is read-only because it is archived.'
   }
@@ -402,13 +416,20 @@ const PACKAGE_GONE =
  * change it. The composite key (package_id, event_id) refuses another event's
  * package, and a package deleted since it was chosen fails the insert itself,
  * before anything else is written.
+ *
+ * PARTNERS. `partnerId` links the partnership to one of the organization's
+ * partners. The database then fills the six company columns from the partner,
+ * whatever this payload carries for them, so details read before someone
+ * renamed the partner cannot be stored. It must be a partner of the event's
+ * organization and not archived; the database refuses anything else.
  */
 export async function createPartnershipWithDetails(
   eventId: string,
   input: PartnershipInput,
   roles: PartnershipRole[],
   obligations: ObligationInput[],
-  packageId: string | null = null
+  packageId: string | null = null,
+  partnerId: string | null = null
 ): Promise<CreatePartnershipResult> {
   const { data, error } = await supabase
     .from('event_partnerships')
@@ -416,6 +437,7 @@ export async function createPartnershipWithDetails(
       event_id: eventId,
       ...partnershipPayload(input),
       ...(packageId ? { package_id: packageId } : {}),
+      ...(partnerId ? { partner_id: partnerId } : {}),
     })
     .select('id')
     .single()

@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Input, Label, Textarea } from '@/components/ui/Input'
-import { EventPhotoUpload } from '@/components/ui/EventPhotoUpload'
+import { Input, Label } from '@/components/ui/Input'
 import {
   listEventPackages,
   loadPackageForPartner,
@@ -20,7 +19,15 @@ import {
   type TermsField,
 } from '@/lib/packageSelection'
 import { MoveButton } from './MoveButton'
+import { PartnerIdentityFields } from './PartnerIdentityFields'
+import { PartnerPickerStep, type PartnerChoice } from './PartnerPickerStep'
 import { CUSTOM, PackagePicker, TermsConfirmDialog, type PackageChoice } from './PackagePicker'
+import {
+  createOrganizationPartner,
+  listOrganizationPartners,
+  listPartnerEventLinks,
+} from '@/lib/partners'
+import { findPartnerByName, type DirectoryPartner, type PartnerEventLink } from '@/lib/partnerDirectory'
 import { formatDueDate, formatMoney, rolesLabel, safeWebUrl } from './PartnerCommon'
 import {
   PARTNERSHIP_ROLES,
@@ -84,7 +91,7 @@ export const EMPTY_PARTNER_VALUES: PartnerFormValues = {
   internal_notes: '',
 }
 
-const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+export const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
 /**
  * Form values to the row shape. Blanks become NULL rather than empty strings,
@@ -117,7 +124,11 @@ export function validateCompanyStep(values: PartnerFormValues): string | null {
   if (values.linkedin.trim() && !safeWebUrl(values.linkedin)) {
     return 'The LinkedIn link must be a full URL, such as https://linkedin.com/company/acme'
   }
-  const email = values.representative_email.trim()
+  return validateRepresentativeEmail(values.representative_email)
+}
+
+export function validateRepresentativeEmail(value: string): string | null {
+  const email = value.trim()
   if (email && !EMAIL_SHAPE.test(email)) {
     return 'Enter a valid representative email address, or leave it blank.'
   }
@@ -154,7 +165,11 @@ function draftKey(): string {
   return Math.random().toString(36).slice(2)
 }
 
-const STEPS = ['Company', 'Partnership', 'Deliverables', 'Requirements', 'Review'] as const
+const STEPS = ['Partner', 'Partnership', 'Deliverables', 'Requirements', 'Review'] as const
+
+function alreadyAPartner(name: string): string {
+  return name + ' is already one of your partners. Choose it from the list.'
+}
 
 type TermsConfirm =
   | { kind: 'replace'; id: string; name: string; terms: PackageTerms; fields: TermsField[] }
@@ -174,7 +189,8 @@ export function AddPartnerDialog({
   onClose,
   onSaved,
 }: {
-  event: { id: string; name: string }
+  /** organization_id null: a legacy event, which cannot take a partner from the list. */
+  event: { id: string; name: string; organization_id: string | null }
   onClose: () => void
   /** Closes the dialog and reloads the list. `warning` is shown by the panel. */
   onSaved: (warning: string | null) => void
@@ -185,6 +201,80 @@ export function AddPartnerDialog({
   const [requirements, setRequirements] = useState<DraftObligation[]>([])
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+
+  // ---- The partner ---------------------------------------------------------
+  // Chosen from the organization's partners, or created as a new one. A new
+  // partner is created at Save, just before the partnership; if the
+  // partnership then fails, the partner stays (it is a real entry in the list
+  // now) and becomes the choice, so saving again links it instead of creating
+  // a second one.
+  const orgId = event.organization_id
+  const [partners, setPartners] = useState<DirectoryPartner[] | null>(null)
+  const [partnerLinks, setPartnerLinks] = useState<PartnerEventLink[]>([])
+  const [directoryError, setDirectoryError] = useState<string | null>(null)
+  const [partnerChoice, setPartnerChoice] = useState<PartnerChoice>({ kind: 'none' })
+  const [partnerQuery, setPartnerQuery] = useState('')
+
+  const loadDirectory = useCallback(async () => {
+    if (!orgId) return
+    setDirectoryError(null)
+    setPartners(null)
+    const [p, l] = await Promise.all([listOrganizationPartners(orgId), listPartnerEventLinks(orgId)])
+    if (p.error || l.error) {
+      setDirectoryError(p.error ?? l.error)
+      setPartners([])
+      return
+    }
+    setPartners(p.data)
+    setPartnerLinks(l.data)
+  }, [orgId])
+
+  useEffect(() => {
+    void loadDirectory()
+  }, [loadDirectory])
+
+  function choosePartner(next: PartnerChoice, name?: string) {
+    setError(null)
+    setPartnerChoice(next)
+    if (next.kind === 'existing') {
+      const p = next.partner
+      // The six basic details are the partner's; the database fills them from
+      // the partner on save whatever is sent. The representative is this
+      // event's, defaulted from the partner's contact.
+      setValues((v) => ({
+        ...v,
+        company_name: p.company_name,
+        description: p.description ?? '',
+        logo_url: p.logo_url ?? '',
+        industry: p.industry ?? '',
+        website: p.website ?? '',
+        linkedin: p.linkedin ?? '',
+        representative_email: p.contact_email ?? '',
+      }))
+    } else if (next.kind === 'new') {
+      setValues((v) => ({
+        ...v,
+        company_name: name ?? '',
+        description: '',
+        logo_url: '',
+        industry: '',
+        website: '',
+        linkedin: '',
+        representative_email: '',
+      }))
+    } else {
+      // Back to the list: the six belong to whoever is chosen next.
+      setValues((v) => ({
+        ...v,
+        company_name: '',
+        description: '',
+        logo_url: '',
+        industry: '',
+        website: '',
+        linkedin: '',
+      }))
+    }
+  }
 
   // ---- Packages ------------------------------------------------------------
   // `choice` is what the dropdown shows. `baseline` is where the terms on
@@ -318,9 +408,26 @@ export function AddPartnerDialog({
     onClose()
   }
 
+  function validatePartnerStep(): string | null {
+    // A legacy event without an organization keeps today's company step.
+    if (!orgId || partnerChoice.kind === 'new') return validateCompanyStep(values)
+    if (partnerChoice.kind === 'none') return 'Choose a partner, or create a new one.'
+    return validateRepresentativeEmail(values.representative_email)
+  }
+
+  // The name is taken: by a partner added since the list was read, or by one
+  // the database found when creating. Back to the list, searching for it.
+  function backToPartnerList(name: string) {
+    setSaving(false)
+    setPartnerChoice({ kind: 'none' })
+    setPartnerQuery(name)
+    setStep(0)
+    setError(alreadyAPartner(name))
+  }
+
   function next() {
     const invalid =
-      step === 0 ? validateCompanyStep(values) : step === 1 ? validatePartnershipStep(values) : null
+      step === 0 ? validatePartnerStep() : step === 1 ? validatePartnershipStep(values) : null
     if (invalid) {
       setError(invalid)
       return
@@ -336,13 +443,14 @@ export function AddPartnerDialog({
 
   async function save() {
     if (saving) return
-    const invalid = validateCompanyStep(values) ?? validatePartnershipStep(values)
+    const invalid = validatePartnerStep() ?? validatePartnershipStep(values)
     if (invalid) {
       setError(invalid)
       return
     }
     setSaving(true)
     setError(null)
+    const input = partnershipInputFrom(values)
 
     // A package can be archived or deleted by another manager while this
     // wizard is open. Check it is still usable before linking a partnership to
@@ -373,13 +481,72 @@ export function AddPartnerDialog({
       ...requirements.map((r) => obligationInputFrom(r, 'partner_to_organizer')),
     ]
 
+    // The partner. Only now is a new one created: after every check that could
+    // stop the save, and just before the partnership that links it.
+    let partnerId: string | null = null
+    let createdNow: DirectoryPartner | null = null
+    if (orgId && partnerChoice.kind === 'existing') partnerId = partnerChoice.partner.id
+    if (orgId && partnerChoice.kind === 'new') {
+      const name = input.company_name
+      const fresh = await listOrganizationPartners(orgId)
+      if (fresh.error) {
+        setError(fresh.error)
+        setSaving(false)
+        return
+      }
+      setPartners(fresh.data)
+      if (findPartnerByName(fresh.data, name)) {
+        backToPartnerList(name)
+        return
+      }
+      const created = await createOrganizationPartner(orgId, {
+        company_name: name,
+        description: input.description,
+        logo_url: input.logo_url,
+        industry: input.industry,
+        website: input.website,
+        linkedin: input.linkedin,
+        contact_email: input.representative_email,
+      })
+      if (created.duplicate) {
+        void loadDirectory()
+        backToPartnerList(name)
+        return
+      }
+      if (created.error || !created.data) {
+        setError(created.error ?? 'Unable to add this partner.')
+        setSaving(false)
+        return
+      }
+      createdNow = created.data
+      partnerId = created.data.id
+      // From here on this is the chosen partner: a retry links it.
+      setPartners([...fresh.data, created.data])
+      setPartnerChoice({ kind: 'existing', partner: created.data })
+    }
+
     const result = await createPartnershipWithDetails(
       event.id,
-      partnershipInputFrom(values),
+      input,
       values.roles,
       obligations,
-      packageId
+      packageId,
+      partnerId
     )
+
+    if (createdNow && result.error && !result.orphanDraftId) {
+      setError(
+        createdNow.company_name +
+          " was added to your organization's partners, but not to this event. Save again to add it." +
+          (result.packageUnavailable ? ' ' + result.error : '')
+      )
+      setSaving(false)
+      if (result.packageUnavailable) {
+        setStep(1)
+        void loadPackages()
+      }
+      return
+    }
 
     if (result.packageUnavailable) {
       // Deleted between the check and the insert: nothing was written.
@@ -422,7 +589,24 @@ export function AddPartnerDialog({
       <WizardProgress step={step} />
 
       <div className="mt-4">
-        {step === 0 && <CompanyFields values={values} onChange={setValues} />}
+        {step === 0 &&
+          (orgId ? (
+            <PartnerPickerStep
+              eventId={event.id}
+              partners={partners}
+              links={partnerLinks}
+              loadError={directoryError}
+              onRetryLoad={() => void loadDirectory()}
+              choice={partnerChoice}
+              query={partnerQuery}
+              onQueryChange={setPartnerQuery}
+              onChoose={choosePartner}
+              values={values}
+              onChange={setValues}
+            />
+          ) : (
+            <CompanyFields values={values} onChange={setValues} />
+          ))}
         {step === 1 && (
           <PartnershipFields
             values={values}
@@ -469,6 +653,13 @@ export function AddPartnerDialog({
         {step === 4 && (
           <ReviewStep
             values={values}
+            partnerNote={
+              !orgId
+                ? undefined
+                : partnerChoice.kind === 'existing'
+                  ? 'From your partners'
+                  : "New partner, added to your organization's partners"
+            }
             packageLabel={
               choice.kind === 'package'
                 ? choice.name +
@@ -607,92 +798,50 @@ export function CompanyFields({
    */
   lockRepresentativeEmail?: string
 }) {
-  function set<K extends keyof PartnerFormValues>(key: K, value: PartnerFormValues[K]) {
-    onChange({ ...values, [key]: value })
-  }
-
   return (
-    <div className="space-y-4">
-      <EventPhotoUpload
-        folder="partners"
-        fullName={values.company_name || 'Partner'}
-        currentPhotoUrl={values.logo_url || null}
-        onUploaded={(url) => set('logo_url', url)}
-        size="lg"
-        hint="Click to upload a company logo"
+    <PartnerIdentityFields
+      values={values}
+      onChange={onChange}
+      emailSlot={
+        <RepresentativeEmailField
+          value={values.representative_email}
+          onChange={(representative_email) => onChange({ ...values, representative_email })}
+          lockReason={lockRepresentativeEmail}
+        />
+      }
+    />
+  )
+}
+
+/** The representative of record for this event. Event-specific: never taken from or given to the partner. */
+export function RepresentativeEmailField({
+  value,
+  onChange,
+  lockReason,
+  hint = 'Optional. Who you deal with at this company. Nothing is sent now.',
+}: {
+  value: string
+  onChange: (next: string) => void
+  lockReason?: string
+  hint?: string
+}) {
+  return (
+    <>
+      <Label htmlFor='pt-rep'>Representative Email</Label>
+      <Input
+        id='pt-rep'
+        type='email'
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder='john@acme.com'
+        disabled={Boolean(lockReason)}
+        aria-describedby='pt-rep-hint'
+        className={lockReason ? 'bg-gray-50 text-gray-500' : undefined}
       />
-      <div>
-        <Label htmlFor="pt-company">Company Name *</Label>
-        <Input
-          id="pt-company"
-          value={values.company_name}
-          onChange={(e) => set('company_name', e.target.value)}
-          maxLength={200}
-          placeholder="Acme Bank"
-          required
-          autoFocus
-        />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="pt-industry">Industry</Label>
-          <Input
-            id="pt-industry"
-            value={values.industry}
-            onChange={(e) => set('industry', e.target.value)}
-            maxLength={120}
-            placeholder="Financial Services"
-          />
-        </div>
-        <div>
-          <Label htmlFor="pt-rep">Representative Email</Label>
-          <Input
-            id="pt-rep"
-            type="email"
-            value={values.representative_email}
-            onChange={(e) => set('representative_email', e.target.value)}
-            placeholder="john@acme.com"
-            disabled={Boolean(lockRepresentativeEmail)}
-            aria-describedby="pt-rep-hint"
-            className={lockRepresentativeEmail ? 'bg-gray-50 text-gray-500' : undefined}
-          />
-          <p id="pt-rep-hint" className="mt-1 text-xs text-gray-500">
-            {lockRepresentativeEmail ??
-              'Optional. Who you deal with at this company. Nothing is sent now.'}
-          </p>
-        </div>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <Label htmlFor="pt-website">Website</Label>
-          <Input
-            id="pt-website"
-            value={values.website}
-            onChange={(e) => set('website', e.target.value)}
-            placeholder="https://acme.com"
-          />
-        </div>
-        <div>
-          <Label htmlFor="pt-linkedin">LinkedIn</Label>
-          <Input
-            id="pt-linkedin"
-            value={values.linkedin}
-            onChange={(e) => set('linkedin', e.target.value)}
-            placeholder="https://linkedin.com/company/acme"
-          />
-        </div>
-      </div>
-      <div>
-        <Label htmlFor="pt-description">Description</Label>
-        <Textarea
-          id="pt-description"
-          value={values.description}
-          onChange={(e) => set('description', e.target.value)}
-          rows={3}
-          maxLength={4000}
-        />
-      </div>
-    </div>
+      <p id='pt-rep-hint' className='mt-1 text-xs text-gray-500'>
+        {lockReason ?? hint}
+      </p>
+    </>
   )
 }
 
@@ -1012,11 +1161,14 @@ function DraftObligationStep({
 // ---------------------------------------------------------------------------
 function ReviewStep({
   values,
+  partnerNote,
   packageLabel,
   deliverables,
   requirements,
 }: {
   values: PartnerFormValues
+  /** Where the partner comes from: one of the organization's, or new. */
+  partnerNote?: string
   packageLabel: string
   deliverables: number
   requirements: number
@@ -1030,9 +1182,10 @@ function ReviewStep({
 
   return (
     <div className="divide-y divide-gray-100 rounded-md border border-gray-200">
-      <ReviewRow label="Company">
+      <ReviewRow label="Partner">
         <p className="text-sm font-medium text-gray-900">{input.company_name}</p>
         {input.industry && <p className="text-sm text-gray-500">{input.industry}</p>}
+        {partnerNote && <p className="text-xs text-gray-500">{partnerNote}</p>}
       </ReviewRow>
       <ReviewRow label="Package">
         <p className="text-sm text-gray-900">{packageLabel}</p>

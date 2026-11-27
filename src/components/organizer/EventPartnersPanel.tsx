@@ -46,6 +46,8 @@ type EventLike = {
   id: string
   name: string
   archived_at: string | null
+  /** Whose partner list Add Partner offers. Null on a legacy event without one. */
+  organization_id: string | null
 }
 
 type StatusFilter = 'all' | PartnershipStatus

@@ -27,6 +27,7 @@ const SUITES = [
   'workspace-switcher.cjs',
   'partnership-packages.cjs',
   'partner-package-selection.cjs',
+  'organization-partners.cjs',
 ]
 
 const reachable = (url) =>

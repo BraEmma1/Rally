@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Building2,
   CalendarRange,
+  Handshake,
   LogOut,
   Mail,
   Pencil,
@@ -85,6 +86,7 @@ export default function OrganizerMobileDrawer({
   const eventItems: DrawerItem[] = [
     { to: '/organizer/events', label: 'Events', icon: CalendarRange },
     { to: '/organizer/people', label: 'People', icon: UserCircle },
+    { to: '/organizer/partners', label: 'Partners', icon: Handshake },
   ]
 
   const sectionClass = 'text-xs font-semibold uppercase tracking-wide text-gray-400'
