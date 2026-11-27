@@ -96,6 +96,9 @@ const AUTHENTICATED_DEFINER = [
   'is_conversation_member(uuid)',
   'is_invited_to_event(uuid)',
   'is_org_admin(uuid)',
+  // Organization partners migration (20261129000000): read/create access to the
+  // organization's partner list for event managers of the organization.
+  'is_org_event_manager(uuid)',
   'is_org_member(uuid)',
   'is_org_owner(uuid)',
   'is_partnership_sponsor_member(uuid)',
