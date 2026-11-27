@@ -93,7 +93,7 @@ type LinkRow = {
   event_id: string
   tier_label: string | null
   status: PartnershipStatus
-  event: Pick<OrganizerEvent, 'id' | 'name' | 'start_date' | 'status' | 'visibility' | 'archived_at' | 'organization_id'>
+  event: Pick<OrganizerEvent, 'id' | 'name' | 'start_date' | 'end_date' | 'status' | 'visibility' | 'archived_at' | 'organization_id'>
   obligations: { direction: string; status: string }[] | null
 }
 
@@ -111,7 +111,7 @@ export async function listPartnerEventLinks(
     .from('event_partnerships')
     .select(
       'id, partner_id, event_id, tier_label, status, ' +
-        'event:events!event_partnerships_event_id_fkey!inner(id, name, start_date, status, visibility, archived_at, organization_id), ' +
+        'event:events!event_partnerships_event_id_fkey!inner(id, name, start_date, end_date, status, visibility, archived_at, organization_id), ' +
         'obligations:event_partnership_obligations!event_partnership_obligations_partnership_fk(direction, status)'
     )
     .not('partner_id', 'is', null)
@@ -129,7 +129,7 @@ export async function listPartnerEventLinks(
         event_id: row.event_id,
         event_name: row.event.name,
         event_start_date: row.event.start_date ?? null,
-        event_lifecycle: eventLifecycle(row.event as OrganizerEvent),
+        event_lifecycle: eventLifecycle(row.event),
         event_archived: row.event.archived_at !== null,
         tier_label: row.tier_label,
         status: row.status,

@@ -79,10 +79,13 @@ export function EditPartnerDialog({
       ? 'An invitation is out to this address. Revoke it before changing the representative.'
       : undefined
 
+  // One answer for what the form shows and what the save sends: a company
+  // field on screen is always a company field saved.
+  const linked = Boolean(partnership.partner_id)
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (saving) return
-  const linked = partnership.partner_id !== null
 
     const invalid =
       (linked ? validateRepresentativeEmail(values.representative_email) : validateCompanyStep(values)) ??
@@ -136,7 +139,7 @@ export function EditPartnerDialog({
       wide
     >
       <form onSubmit={handleSubmit} className="space-y-6">
-        {partnership.partner_id ? (
+        {linked ? (
           <div className="space-y-4">
             <LinkedPartnerSummary partnership={partnership} canEdit={canEditPartner} />
             <div className="sm:w-1/2">

@@ -32,6 +32,9 @@ const EVENTS = {
   arch: ev('e-arch', 'Archived Expo', '2026-05-01', { archived_at: '2026-08-01T00:00:00Z', status: 'past' }),
   legacy: ev('e-legacy', 'Legacy Meetup', '2027-08-01', { organization_id: null }),
 }
+// A multi-day event running today: started two days ago, ends in ten.
+const day = (offset) => new Date(Date.now() + offset * 86400000).toISOString().slice(0, 10)
+EVENTS.running = ev('e-run', 'Lagos Week', day(-2), { end_date: day(10) })
 const partner = (id, company_name, over = {}) => ({
   id, organization_id: ORG, company_name, description: null, logo_url: null, industry: null, website: null,
   linkedin: null, contact_email: null, archived_at: null, created_by: UID, created_at: T, updated_at: T, ...over,
@@ -71,6 +74,7 @@ function reset(over = {}) {
       linked('p-k1', 'k-kora', EVENTS.ats, { tier_label: 'Diamond', obligations: obligations(5, 3, 1) }),
       linked('p-k2', 'k-kora', EVENTS.fin, { tier_label: 'Platinum', obligations: obligations(3, 1) }),
       linked('p-b1', 'k-baobab', EVENTS.ats, { tier_label: 'Gold' }),
+      linked('p-b2', 'k-baobab', EVENTS.running, { tier_label: 'Bronze' }),
       linked('p-s1', 'k-sahel', EVENTS.energy, { tier_label: 'Silver', status: 'completed' }),
       linked('p-o1', 'k-old', EVENTS.arch, { status: 'completed' }),
       partnership('p-u1', null, EVENTS.ats, { company_name: 'Unlinked Ltd', website: 'https://unlinked.example', status: 'draft' }),
@@ -104,6 +108,16 @@ function visiblePartnerships() {
 }
 function get(obj, key) {
   return key.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj)
+}
+// PostgREST returns only the embedded columns a request selects. The stub does the
+// same for the event embed, so a column the page needs but does not ask for is
+// missing here too, as it would be against the real API.
+function projectEmbeds(rows, url) {
+  const select = new URL(url).searchParams.get('select') || ''
+  const m = /event:events[^(]*\(([^)]*)\)/.exec(select)
+  if (!m) return rows
+  const cols = m[1].split(',').map((s) => s.trim())
+  return rows.map((row) => (row.event ? { ...row, event: Object.fromEntries(cols.map((c) => [c, row.event[c]])) } : row))
 }
 function filtered(rows, url) {
   let r = rows
@@ -139,7 +153,7 @@ async function wire(ctx) {
     if (m === 'HEAD') return route.fulfill({ status: 200, headers: { ...cors, 'content-range': '0-0/0' } })
     if (m === 'GET') {
       if (pathname.endsWith('/organization_partners') && state.partnersFail) return json(500, err('XX000', 'boom'))
-      const r = filtered(rawRows(url), url)
+      const r = projectEmbeds(filtered(rawRows(url), url), url)
       return json(200, single ? r[0] ?? null : r)
     }
     const body = JSON.parse(req.postData() || 'null')
@@ -283,6 +297,8 @@ function rec(group, name, pass, detail = '') {
       rec('list', "a partner's events are tagged, most recent first", tags.length === 2 && /Africa FinTech 2027/.test(tags[0]) && /Africa Tech Summit 2027/.test(tags[1]), JSON.stringify(tags))
       rec('list', 'each tag carries the event lifecycle as a badge', /Published/i.test(tags[0]), tags[0])
       rec('list', 'the event count is shown', /2 events/.test(await kora.textContent()))
+      const running = (await rowOf(page, 'Baobab Ventures').locator('[data-testid=partner-tag]').filter({ hasText: 'Lagos Week' }).textContent())?.trim()
+      rec('list', 'a multi-day event still running is not shown as completed', /Published/.test(running ?? '') && !/Completed/.test(running ?? ''), running)
       rec('list', 'a partner with no events says so to an owner', /No events yet/.test(await rowOf(page, 'Zebra Media').textContent()))
       rec('list', 'a row links to its partner page', (await kora.getByRole('link', { name: /Kora Payments/ }).getAttribute('href')) === '/organizer/partners/k-kora')
       const search = page.getByRole('searchbox', { name: 'Search partners' })
@@ -659,6 +675,22 @@ function rec(group, name, pass, detail = '') {
       await gone(d)
       const patch = writes('/event_partnerships', 'PATCH')[0]
       rec('linked', '...and saves them as before', patch && BASIC.every((k) => k in patch.body) && patch.body.company_name === 'Unlinked Ltd', JSON.stringify(patch?.body))
+      await ctx.close()
+    }
+    {
+      // A row read from a database without the partner link has no partner_id at
+      // all. The form shows the company fields, so the save must send them.
+      reset()
+      delete state.partnerships.find((p) => p.id === 'p-u1').partner_id
+      const { page, ctx } = await open('/organizer/events/e-ats/partners/p-u1')
+      await button(page, 'Edit').first().click()
+      const d = editDialog(page)
+      await appears(d)
+      await d.locator('#pt-company').fill('Unlinked Group')
+      await button(d, 'Save changes').click()
+      await gone(d)
+      const patch = writes('/event_partnerships', 'PATCH')[0]
+      rec('linked', 'without a partner link, a company edit shown is a company edit saved', patch?.body.company_name === 'Unlinked Group', JSON.stringify(patch?.body))
       await ctx.close()
     }
     {
