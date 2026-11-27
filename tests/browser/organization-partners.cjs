@@ -494,6 +494,8 @@ function rec(group, name, pass, detail = '') {
       await w.getByLabel('Sponsor', { exact: true }).check()
       for (let i = 0; i < 3; i++) await button(w, 'Continue').click()
       await button(w, 'Save Partner').click()
+      // A new partner is two saves in a row; the network goes idle between them.
+      await w.getByRole('button', { name: 'Saving…' }).waitFor({ state: 'detached', timeout: 8000 }).catch(() => {})
       await settle(page)
     }
     {
@@ -542,7 +544,8 @@ function rec(group, name, pass, detail = '') {
       await finish(page, w)
       const created = writes('/organization_partners', 'POST')
       const linked = writes('/event_partnerships', 'POST')
-      rec('add', 'a new partner is created for the organization', created.length === 1 && created[0].body.organization_id === ORG && created[0].body.company_name === 'Zuri Logistics' && created[0].body.industry === 'Logistics', JSON.stringify(created[0]?.body))
+      rec('add', 'a new partner is created for the organization', created.length === 1 && created[0].body.organization_id === ORG && created[0].body.company_name === 'Zuri Logistics' && created[0].body.industry === 'Logistics',
+        JSON.stringify(created[0]?.body ?? { writes: log.writes.map((x) => x.m + ' ' + x.path) }))
       rec('add', '...with the representative as its contact email', created[0]?.body.contact_email === 'ops@zuri.example')
       rec('add', 'then the partnership is saved linked to it', linked.length === 1 && /^k-new-/.test(linked[0].body.partner_id ?? ''), JSON.stringify(linked[0]?.body))
       rec('add', 'the partner is created before the partnership', log.writes.indexOf(created[0]) < log.writes.indexOf(linked[0]))

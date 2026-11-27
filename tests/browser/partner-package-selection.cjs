@@ -86,11 +86,17 @@ function listPackages(eventId) {
 }
 function filtered(rows, url) {
   let r = rows
-  for (const [k, v] of new URL(url).searchParams) if (v.startsWith('eq.')) r = r.filter((x) => String(x[k]) === v.slice(3))
+  for (const [k, v] of new URL(url).searchParams) {
+    if (v.startsWith('eq.')) r = r.filter((x) => String(x[k]) === v.slice(3))
+    if (v === 'not.is.null') r = r.filter((x) => x[k] != null)
+  }
   return r
 }
 function rawRows(url) {
   const p = new URL(url).pathname
+  // The organization's partner list (Add Partner's first step): empty, so each
+  // wizard here adds its company as a new partner.
+  if (p.endsWith('/organization_partners')) return state.orgPartners ?? []
   if (p.endsWith('/profiles')) return [{ id: UID, full_name: 'Olu Organizer', photo_url: '', job_title: 'Founder', company: 'Acme', industry: '', location: '', bio: '', looking_for: '', can_offer: '', linkedin: '', website: '', email: 'o@example.test', phone: '', created_at: '2026-01-01', updated_at: '2026-01-01' }]
   if (p.endsWith('/user_accounts')) return [{ account_type: 'organizer', status: 'active' }]
   if (p.endsWith('/events')) return events
@@ -135,6 +141,11 @@ async function wire(ctx) {
     }
 
     log.writes.push({ m, path: pathname, query: new URL(url).search, body })
+    if (pathname.endsWith('/organization_partners') && m === 'POST') {
+      const row = { id: 'op-' + ((state.orgPartners ?? []).length + 1), archived_at: null, created_by: UID, created_at: T, updated_at: T, ...body }
+      state.orgPartners = [...(state.orgPartners ?? []), row]
+      return json(201, single ? row : [row])
+    }
     if (pathname.endsWith('/event_partnerships')) {
       if (m === 'POST') {
         if (state.insertFk) {
@@ -198,12 +209,14 @@ function rec(group, name, pass, detail = '') {
   const optionTexts = (page) => page.locator('#pt-package option').allTextContents()
   const draftTitles = (page, list = 'Deliverables') => page.getByRole('list', { name: list }).locator(':scope > li p:first-child').allTextContents()
 
-  // Partners tab -> Add Partner -> company -> the Partnership step.
+  // Partners tab -> Add Partner -> a new partner -> the Partnership step.
   async function toPartnershipStep(page, company = 'Acme Bank') {
     await button(page, 'Partners').first().click()
     await settle(page)
     await button(page, 'Add Partner').first().click()
     const w = wizard(page)
+    await w.getByRole('searchbox', { name: "Search your organization's partners" }).fill(company)
+    await w.getByRole('button', { name: '+ New partner "' + company + '"' }).click()
     await w.locator('#pt-company').fill(company)
     await button(w, 'Continue').click()
     await appears(w.locator('#pt-package'))
@@ -279,7 +292,7 @@ function rec(group, name, pass, detail = '') {
     rec(g, 'the package was checked again just before saving', log.packageReads.length > readsBeforeSave && log.packageReads.slice(readsBeforeSave).some((q) => q.includes('id=eq.k-gold')))
     rec(g, 'the partnership is saved with the package id and the customized terms', !!insert &&
       JSON.stringify(insert.body) === JSON.stringify({ event_id: 'e-a', company_name: 'Acme Bank', description: null, logo_url: null, industry: null, website: null, linkedin: null,
-        tier_label: 'Gold (founding)', value_amount: 50000, value_currency: 'GHS', internal_notes: null, representative_email: null, package_id: 'k-gold' }), JSON.stringify(insert?.body))
+        tier_label: 'Gold (founding)', value_amount: 50000, value_currency: 'GHS', internal_notes: null, representative_email: null, package_id: 'k-gold', partner_id: 'op-1' }), JSON.stringify(insert?.body))
     rec(g, '...never a status, sponsor link or acknowledgement', !!insert && !('status' in insert.body) && !('sponsor_organization_id' in insert.body) && !('acknowledged_at' in insert.body))
     const roles = log.rpcs.find((r) => r.name === 'set_event_partnership_roles')
     rec(g, 'roles are set as before', !!roles && JSON.stringify(roles.body) === JSON.stringify({ target_partnership_id: 'p-new-1', new_roles: ['sponsor'] }), JSON.stringify(roles?.body))
