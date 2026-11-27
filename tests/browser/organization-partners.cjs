@@ -121,7 +121,7 @@ function rawRows(url) {
   if (p.endsWith('/events')) return Object.values(EVENTS)
   if (p.endsWith('/organization_partners')) return [...state.partners].sort((a, b) => a.company_name.localeCompare(b.company_name))
   if (p.endsWith('/event_partnerships')) return visiblePartnerships()
-  if (p.endsWith('/event_partnership_roles')) return [{ role: 'sponsor' }]
+  if (p.endsWith('/event_partnership_roles')) return state.partnerships.map((x) => ({ role: 'sponsor', partnership_id: x.id }))
   if (p.endsWith('/event_partnership_packages')) return []
   if (p.endsWith('/rpc/get_my_organization_access')) return access()
   if (p.endsWith('/rpc/event_activity_counts')) return [{ registrations: 0, checked_in: 0, cancelled: 0, connections_made: 0, invitations_pending: 0, invitations_accepted: 0 }]
@@ -640,7 +640,8 @@ function rec(group, name, pass, detail = '') {
       await button(d, 'Save changes').click()
       await gone(d)
       const patch = writes('/event_partnerships', 'PATCH')[0]
-      rec('linked', 'the save sends none of the partner\'s fields', patch && BASIC.every((k) => !(k in patch.body)), JSON.stringify(patch?.body))
+      rec('linked', 'the save sends none of the partner\'s fields', patch && BASIC.every((k) => !(k in patch.body)),
+        JSON.stringify(patch?.body ?? { writes: log.writes.map((x) => x.m + ' ' + x.path), open: await d.count(), alert: (await d.count()) ? await d.getByRole('alert').allTextContents() : [] }))
       rec('linked', '...and the event\'s own fields', patch && patch.body.internal_notes === 'Renewing for 2028' && 'tier_label' in patch.body && 'representative_email' in patch.body, JSON.stringify(patch?.body))
       rec('linked', 'no console errors', errors.length === 0, errors.join(' | '))
       await ctx.close()

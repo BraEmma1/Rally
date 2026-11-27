@@ -57,6 +57,8 @@ import {
   safeWebUrl,
 } from '@/components/organizer/PartnerCommon'
 import { EditPartnerDialog } from '@/components/organizer/EditPartnerDialog'
+import { ManagedOnPartner } from '@/components/organizer/LinkedPartnerSummary'
+import { canEditPartners } from '@/lib/partnerDirectory'
 import { PartnerObligationList } from '@/components/organizer/PartnerObligationList'
 import { EvidenceItems } from '@/components/organizer/PartnerEvidence'
 import { PartnershipDocumentsPanel } from '@/components/organizer/PartnershipDocumentsPanel'
@@ -169,7 +171,7 @@ export default function PartnerDetailPage() {
   const { id: eventId, partnershipId } = useParams<{ id: string; partnershipId: string }>()
   const navigate = useNavigate()
   const { user } = useAuth()
-  const { loading: orgLoading } = useOrganizer()
+  const { loading: orgLoading, organization, role } = useOrganizer()
   // Partnerships belong to one event, and every write on them is guarded by
   // can_manage_event — so is this page: an assigned manager may work here, an
   // unassigned one may not, whatever their organization role.
@@ -197,6 +199,12 @@ export default function PartnerDetailPage() {
 
   // The workspace follows the event this partnership belongs to (see EventDetailPage).
   useFollowOrganization(allowed ? event?.organization_id : null)
+
+  // A linked partnership's company details are edited on the partner, which is
+  // for owners and admins of the event's organization. The role is the selected
+  // organization's, so it only counts once the workspace has followed the event.
+  const canEditPartner =
+    !!event?.organization_id && organization?.id === event.organization_id && canEditPartners(role)
 
   const load = useCallback(async () => {
     if (!eventId || !partnershipId) return
@@ -711,6 +719,11 @@ export default function PartnerDetailPage() {
                       </p>
                     </DetailRow>
                   )}
+                  {partnership.partner_id && (
+                    <div className="border-t border-gray-100 pt-3">
+                      <ManagedOnPartner partnerId={partnership.partner_id} canEdit={canEditPartner} />
+                    </div>
+                  )}
                 </CardContent>
               </Card>
 
@@ -884,6 +897,7 @@ export default function PartnerDetailPage() {
         <EditPartnerDialog
           partnership={partnership}
           roles={roles}
+          canEditPartner={canEditPartner}
           onClose={() => setEditOpen(false)}
           onSaved={async (warning) => {
             setEditOpen(false)
